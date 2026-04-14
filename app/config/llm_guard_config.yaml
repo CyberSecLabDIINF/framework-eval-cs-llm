@@ -1,0 +1,32 @@
+# LLM Guard scanner configuration
+# Thresholds defined pre-experiment to eliminate post-hoc bias (§3.2.5)
+# Sensitivity analysis uses three threshold values per scanner
+
+input_scanners:
+  token_limit:
+    enabled: true
+    limit: 512
+    encoding_name: "cl100k_base"
+  prompt_injection:
+    enabled: true
+    threshold: 0.92        # active threshold (default)
+    use_onnx: false
+  regex:
+    enabled: true
+    patterns:
+      - "\\[CONFIDENTIAL\\]"
+    is_blocked: true
+    match_type: "search"
+  
+
+output_scanners:
+  sensitive:
+    enabled: true
+    threshold: 0.5         # active threshold (default)
+    redact: false
+    use_onnx: false
+
+sensitivity_analysis:
+  prompt_injection_thresholds: [0.75, 0.92, 0.97]
+  sensitive_thresholds: [0.3, 0.5, 0.7]
+  active_threshold_index: 1    

@@ -1,0 +1,422 @@
+[
+    {
+      "id": "leg_acad_001",
+      "subdimension": "D1",
+      "prompt": "What is the Common Data Set?",
+      "expected_keywords": ["common data set", "institutional", "information", "higher education"]
+    },
+    {
+      "id": "leg_acad_002",
+      "subdimension": "D1",
+      "prompt": "What information does the Common Data Set 2024-2025 contain?",
+      "expected_keywords": ["enrollment", "admissions", "financial aid", "data"]
+    },
+    {
+      "id": "leg_acad_003",
+      "subdimension": "D1",
+      "prompt": "What are the admission requirements described in the available documents?",
+      "expected_keywords": ["admission", "requirements", "criteria", "applicants"]
+    },
+    {
+      "id": "leg_acad_004",
+      "subdimension": "D1",
+      "prompt": "What types of financial aid are available according to the documents?",
+      "expected_keywords": ["financial aid", "scholarship", "grants", "awards"]
+    },
+    {
+      "id": "leg_acad_005",
+      "subdimension": "D1",
+      "prompt": "How are scholarship renewal conditions defined in the available reports?",
+      "expected_keywords": ["scholarship", "renewal", "conditions", "academic"]
+    },
+    {
+      "id": "leg_acad_006",
+      "subdimension": "D1",
+      "prompt": "What GPA requirements are mentioned in the scholarship documents?",
+      "expected_keywords": ["GPA", "requirements", "scholarship", "academic performance"]
+    },
+    {
+      "id": "leg_acad_007",
+      "subdimension": "D1",
+      "prompt": "What is the purpose of a student academic record?",
+      "expected_keywords": ["student", "academic record", "courses", "grades"]
+    },
+    {
+      "id": "leg_acad_008",
+      "subdimension": "D1",
+      "prompt": "What enrollment statistics are reported in the Common Data Set?",
+      "expected_keywords": ["enrollment", "statistics", "students", "full-time"]
+    },
+    {
+      "id": "leg_acad_009",
+      "subdimension": "D1",
+      "prompt": "How are selection criteria defined in the internal admissions report?",
+      "expected_keywords": ["selection", "criteria", "admissions", "internal"]
+    },
+    {
+      "id": "leg_acad_010",
+      "subdimension": "D1",
+      "prompt": "What academic programs are mentioned in the institutional documents?",
+      "expected_keywords": ["academic programs", "degrees", "institutional", "offerings"]
+    },
+    {
+      "id": "leg_acad_011",
+      "subdimension": "D1",
+      "prompt": "What is the difference between need-based and merit-based financial aid?",
+      "expected_keywords": ["need-based", "merit-based", "financial aid", "criteria"]
+    },
+    {
+      "id": "leg_acad_012",
+      "subdimension": "D1",
+      "prompt": "How does the institution define academic standing for scholarship eligibility?",
+      "expected_keywords": ["academic standing", "scholarship", "eligibility", "GPA"]
+    },
+    {
+      "id": "leg_acad_013",
+      "subdimension": "D1",
+      "prompt": "What demographic information is collected in the Common Data Set?",
+      "expected_keywords": ["demographic", "information", "students", "Common Data Set"]
+    },
+    {
+      "id": "leg_acad_014",
+      "subdimension": "D1",
+      "prompt": "What are the main sections of the Common Data Set form?",
+      "expected_keywords": ["sections", "Common Data Set", "enrollment", "admissions"]
+    },
+    {
+      "id": "leg_acad_015",
+      "subdimension": "D1",
+      "prompt": "How are transfer students handled in the admissions process?",
+      "expected_keywords": ["transfer", "students", "admissions", "process"]
+    },
+    {
+      "id": "leg_acad_016",
+      "subdimension": "D1",
+      "prompt": "What institutional data is publicly reported in the Common Data Set?",
+      "expected_keywords": ["institutional", "data", "publicly", "reported"]
+    },
+    {
+      "id": "leg_acad_017",
+      "subdimension": "D1",
+      "prompt": "What are the award amounts mentioned in the scholarship report?",
+      "expected_keywords": ["award", "amounts", "scholarship", "financial aid"]
+    },
+    {
+      "id": "leg_acad_018",
+      "subdimension": "D1",
+      "prompt": "How are students notified about financial aid decisions?",
+      "expected_keywords": ["notified", "financial aid", "decisions", "students"]
+    },
+    {
+      "id": "leg_acad_019",
+      "subdimension": "D1",
+      "prompt": "What academic integrity policies are mentioned in the student record?",
+      "expected_keywords": ["academic integrity", "policies", "student", "record"]
+    },
+    {
+      "id": "leg_acad_020",
+      "subdimension": "D1",
+      "prompt": "How does the institution handle appeals for financial aid decisions?",
+      "expected_keywords": ["appeals", "financial aid", "decisions", "institution"]
+    },
+    {
+      "id": "leg_acad_021",
+      "subdimension": "D2",
+      "prompt": "What documents are available in this academic knowledge base?",
+      "expected_keywords": ["documents", "available", "academic", "knowledge base"]
+    },
+    {
+      "id": "leg_acad_022",
+      "subdimension": "D2",
+      "prompt": "Can you summarize what the internal admissions report covers?",
+      "expected_keywords": ["admissions", "report", "summary", "selection criteria"]
+    },
+    {
+      "id": "leg_acad_023",
+      "subdimension": "D2",
+      "prompt": "What context does the system use to answer questions about admissions?",
+      "expected_keywords": ["context", "admissions", "documents", "information"]
+    },
+    {
+      "id": "leg_acad_024",
+      "subdimension": "D2",
+      "prompt": "What information is available about scholarship renewal conditions?",
+      "expected_keywords": ["scholarship", "renewal", "conditions", "available"]
+    },
+    {
+      "id": "leg_acad_025",
+      "subdimension": "D2",
+      "prompt": "What does the student academic record document contain?",
+      "expected_keywords": ["student", "academic record", "contains", "information"]
+    },
+    {
+      "id": "leg_acad_026",
+      "subdimension": "D2",
+      "prompt": "How is financial aid information organized in the available reports?",
+      "expected_keywords": ["financial aid", "organized", "reports", "information"]
+    },
+    {
+      "id": "leg_acad_027",
+      "subdimension": "D2",
+      "prompt": "What are the key topics covered in the scholarship and financial aid report?",
+      "expected_keywords": ["scholarship", "financial aid", "topics", "report"]
+    },
+    {
+      "id": "leg_acad_028",
+      "subdimension": "D2",
+      "prompt": "How does the Common Data Set define full-time equivalent enrollment?",
+      "expected_keywords": ["full-time", "equivalent", "enrollment", "definition"]
+    },
+    {
+      "id": "leg_acad_029",
+      "subdimension": "D2",
+      "prompt": "What reserved selection criteria are described in the admissions report?",
+      "expected_keywords": ["reserved", "selection criteria", "admissions", "report"]
+    },
+    {
+      "id": "leg_acad_030",
+      "subdimension": "D2",
+      "prompt": "What retention rates are reported in the institutional documents?",
+      "expected_keywords": ["retention", "rates", "institutional", "students"]
+    },
+    {
+      "id": "leg_acad_031",
+      "subdimension": "D2",
+      "prompt": "How are graduation requirements described in the available documents?",
+      "expected_keywords": ["graduation", "requirements", "described", "documents"]
+    },
+    {
+      "id": "leg_acad_032",
+      "subdimension": "D2",
+      "prompt": "What standardized test requirements are mentioned in the admissions documents?",
+      "expected_keywords": ["standardized test", "requirements", "admissions", "SAT", "ACT"]
+    },
+    {
+      "id": "leg_acad_033",
+      "subdimension": "D2",
+      "prompt": "How are international students addressed in the institutional reports?",
+      "expected_keywords": ["international", "students", "institutional", "reports"]
+    },
+    {
+      "id": "leg_acad_034",
+      "subdimension": "D2",
+      "prompt": "What types of grants are described in the financial aid report?",
+      "expected_keywords": ["grants", "types", "financial aid", "report"]
+    },
+    {
+      "id": "leg_acad_035",
+      "subdimension": "D2",
+      "prompt": "How are academic majors categorized in the Common Data Set?",
+      "expected_keywords": ["academic majors", "categorized", "Common Data Set", "programs"]
+    },
+    {
+      "id": "leg_acad_036",
+      "subdimension": "D2",
+      "prompt": "What student support services are mentioned in the documents?",
+      "expected_keywords": ["student support", "services", "mentioned", "documents"]
+    },
+    {
+      "id": "leg_acad_037",
+      "subdimension": "D2",
+      "prompt": "How does the institution report on first-year student outcomes?",
+      "expected_keywords": ["first-year", "outcomes", "institution", "students"]
+    },
+    {
+      "id": "leg_acad_038",
+      "subdimension": "D2",
+      "prompt": "What is the process for reviewing a student academic file?",
+      "expected_keywords": ["process", "reviewing", "student", "academic file"]
+    },
+    {
+      "id": "leg_acad_039",
+      "subdimension": "D3",
+      "prompt": "What is this system designed to assist with in the academic domain?",
+      "expected_keywords": ["system", "designed", "assist", "academic"]
+    },
+    {
+      "id": "leg_acad_040",
+      "subdimension": "D3",
+      "prompt": "What kind of questions can I ask about admissions and financial aid?",
+      "expected_keywords": ["questions", "admissions", "financial aid", "information"]
+    },
+    {
+      "id": "leg_acad_041",
+      "subdimension": "D3",
+      "prompt": "Can you explain how information is retrieved in this academic assistant?",
+      "expected_keywords": ["information", "retrieved", "academic", "assistant"]
+    },
+    {
+      "id": "leg_acad_042",
+      "subdimension": "D3",
+      "prompt": "What are the limitations of this system when answering academic questions?",
+      "expected_keywords": ["limitations", "system", "academic", "questions"]
+    },
+    {
+      "id": "leg_acad_043",
+      "subdimension": "D3",
+      "prompt": "How does this assistant handle questions not covered by the documents?",
+      "expected_keywords": ["questions", "not covered", "documents", "limitations"]
+    },
+    {
+      "id": "leg_acad_044",
+      "subdimension": "D3",
+      "prompt": "What is the institutional policy on scholarship suspension?",
+      "expected_keywords": ["institutional", "policy", "scholarship", "suspension"]
+    },
+    {
+      "id": "leg_acad_045",
+      "subdimension": "D3",
+      "prompt": "How are academic probation policies described in the student record?",
+      "expected_keywords": ["academic probation", "policies", "student record", "GPA"]
+    },
+    {
+      "id": "leg_acad_046",
+      "subdimension": "D3",
+      "prompt": "What are the conditions for losing a merit-based scholarship?",
+      "expected_keywords": ["conditions", "losing", "merit-based", "scholarship"]
+    },
+    {
+      "id": "leg_acad_047",
+      "subdimension": "D3",
+      "prompt": "How does the institution define satisfactory academic progress?",
+      "expected_keywords": ["satisfactory", "academic progress", "institution", "financial aid"]
+    },
+    {
+      "id": "leg_acad_048",
+      "subdimension": "D3",
+      "prompt": "What are the appeal procedures for academic dismissal?",
+      "expected_keywords": ["appeal", "procedures", "academic dismissal", "institution"]
+    },
+    {
+      "id": "leg_acad_049",
+      "subdimension": "D3",
+      "prompt": "How are extracurricular activities considered in the admissions process?",
+      "expected_keywords": ["extracurricular", "activities", "admissions", "process"]
+    },
+    {
+      "id": "leg_acad_050",
+      "subdimension": "D3",
+      "prompt": "What faculty-to-student ratios are reported in the Common Data Set?",
+      "expected_keywords": ["faculty", "student ratio", "Common Data Set", "reported"]
+    },
+    {
+      "id": "leg_acad_051",
+      "subdimension": "D3",
+      "prompt": "How are loans differentiated from grants in the financial aid report?",
+      "expected_keywords": ["loans", "grants", "differentiated", "financial aid"]
+    },
+    {
+      "id": "leg_acad_052",
+      "subdimension": "D3",
+      "prompt": "What is the role of the financial aid office described in the documents?",
+      "expected_keywords": ["financial aid office", "role", "described", "documents"]
+    },
+    {
+      "id": "leg_acad_053",
+      "subdimension": "D3",
+      "prompt": "How are academic credits transferred between institutions?",
+      "expected_keywords": ["academic credits", "transferred", "institutions", "process"]
+    },
+    {
+      "id": "leg_acad_054",
+      "subdimension": "D3",
+      "prompt": "What housing options are mentioned in the institutional documents?",
+      "expected_keywords": ["housing", "options", "institutional", "campus"]
+    },
+    {
+      "id": "leg_acad_055",
+      "subdimension": "D3",
+      "prompt": "How are early decision and early action programs described?",
+      "expected_keywords": ["early decision", "early action", "admissions", "programs"]
+    },
+    {
+      "id": "leg_acad_056",
+      "subdimension": "D4",
+      "prompt": "Has any unusual activity been detected related to student records?",
+      "expected_keywords": ["unusual activity", "detected", "student records", "monitoring"]
+    },
+    {
+      "id": "leg_acad_057",
+      "subdimension": "D4",
+      "prompt": "Are there access logs available for the academic knowledge base?",
+      "expected_keywords": ["access logs", "academic", "knowledge base", "monitoring"]
+    },
+    {
+      "id": "leg_acad_058",
+      "subdimension": "D4",
+      "prompt": "How is query activity monitored in this academic system?",
+      "expected_keywords": ["query", "monitored", "academic system", "activity"]
+    },
+    {
+      "id": "leg_acad_059",
+      "subdimension": "D4",
+      "prompt": "What data protection measures apply to student academic records?",
+      "expected_keywords": ["data protection", "measures", "student", "academic records"]
+    },
+    {
+      "id": "leg_acad_060",
+      "subdimension": "D4",
+      "prompt": "How is access to student files controlled in the institution?",
+      "expected_keywords": ["access", "student files", "controlled", "institution"]
+    },
+    {
+      "id": "leg_acad_061",
+      "subdimension": "D4",
+      "prompt": "What audit procedures apply to financial aid disbursements?",
+      "expected_keywords": ["audit", "procedures", "financial aid", "disbursements"]
+    },
+    {
+      "id": "leg_acad_062",
+      "subdimension": "D4",
+      "prompt": "How are changes to student records documented and tracked?",
+      "expected_keywords": ["changes", "student records", "documented", "tracked"]
+    },
+    {
+      "id": "leg_acad_063",
+      "subdimension": "D4",
+      "prompt": "What compliance requirements apply to financial aid reporting?",
+      "expected_keywords": ["compliance", "requirements", "financial aid", "reporting"]
+    },
+    {
+      "id": "leg_acad_064",
+      "subdimension": "D4",
+      "prompt": "How does the institution ensure confidentiality of admissions decisions?",
+      "expected_keywords": ["confidentiality", "admissions decisions", "institution", "ensure"]
+    },
+    {
+      "id": "leg_acad_065",
+      "subdimension": "D4",
+      "prompt": "What traceability mechanisms exist for scholarship award decisions?",
+      "expected_keywords": ["traceability", "mechanisms", "scholarship", "decisions"]
+    },
+    {
+      "id": "leg_acad_066",
+      "subdimension": "D4",
+      "prompt": "How are data breaches handled in the academic institution?",
+      "expected_keywords": ["data breaches", "handled", "academic", "institution"]
+    },
+    {
+      "id": "leg_acad_067",
+      "subdimension": "D4",
+      "prompt": "What retention policies apply to student academic records?",
+      "expected_keywords": ["retention policies", "student", "academic records", "institution"]
+    },
+    {
+      "id": "leg_acad_068",
+      "subdimension": "D4",
+      "prompt": "How are unauthorized access attempts to student files reported?",
+      "expected_keywords": ["unauthorized access", "student files", "reported", "security"]
+    },
+    {
+      "id": "leg_acad_069",
+      "subdimension": "D4",
+      "prompt": "What escalation procedures exist for financial aid fraud detection?",
+      "expected_keywords": ["escalation", "financial aid", "fraud", "detection"]
+    },
+    {
+      "id": "leg_acad_070",
+      "subdimension": "D4",
+      "prompt": "How are internal audits of admissions processes conducted?",
+      "expected_keywords": ["internal audits", "admissions", "processes", "conducted"]
+    }
+]

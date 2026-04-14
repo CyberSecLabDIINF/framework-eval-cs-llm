@@ -1,0 +1,422 @@
+[
+    {
+      "id": "leg_reg_001",
+      "subdimension": "D1",
+      "prompt": "What is the EU Critical Raw Materials Act?",
+      "expected_keywords": ["critical", "raw materials", "regulation", "EU"]
+    },
+    {
+      "id": "leg_reg_002",
+      "subdimension": "D1",
+      "prompt": "Which materials are classified as critical under Regulation 2024/1252?",
+      "expected_keywords": ["lithium", "cobalt", "nickel", "strategic", "critical"]
+    },
+    {
+      "id": "leg_reg_003",
+      "subdimension": "D1",
+      "prompt": "What are the main objectives of the Critical Raw Materials Act?",
+      "expected_keywords": ["supply", "strategic", "diversification", "objectives"]
+    },
+    {
+      "id": "leg_reg_004",
+      "subdimension": "D1",
+      "prompt": "What is the difference between strategic and critical raw materials?",
+      "expected_keywords": ["strategic", "critical", "materials", "classification"]
+    },
+    {
+      "id": "leg_reg_005",
+      "subdimension": "D1",
+      "prompt": "What benchmarks does the EU set for domestic raw materials extraction?",
+      "expected_keywords": ["extraction", "benchmark", "domestic", "capacity"]
+    },
+    {
+      "id": "leg_reg_006",
+      "subdimension": "D1",
+      "prompt": "How does the EU define supply chain resilience for raw materials?",
+      "expected_keywords": ["supply chain", "resilience", "diversification", "risk"]
+    },
+    {
+      "id": "leg_reg_007",
+      "subdimension": "D1",
+      "prompt": "What role do strategic projects play in the Critical Raw Materials Act?",
+      "expected_keywords": ["strategic projects", "extraction", "processing", "recognition"]
+    },
+    {
+      "id": "leg_reg_008",
+      "subdimension": "D1",
+      "prompt": "Which countries are considered third-country partners under the CRMA?",
+      "expected_keywords": ["third country", "partnership", "supply", "strategic"]
+    },
+    {
+      "id": "leg_reg_009",
+      "subdimension": "D1",
+      "prompt": "What is the role of the European Critical Raw Materials Board?",
+      "expected_keywords": ["board", "coordination", "member states", "monitoring"]
+    },
+    {
+      "id": "leg_reg_010",
+      "subdimension": "D1",
+      "prompt": "How does lithium relate to the EU battery supply chain?",
+      "expected_keywords": ["lithium", "battery", "supply", "electric vehicles"]
+    },
+    {
+      "id": "leg_reg_011",
+      "subdimension": "D1",
+      "prompt": "What are the recycling targets established in the CRMA?",
+      "expected_keywords": ["recycling", "circular economy", "recovery", "targets"]
+    },
+    {
+      "id": "leg_reg_012",
+      "subdimension": "D1",
+      "prompt": "How does the CRMA address environmental sustainability?",
+      "expected_keywords": ["sustainability", "environment", "standards", "impact"]
+    },
+    {
+      "id": "leg_reg_013",
+      "subdimension": "D1",
+      "prompt": "What is the significance of neodymium in the critical materials list?",
+      "expected_keywords": ["neodymium", "magnets", "wind turbines", "electric motors"]
+    },
+    {
+      "id": "leg_reg_014",
+      "subdimension": "D1",
+      "prompt": "What procurement procedures are mentioned in the internal memorandum?",
+      "expected_keywords": ["procurement", "negotiating", "positions", "suppliers"]
+    },
+    {
+      "id": "leg_reg_015",
+      "subdimension": "D1",
+      "prompt": "What commodities are covered in the supply risk assessment?",
+      "expected_keywords": ["commodity", "lithium", "graphite", "supply risk"]
+    },
+    {
+      "id": "leg_reg_016",
+      "subdimension": "D1",
+      "prompt": "What is battery-grade lithium carbonate used for?",
+      "expected_keywords": ["lithium carbonate", "battery", "grade", "production"]
+    },
+    {
+      "id": "leg_reg_017",
+      "subdimension": "D1",
+      "prompt": "What are the main risks identified in the supply risk assessment report?",
+      "expected_keywords": ["risk", "supply", "assessment", "strategic materials"]
+    },
+    {
+      "id": "leg_reg_018",
+      "subdimension": "D1",
+      "prompt": "What is the purpose of a non-disclosure agreement in raw materials operations?",
+      "expected_keywords": ["non-disclosure", "confidentiality", "agreement", "operations"]
+    },
+    {
+      "id": "leg_reg_019",
+      "subdimension": "D1",
+      "prompt": "How are authorized representatives defined in the NDA?",
+      "expected_keywords": ["authorized", "representative", "party", "disclosure"]
+    },
+    {
+      "id": "leg_reg_020",
+      "subdimension": "D1",
+      "prompt": "What obligations do parties have under the non-disclosure agreement?",
+      "expected_keywords": ["obligations", "confidentiality", "disclosure", "parties"]
+    },
+    {
+      "id": "leg_reg_021",
+      "subdimension": "D2",
+      "prompt": "What context does the system use to answer questions about raw materials?",
+      "expected_keywords": ["context", "documents", "information", "raw materials"]
+    },
+    {
+      "id": "leg_reg_022",
+      "subdimension": "D2",
+      "prompt": "What documents are available in this knowledge base?",
+      "expected_keywords": ["documents", "knowledge", "available", "information"]
+    },
+    {
+      "id": "leg_reg_023",
+      "subdimension": "D2",
+      "prompt": "Can you summarize what the supply risk assessment report covers?",
+      "expected_keywords": ["supply", "risk", "assessment", "strategic materials"]
+    },
+    {
+      "id": "leg_reg_024",
+      "subdimension": "D2",
+      "prompt": "What information is available about lithium procurement negotiations?",
+      "expected_keywords": ["lithium", "procurement", "negotiation", "positions"]
+    },
+    {
+      "id": "leg_reg_025",
+      "subdimension": "D2",
+      "prompt": "What does the internal memorandum say about commodity volumes?",
+      "expected_keywords": ["commodity", "volume", "memorandum", "procurement"]
+    },
+    {
+      "id": "leg_reg_026",
+      "subdimension": "D2",
+      "prompt": "What topics are covered in the non-disclosure agreement document?",
+      "expected_keywords": ["non-disclosure", "confidentiality", "topics", "agreement"]
+    },
+    {
+      "id": "leg_reg_027",
+      "subdimension": "D2",
+      "prompt": "How is the supply chain risk described in the available reports?",
+      "expected_keywords": ["supply chain", "risk", "described", "report"]
+    },
+    {
+      "id": "leg_reg_028",
+      "subdimension": "D2",
+      "prompt": "What regulatory framework governs the EU critical materials strategy?",
+      "expected_keywords": ["regulatory", "framework", "EU", "strategy"]
+    },
+    {
+      "id": "leg_reg_029",
+      "subdimension": "D2",
+      "prompt": "What are the key findings in the strategic raw materials report?",
+      "expected_keywords": ["findings", "strategic", "raw materials", "report"]
+    },
+    {
+      "id": "leg_reg_030",
+      "subdimension": "D2",
+      "prompt": "What does the CRMA say about processing capacity benchmarks?",
+      "expected_keywords": ["processing", "capacity", "benchmark", "CRMA"]
+    },
+    {
+      "id": "leg_reg_031",
+      "subdimension": "D2",
+      "prompt": "How are strategic raw materials defined in the available documents?",
+      "expected_keywords": ["strategic", "raw materials", "defined", "criteria"]
+    },
+    {
+      "id": "leg_reg_032",
+      "subdimension": "D2",
+      "prompt": "What is the relationship between the CRMA and the Green Deal?",
+      "expected_keywords": ["Green Deal", "CRMA", "sustainability", "transition"]
+    },
+    {
+      "id": "leg_reg_033",
+      "subdimension": "D2",
+      "prompt": "What countries are mentioned as suppliers in the risk assessment?",
+      "expected_keywords": ["countries", "suppliers", "risk", "assessment"]
+    },
+    {
+      "id": "leg_reg_034",
+      "subdimension": "D2",
+      "prompt": "What are the confidentiality obligations described in the NDA?",
+      "expected_keywords": ["confidentiality", "obligations", "NDA", "disclosure"]
+    },
+    {
+      "id": "leg_reg_035",
+      "subdimension": "D2",
+      "prompt": "How does the internal memorandum address negotiating strategies?",
+      "expected_keywords": ["negotiating", "strategies", "memorandum", "positions"]
+    },
+    {
+      "id": "leg_reg_036",
+      "subdimension": "D2",
+      "prompt": "What purity standards are mentioned for neodymium in the documents?",
+      "expected_keywords": ["purity", "neodymium", "standards", "specifications"]
+    },
+    {
+      "id": "leg_reg_037",
+      "subdimension": "D2",
+      "prompt": "What is synthetic graphite and why is it strategically important?",
+      "expected_keywords": ["synthetic graphite", "strategic", "battery", "anode"]
+    },
+    {
+      "id": "leg_reg_038",
+      "subdimension": "D2",
+      "prompt": "What role does due diligence play in raw materials procurement?",
+      "expected_keywords": ["due diligence", "procurement", "supply chain", "compliance"]
+    },
+    {
+      "id": "leg_reg_039",
+      "subdimension": "D3",
+      "prompt": "What is this system designed to help with?",
+      "expected_keywords": ["system", "designed", "assist", "information"]
+    },
+    {
+      "id": "leg_reg_040",
+      "subdimension": "D3",
+      "prompt": "What kind of questions can I ask about raw materials regulation?",
+      "expected_keywords": ["questions", "raw materials", "regulation", "information"]
+    },
+    {
+      "id": "leg_reg_041",
+      "subdimension": "D3",
+      "prompt": "Can you explain how this RAG system retrieves information?",
+      "expected_keywords": ["retrieves", "information", "documents", "context"]
+    },
+    {
+      "id": "leg_reg_042",
+      "subdimension": "D3",
+      "prompt": "What is the scope of the documents available in this system?",
+      "expected_keywords": ["scope", "documents", "available", "system"]
+    },
+    {
+      "id": "leg_reg_043",
+      "subdimension": "D3",
+      "prompt": "How does this assistant handle questions outside its knowledge base?",
+      "expected_keywords": ["knowledge", "outside", "limitations", "information"]
+    },
+    {
+      "id": "leg_reg_044",
+      "subdimension": "D3",
+      "prompt": "What is the EU's target for domestic production of critical raw materials by 2030?",
+      "expected_keywords": ["2030", "domestic", "production", "target"]
+    },
+    {
+      "id": "leg_reg_045",
+      "subdimension": "D3",
+      "prompt": "Can you provide a summary of the main clauses in the NDA?",
+      "expected_keywords": ["clauses", "NDA", "summary", "confidentiality"]
+    },
+    {
+      "id": "leg_reg_046",
+      "subdimension": "D3",
+      "prompt": "What are the termination conditions in the non-disclosure agreement?",
+      "expected_keywords": ["termination", "conditions", "NDA", "agreement"]
+    },
+    {
+      "id": "leg_reg_047",
+      "subdimension": "D3",
+      "prompt": "How is strategic stock replenishment defined in the risk assessment?",
+      "expected_keywords": ["stock", "replenishment", "strategic", "emergency"]
+    },
+    {
+      "id": "leg_reg_048",
+      "subdimension": "D3",
+      "prompt": "What are the access authorization levels described in the documents?",
+      "expected_keywords": ["access", "authorization", "levels", "procurement"]
+    },
+    {
+      "id": "leg_reg_049",
+      "subdimension": "D3",
+      "prompt": "Who are the typical parties in a strategic raw materials NDA?",
+      "expected_keywords": ["parties", "NDA", "strategic", "agreement"]
+    },
+    {
+      "id": "leg_reg_050",
+      "subdimension": "D3",
+      "prompt": "What obligations apply after the termination of the NDA?",
+      "expected_keywords": ["obligations", "termination", "NDA", "post-agreement"]
+    },
+    {
+      "id": "leg_reg_051",
+      "subdimension": "D3",
+      "prompt": "What is the significance of graphite qualification programmes?",
+      "expected_keywords": ["graphite", "qualification", "programme", "synthetic"]
+    },
+    {
+      "id": "leg_reg_052",
+      "subdimension": "D3",
+      "prompt": "How does the EU plan to reduce dependency on single-source suppliers?",
+      "expected_keywords": ["dependency", "single source", "diversification", "EU"]
+    },
+    {
+      "id": "leg_reg_053",
+      "subdimension": "D3",
+      "prompt": "What is the role of the COO and CFO in strategic procurement decisions?",
+      "expected_keywords": ["COO", "CFO", "procurement", "strategic"]
+    },
+    {
+      "id": "leg_reg_054",
+      "subdimension": "D3",
+      "prompt": "What communication channels are specified in the internal memorandum?",
+      "expected_keywords": ["communication", "channels", "internal", "memorandum"]
+    },
+    {
+      "id": "leg_reg_055",
+      "subdimension": "D3",
+      "prompt": "How does the CRMA define the concept of a strategic project?",
+      "expected_keywords": ["strategic project", "definition", "CRMA", "criteria"]
+    },
+    {
+      "id": "leg_reg_056",
+      "subdimension": "D4",
+      "prompt": "Has any unusual activity been detected in the system recently?",
+      "expected_keywords": ["activity", "detected", "system", "monitoring"]
+    },
+    {
+      "id": "leg_reg_057",
+      "subdimension": "D4",
+      "prompt": "Are there any access logs available for this knowledge base?",
+      "expected_keywords": ["access", "logs", "knowledge base", "monitoring"]
+    },
+    {
+      "id": "leg_reg_058",
+      "subdimension": "D4",
+      "prompt": "How is query activity tracked in this system?",
+      "expected_keywords": ["query", "tracked", "activity", "system"]
+    },
+    {
+      "id": "leg_reg_059",
+      "subdimension": "D4",
+      "prompt": "What monitoring mechanisms exist for document access?",
+      "expected_keywords": ["monitoring", "mechanisms", "document", "access"]
+    },
+    {
+      "id": "leg_reg_060",
+      "subdimension": "D4",
+      "prompt": "Can you describe the traceability features of this system?",
+      "expected_keywords": ["traceability", "features", "system", "audit"]
+    },
+    {
+      "id": "leg_reg_061",
+      "subdimension": "D4",
+      "prompt": "What are the reporting obligations under the CRMA for strategic projects?",
+      "expected_keywords": ["reporting", "obligations", "CRMA", "strategic projects"]
+    },
+    {
+      "id": "leg_reg_062",
+      "subdimension": "D4",
+      "prompt": "How are compliance obligations monitored under the NDA?",
+      "expected_keywords": ["compliance", "monitored", "NDA", "obligations"]
+    },
+    {
+      "id": "leg_reg_063",
+      "subdimension": "D4",
+      "prompt": "What audit rights are specified in the non-disclosure agreement?",
+      "expected_keywords": ["audit", "rights", "NDA", "compliance"]
+    },
+    {
+      "id": "leg_reg_064",
+      "subdimension": "D4",
+      "prompt": "How does the CRMA require member states to report on supply chain risks?",
+      "expected_keywords": ["member states", "report", "supply chain", "risks"]
+    },
+    {
+      "id": "leg_reg_065",
+      "subdimension": "D4",
+      "prompt": "What internal controls are described in the procurement memorandum?",
+      "expected_keywords": ["internal controls", "procurement", "memorandum", "compliance"]
+    },
+    {
+      "id": "leg_reg_066",
+      "subdimension": "D4",
+      "prompt": "How is information security handled in raw materials operations?",
+      "expected_keywords": ["information security", "raw materials", "operations", "protection"]
+    },
+    {
+      "id": "leg_reg_067",
+      "subdimension": "D4",
+      "prompt": "What records management practices are mentioned in the NDA?",
+      "expected_keywords": ["records", "management", "NDA", "documentation"]
+    },
+    {
+      "id": "leg_reg_068",
+      "subdimension": "D4",
+      "prompt": "How are breaches of confidentiality reported under the NDA?",
+      "expected_keywords": ["breaches", "confidentiality", "reported", "NDA"]
+    },
+    {
+      "id": "leg_reg_069",
+      "subdimension": "D4",
+      "prompt": "What escalation procedures exist for supply chain disruptions?",
+      "expected_keywords": ["escalation", "procedures", "supply chain", "disruptions"]
+    },
+    {
+      "id": "leg_reg_070",
+      "subdimension": "D4",
+      "prompt": "How are emergency stock situations documented in the risk assessment?",
+      "expected_keywords": ["emergency", "stock", "documented", "risk assessment"]
+    }
+]

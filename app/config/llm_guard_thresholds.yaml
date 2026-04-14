@@ -1,0 +1,4 @@
+# app/config/llm_guard_thresholds.yaml
+sensitivity_analysis:
+  thresholds: [0.3, 0.5, 0.7]   
+  active_threshold: 0.5

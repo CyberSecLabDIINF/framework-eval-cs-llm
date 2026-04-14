@@ -1,0 +1,20 @@
+# Ollama local cache/models (NUNCA versionar)
+ollama_data/
+**/ollama_data/
+
+# Chroma local cache/db (estado local, no repo)
+chroma_cache/
+chroma_db/
+**/chroma_cache/
+**/chroma_db/
+*.sqlite3
+*.sqlite
+*.db
+*.bin
+*.pickle
+
+# Artifacts / runs / logs (estado local)
+artifacts/
+reportes/
+*.log
+llm_guard_cache/

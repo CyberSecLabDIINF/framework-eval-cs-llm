@@ -1,0 +1,183 @@
+services:
+  ollama_core:
+    profiles: ["lab"]
+    image: ollama/ollama:latest
+    container_name: ollama_core
+    networks: [red_internal]
+    volumes:
+      - ./ollama_data:/root/.ollama
+
+  rag_api:
+    profiles: ["lab"]
+    build: .
+    container_name: tesis_rag
+    networks: [red_internal]
+    environment:
+      - SCENARIO=unprotected
+      - PROJECT_ROOT=/root/proyecto_tesis
+      - APP_DIR=/root/proyecto_tesis/app
+      - DATA_DIR=/root/proyecto_tesis/data
+      - ARTIFACTS_DIR=/root/proyecto_tesis/artifacts
+      - CONFIG_DIR=/root/proyecto_tesis/app/config
+      - RUNS_DIR=/root/proyecto_tesis/artifacts/runs
+      - REPORTS_DIR=/root/proyecto_tesis/artifacts/reports
+      - LATENCY_DIR=/root/proyecto_tesis/artifacts/latency
+      - GARAK_RUNS_DIR=/root/.local/share/garak/garak_runs
+      - DATASET_TAG=${DATASET_TAG}
+      - RAG_CONFIG_PATH=${RAG_CONFIG_PATH}
+      - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/owasp_suites.json
+      - GARAK_REST_BASE_PATH=/root/proyecto_tesis/app/config/garak_rest_base.json
+      - PYTHONPATH=/root/proyecto_tesis/app/src
+      - OLLAMA_HOST=http://ollama_core:11434
+      - CHROMA_PATH=/root/proyecto_tesis/chroma_db
+      - SHIELD_BASE_URL=http://shield_api:8001
+      - RAG_BASE_URL=http://rag_api:8000
+      - LATENCY_CSV=/root/proyecto_tesis/artifacts/latency/latency_unprotected.csv
+      - LATENCY_CSV_DIRECT=/root/proyecto_tesis/artifacts/latency/latency_unprotected_direct.csv
+      - LATENCY_CSV_VIA_SHIELD=/root/proyecto_tesis/artifacts/latency/latency_unprotected_via_shield.csv
+      - CONSOLIDATED_CSV=/root/proyecto_tesis/artifacts/consolidated_${DATASET_TAG}_unprotected.csvs
+
+    volumes:
+      - ./data:/root/proyecto_tesis/data
+      - ./artifacts:/root/proyecto_tesis/artifacts
+      - ./chroma_db:/root/proyecto_tesis/chroma_db
+      - ./app/config:/root/proyecto_tesis/app/config:ro
+      - ./garak_runs:/root/.local/share/garak/garak_runs
+      - ./chroma_cache:/root/.cache/chroma
+      - ./app/src:/root/proyecto_tesis/app/src
+    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/reports /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn tesis_lab.api.rag:app --host 0.0.0.0 --port 8000"]
+    depends_on:
+      - ollama_core
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3).read(); print('ok')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  shield_api:
+    profiles: ["lab"]
+    build: .
+    container_name: tesis_shield
+    networks: [red_internal, red_front]
+    ports:
+      - "8001:8001"
+    environment:
+      - SCENARIO=protected
+      - ENABLE_LLM_GUARD=1
+      - PROJECT_ROOT=/root/proyecto_tesis
+      - APP_DIR=/root/proyecto_tesis/app
+      - DATA_DIR=/root/proyecto_tesis/data
+      - ARTIFACTS_DIR=/root/proyecto_tesis/artifacts
+      - CONFIG_DIR=/root/proyecto_tesis/app/config
+      - RUNS_DIR=/root/proyecto_tesis/artifacts/runs
+      - REPORTS_DIR=/root/proyecto_tesis/artifacts/reports
+      - LATENCY_DIR=/root/proyecto_tesis/artifacts/latency
+      - GARAK_RUNS_DIR=/root/.local/share/garak/garak_runs
+      - DATASET_TAG=${DATASET_TAG}
+      - RAG_CONFIG_PATH=${RAG_CONFIG_PATH}
+      - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/owasp_suites.json
+      - GARAK_REST_BASE_PATH=/root/proyecto_tesis/app/config/garak_rest_base.json
+      - PYTHONPATH=/root/proyecto_tesis/app/src
+      - RAG_BASE_URL=http://rag_api:8000
+      - OLLAMA_HOST=http://ollama_core:11434
+      - CHROMA_PATH=/root/proyecto_tesis/chroma_db
+      - SHIELD_BASE_URL=http://shield_api:8001
+      - LATENCY_CSV=/root/proyecto_tesis/artifacts/latency/latency_protected.csv
+      - ENABLE_OUTPUT_GUARD=0
+      - CONSOLIDATED_CSV=/root/proyecto_tesis/artifacts/consolidated_${DATASET_TAG}_protected.csv
+      - LLM_GUARD_CONFIG_PATH=/root/proyecto_tesis/app/config/llm_guard_config.yaml
+      - LLM_GUARD_LOG_FILE=/root/proyecto_tesis/artifacts/llm_guard.log
+
+    volumes:
+      - ./data:/root/proyecto_tesis/data
+      - ./artifacts:/root/proyecto_tesis/artifacts
+      - ./chroma_db:/root/proyecto_tesis/chroma_db
+      - ./app/config:/root/proyecto_tesis/app/config:ro
+      - ./garak_runs:/root/.local/share/garak/garak_runs
+      - ./app/src:/root/proyecto_tesis/app/src
+      - ./llm_guard_cache:/root/.cache/huggingface
+
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/reports /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn tesis_lab.api.shield:app --host 0.0.0.0 --port 8001"]
+
+    depends_on:
+      - ollama_core
+      - rag_api
+
+  garak_runner:
+    profiles: ["attacks"]
+    build: 
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: tesis_garak_runner
+    working_dir: /root/proyecto_tesis
+
+    restart: "no"
+
+    environment:
+      - PROJECT_ROOT=/root/proyecto_tesis
+      - APP_DIR=/root/proyecto_tesis/app
+      - ARTIFACTS_DIR=/root/proyecto_tesis/artifacts
+      - RUNS_DIR=/root/proyecto_tesis/artifacts/runs
+      - REPORTS_DIR=/root/proyecto_tesis/artifacts/reports
+      - PYTHONPATH=/root/proyecto_tesis/app/src
+      - OLLAMA_HOST=http://ollama_core:11434
+      - RAG_BASE_URL=http://rag_api:8000
+      - SHIELD_BASE_URL=http://shield_api:8001
+      - GARAK_RUNS_DIR=/root/.local/share/garak/garak_runs
+      - GARAK_REST_BASE_PATH=/root/proyecto_tesis/app/config/garak_rest_base.json
+      - DATA_DIR=/root/proyecto_tesis/data
+      - CONFIG_DIR=/root/proyecto_tesis/app/config     
+      - LATENCY_DIR=/root/proyecto_tesis/artifacts/latency
+      - DATASET_TAG=${DATASET_TAG}
+      - RAG_CONFIG_PATH=${RAG_CONFIG_PATH}         
+      - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/owasp_suites.json
+
+    volumes:
+      - ./artifacts:/root/proyecto_tesis/artifacts
+      - ./app/config:/root/proyecto_tesis/app/config:ro
+      - ./app/src:/root/proyecto_tesis/app/src:ro
+      - ./garak_runs:/root/.local/share/garak/garak_runs
+      - ./data:/root/proyecto_tesis/data
+      - ./chroma_db:/root/proyecto_tesis/chroma_db   
+
+    networks: [red_internal]
+
+    security_opt:
+      - no-new-privileges:true
+      
+    entrypoint: ["python3", "-m", "tesis_lab.cli"]
+    command: ["attack", "garak", "--target", "unprotected", "--repetitions", "5"]
+
+  ollama_bootstrap:
+    profiles: ["bootstrap"]
+    image: ollama/ollama:latest
+    container_name: ollama_bootstrap
+    volumes:
+      - ./ollama_data:/root/.ollama
+    networks:
+      - red_front
+
+  chroma_bootstrap:
+    profiles: ["bootstrap"]
+    build: .
+    container_name: chroma_bootstrap
+    volumes:
+      - ./chroma_cache:/root/.cache/chroma
+      - ./app/src:/root/proyecto_tesis/app/src:ro
+    networks:
+      - red_front
+    entrypoint: ["bash", "-c", "python3 -c \"from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import ONNXMiniLM_L6_V2; f=ONNXMiniLM_L6_V2(); f(['hola']); print('chroma onnx ok')\""]
+
+networks:
+  red_internal:
+    driver: bridge
+    internal: true
+  red_front:
+    driver: bridge
