@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import glob
+import argparse
 import subprocess
 import shutil
 from pathlib import Path
@@ -13,6 +16,8 @@ from tesis_lab.settings import get_settings
 from tesis_lab.utils.paths import make_run_paths, snapshot_configs, run_paths_from_existing
 from tesis_lab.utils.logging import setup_logging
 from tesis_lab.eval.garak_catalog import list_probes as catalog_list_probes, list_suites as catalog_list_suites
+
+REPS_EXPECTED = 5  # rep00 … rep04
 
 app = typer.Typer(help="Security evaluation lab CLI (RAG + Shield + Garak + metrics).")
 serve_app = typer.Typer(help="Start API services (RAG / Shield).")
@@ -458,6 +463,200 @@ def run_garak(
         raise typer.Exit(code=1)
 
     logger.info("Run completed successfully")
+
+
+def _probe_is_complete(garak_dir: Path, target: str, suite_id: str, probe_name: str, runid: str) -> bool:
+    """
+    Returns True if all REPS_EXPECTED repetitions for a probe have both
+    .report.html and .report.jsonl files present in garak_dir.
+
+    Expected filename pattern:
+        <target>_<suite_id>_<probe_name>_<runid>_rep<NN>.report.<ext>
+    """
+    probe_safe = probe_name.replace(".", r"\.")
+    suite_safe = suite_id.replace(".", r"\.")
+    base = f"{target}_{suite_safe}_{probe_safe}_{runid}"
+
+    html_files  = set(glob.glob(str(garak_dir / f"{base}_rep*.report.html")))
+    jsonl_files = set(glob.glob(str(garak_dir / f"{base}_rep*.report.jsonl")))
+
+    if len(html_files) < REPS_EXPECTED or len(jsonl_files) < REPS_EXPECTED:
+        return False
+
+    rep_re = re.compile(r"_rep(\d{2})\.")
+    html_reps  = {int(m.group(1)) for f in html_files  if (m := rep_re.search(f))}
+    jsonl_reps = {int(m.group(1)) for f in jsonl_files if (m := rep_re.search(f))}
+
+    expected = set(range(REPS_EXPECTED))
+    return expected.issubset(html_reps) and expected.issubset(jsonl_reps)
+
+
+def _find_resume_point(
+    garak_dir: Path, target: str, suites: dict, runid: str
+) -> tuple[str | None, str | None]:
+    """
+    Iterates over suites and probes in owasp_suites order.
+    Returns (suite_id, probe_name) of the first incomplete probe.
+    Returns (None, None) if all probes are complete.
+    """
+    for suite_id, probes in suites.items():
+        for probe_name in probes:
+            if not _probe_is_complete(garak_dir, target, suite_id, probe_name, runid):
+                return suite_id, probe_name
+    return None, None
+
+
+def _cleanup_partial_probe(
+    garak_dir: Path, target: str, suite_id: str, probe_name: str, runid: str, logger
+) -> None:
+    """
+    Removes partial artifacts of an incomplete probe to avoid file collisions on re-execution.
+    """
+    probe_safe = probe_name.replace(".", r"\.")
+    suite_safe = suite_id.replace(".", r"\.")
+    base = f"{target}_{suite_safe}_{probe_safe}_{runid}"
+
+    patterns = [
+        str(garak_dir / f"{base}_rep*.report.html"),
+        str(garak_dir / f"{base}_rep*.report.jsonl"),
+    ]
+    removed = []
+    for pat in patterns:
+        for f in glob.glob(pat):
+            os.remove(f)
+            removed.append(Path(f).name)
+
+    if removed:
+        logger.info(f"Removed {len(removed)} partial artifact(s) for probe '{probe_name}':")
+        for name in removed:
+            logger.info(f"  - {name}")
+    else:
+        logger.info(f"No partial artifacts found for probe '{probe_name}'.")
+
+
+@attack_app.command("continue-run")
+def continue_run(
+    run_dir: Path = typer.Argument(..., help="Path to the interrupted run directory"),
+    target: Optional[Literal["unprotected", "protected"]] = typer.Option(
+        None, help="Evaluation scenario (default: inferred from run_dir name)"
+    ),
+    suite: Optional[str] = typer.Option(
+        None, help="Restrict resume to a specific OWASP suite (e.g. LLM01)"
+    ),
+    continue_on_error: bool = typer.Option(
+        True, help="Continue executing remaining probes if one fails"
+    ),
+    repetitions: int = typer.Option(
+        5, "--repetitions", "-r", help="Number of repetitions per probe (default: 5)"
+    ),
+):
+    """
+    Resume an interrupted Garak run from the first incomplete probe.
+    """
+    s = get_settings()
+    logger = setup_logging(level="INFO", run_paths=None)
+
+    # Resolve absolute path: accept both relative (to project root) and absolute
+    if not run_dir.is_absolute():
+        run_dir = Path(s.project_root) / run_dir
+
+    t: Literal["unprotected", "protected"] = target or (
+        "protected" if "protected" in run_dir.name else "unprotected"
+    )
+
+    garak_dir = run_dir / "garak"
+    if not garak_dir.exists():
+        logger.error(f"garak/ subdirectory not found in: {run_dir}")
+        raise typer.Exit(code=1)
+
+    # Extract runid from dir name: 20260411_221628_regulatory_technical_unprotected_garak
+    # → first two underscore-separated parts = timestamp
+    parts = run_dir.name.split("_")
+    runid = "_".join(parts[:2])  # 20260411_221628
+    
+    suites = _load_owasp_suites(s.owasp_suites_path)
+
+    if suite is not None:
+        if suite not in suites:
+            logger.error(f"Suite '{suite}' not found in {s.owasp_suites_path}")
+            raise typer.Exit(code=2)
+        suites = {suite: suites[suite]}
+
+    # Health check before starting
+    health_url = s.target_health_url(t)
+    generate_url = s.target_generate_url(t)
+    if not _check_health(health_url):
+        logger.error(f"Health check failed: {health_url}")
+        raise typer.Exit(code=1)
+
+    resume_suite, resume_probe = _find_resume_point(garak_dir, t, suites, runid)
+
+    if resume_suite is None:
+        logger.info("Run is already complete. Nothing to resume.")
+        raise typer.Exit(code=0)
+
+    logger.info(f"First incomplete probe: {resume_suite} → {resume_probe}")
+    logger.info(f"Re-executing from rep00 ({repetitions} repetitions).")
+
+    _cleanup_partial_probe(garak_dir, t, resume_suite, resume_probe, runid, logger)
+
+    # Rebuild the Garak REST config pointing to the active target
+    run_paths = run_paths_from_existing(run_dir)
+    tmp_cfg = run_paths.config_used_dir / "garak_rest_used.json"
+    base_cfg = json.loads(s.garak_rest_base_path.read_text(encoding="utf-8"))
+    base_cfg["rest"]["RestGenerator"]["uri"] = generate_url
+    tmp_cfg.write_text(json.dumps(base_cfg), encoding="utf-8")
+
+    errors = 0
+    copied_total = 0
+    resume = False
+
+    for suite_id, probes in suites.items():
+        for probe_name in probes:
+            if suite_id == resume_suite and probe_name == resume_probe:
+                resume = True
+            if not resume:
+                continue
+
+            os.environ["REST_API_KEY"] = f"{suite_id}|{probe_name}"
+
+            for rep in range(repetitions):
+                prefix = f"{t}_{suite_id}_{probe_name}_{runid}_rep{rep:02d}".replace("/", "_").replace(" ", "_").replace(":", "_")
+                prefix = prefix[:140]
+
+                logger.info(f"Running suite={suite_id} probe={probe_name} rep={rep + 1}/{repetitions}")
+
+                cmd = [
+                    "garak",
+                    "--target_type", "rest.RestGenerator",
+                    "--target_name", t,
+                    "--report_prefix", prefix,
+                    "-G", str(tmp_cfg),
+                    "--probes", probe_name,
+                ]
+
+                rc = _run_subprocess(cmd)
+                if rc != 0:
+                    errors += 1
+                    logger.error(f"Garak exited rc={rc} suite={suite_id} probe={probe_name} rep={rep + 1}")
+                    if not continue_on_error:
+                        raise typer.Exit(code=rc)
+
+                matches = sorted(Path(s.garak_runs_dir).glob(f"{prefix}*.report.*"))
+                if not matches:
+                    logger.warning(f"No reports found with prefix '{prefix}' in {s.garak_runs_dir}.")
+                else:
+                    for f in matches:
+                        dest = garak_dir / f.name
+                        shutil.copy2(f, dest)
+                    copied_total += len(matches)
+                    logger.info(f"Copied {len(matches)} report file(s) -> {garak_dir}")
+
+    if errors > 0:
+        logger.warning(f"Resume completed with {errors} error(s). Copied {copied_total} report(s).")
+        raise typer.Exit(code=1)
+
+    logger.info(f"Resume completed successfully. Copied {copied_total} report(s).")
 
 @attack_app.command("legitimate")
 def run_legitimate(
