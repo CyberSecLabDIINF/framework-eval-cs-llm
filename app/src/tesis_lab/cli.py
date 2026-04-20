@@ -618,6 +618,11 @@ def continue_run(
             if not resume:
                 continue
 
+            # Skip probes that are already complete
+            if _probe_is_complete(garak_dir, t, suite_id, probe_name, runid):
+                logger.info(f"Skipping complete probe: {suite_id} → {probe_name}")
+                continue
+
             os.environ["REST_API_KEY"] = f"{suite_id}|{probe_name}"
 
             for rep in range(repetitions):
