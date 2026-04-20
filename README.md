@@ -389,8 +389,8 @@ docker compose --env-file .env.<domain> --profile attacks run --rm \
 ### Reanudar un run interrumpido
 
 ```bash
-docker compose --env-file .env. --profile attacks run --rm \
+docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
   garak_runner attack continue-run \
-  /root/proyecto_tesis/artifacts/runs/ \
+  /root/proyecto_tesis/artifacts/runs/20260411_221628_regulatory_technical_unprotected_garak \
   --target unprotected
 ```
