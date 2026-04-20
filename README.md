@@ -385,3 +385,12 @@ docker compose --env-file .env.<domain> --profile attacks run --rm \
 docker compose --env-file .env.<domain> --profile attacks run --rm \
   garak_runner attack garak --target unprotected --suite LLM01
 ```
+
+### Reanudar un run interrumpido
+
+```bash
+docker compose --env-file .env. --profile attacks run --rm \
+  garak_runner attack continue-run \
+  /root/proyecto_tesis/artifacts/runs/ \
+  --target unprotected
+```
