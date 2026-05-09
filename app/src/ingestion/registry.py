@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from tesis_lab.settings import get_settings
-from tesis_lab.ingestion.generic_dir import ingest_dir_pdfs
+from settings import get_settings
+from ingestion.generic_dir import ingest_dir_pdfs
 
 def run_source(
     source: str,

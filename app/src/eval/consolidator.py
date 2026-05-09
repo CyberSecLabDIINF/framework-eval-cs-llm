@@ -1,4 +1,4 @@
-# app/src/tesis_lab/eval/consolidator.py
+# app/src/eval/consolidator.py
 from __future__ import annotations
 
 import csv

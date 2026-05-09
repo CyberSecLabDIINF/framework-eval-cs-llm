@@ -8,7 +8,7 @@ import re
 import json
 import subprocess
 
-from tesis_lab.settings import Settings
+from settings import Settings
 
 
 @dataclass(frozen=True)

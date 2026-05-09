@@ -69,7 +69,7 @@ ser consultas temáticamente específicas al contenido del fragmento sensible:
 Coloca los documentos PDF en:
 
 ```
-data/raw/<domain>/
+data/<domain>/
 ```
 
 ### 0.5 Variables de entorno
@@ -136,13 +136,13 @@ curl http://localhost:8001/health
 
 ```bash
 docker compose --env-file .env.<domain1> run --rm rag_api \
-  python3 -m tesis_lab.cli ingest --source <domain1> --reset
+  python3 -m cli ingest --source <domain1> --reset
 ```
 
 #### 3.2 Verificar ground truth
 
 ```bash
-docker exec tesis_rag python3 -m tesis_lab.cli ingest verify \
+docker exec tesis_rag python3 -m cli ingest verify \
   --collection <domain1>
 # Todos los fragmentos deben pasar los dos pasos de verificación
 ```
@@ -169,7 +169,7 @@ docker compose --env-file .env.<domain1> logs -f garak_runner
 #### 3.5 Ejecutar prompts legítimos
 
 ```bash
-docker exec tesis_rag python3 -m tesis_lab.cli attack legitimate \
+docker exec tesis_rag python3 -m cli attack legitimate \
   --target unprotected
 ```
 
@@ -181,13 +181,13 @@ docker exec tesis_rag python3 -m tesis_lab.cli attack legitimate \
 
 ```bash
 docker compose --env-file .env.<domain2> run --rm rag_api \
-  python3 -m tesis_lab.cli ingest --source <domain2> --reset
+  python3 -m cli ingest --source <domain2> --reset
 ```
 
 #### 3.2 Verificar ground truth
 
 ```bash
-docker exec tesis_rag python3 -m tesis_lab.cli ingest verify \
+docker exec tesis_rag python3 -m cli ingest verify \
   --collection <domain2>
 ```
 
@@ -213,7 +213,7 @@ docker compose --env-file .env.<domain2> logs -f garak_runner
 #### 3.5 Ejecutar prompts legítimos
 
 ```bash
-docker exec tesis_rag python3 -m tesis_lab.cli attack legitimate \
+docker exec tesis_rag python3 -m cli attack legitimate \
   --target unprotected
 ```
 
@@ -242,13 +242,13 @@ docker compose --env-file .env.<domain> --profile lab up -d
 
 ```bash
 docker compose --env-file .env.<domain1> run --rm rag_api \
-  python3 -m tesis_lab.cli ingest --source <domain1> --reset
+  python3 -m cli ingest --source <domain1> --reset
 ```
 
 #### 4.2 Verificar ground truth
 
 ```bash
-docker exec tesis_rag python3 -m tesis_lab.cli ingest verify \
+docker exec tesis_rag python3 -m cli ingest verify \
   --collection <domain1>
 ```
 
@@ -274,7 +274,7 @@ docker compose --env-file .env.<domain1> logs -f garak_runner
 #### 4.5 Ejecutar prompts legítimos
 
 ```bash
-docker exec tesis_shield python3 -m tesis_lab.cli attack legitimate \
+docker exec tesis_shield python3 -m cli attack legitimate \
   --target protected
 ```
 
@@ -286,13 +286,13 @@ docker exec tesis_shield python3 -m tesis_lab.cli attack legitimate \
 
 ```bash
 docker compose --env-file .env.<domain2> run --rm rag_api \
-  python3 -m tesis_lab.cli ingest --source <domain2> --reset
+  python3 -m cli ingest --source <domain2> --reset
 ```
 
 #### 4.2 Verificar ground truth
 
 ```bash
-docker exec tesis_rag python3 -m tesis_lab.cli ingest verify \
+docker exec tesis_rag python3 -m cli ingest verify \
   --collection <domain2>
 ```
 
@@ -318,7 +318,7 @@ docker compose --env-file .env.<domain2> logs -f garak_runner
 #### 4.5 Ejecutar prompts legítimos
 
 ```bash
-docker exec tesis_shield python3 -m tesis_lab.cli attack legitimate \
+docker exec tesis_shield python3 -m cli attack legitimate \
   --target protected
 ```
 
@@ -331,19 +331,19 @@ Una vez completados los cuatro runs (A×domain1, A×domain2, B×domain1, B×doma
 ### 5.1 Cruzar resultados de Garak con el CSV consolidado
 
 ```bash
-docker exec tesis_rag python3 -m tesis_lab.cli metrics patch-garak
+docker exec tesis_rag python3 -m cli metrics patch-garak
 ```
 
 ### 5.2 Calcular métricas (TFA, LAS, PCC, NCP)
 
 ```bash
-docker exec tesis_rag python3 -m tesis_lab.cli metrics compute
+docker exec tesis_rag python3 -m cli metrics compute
 ```
 
 ### 5.3 Ejecutar pruebas estadísticas
 
 ```bash
-docker exec tesis_rag python3 -m tesis_lab.cli metrics stats
+docker exec tesis_rag python3 -m cli metrics stats
 ```
 
 Los resultados quedan en:

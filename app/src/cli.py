@@ -12,10 +12,10 @@ from typing import Optional, Literal, List
 
 import typer
 
-from tesis_lab.settings import get_settings
-from tesis_lab.utils.paths import make_run_paths, snapshot_configs, run_paths_from_existing
-from tesis_lab.utils.logging import setup_logging
-from tesis_lab.eval.garak_catalog import list_probes as catalog_list_probes, list_suites as catalog_list_suites
+from settings import get_settings
+from utils.paths import make_run_paths, snapshot_configs, run_paths_from_existing
+from utils.logging import setup_logging
+from eval.garak_catalog import list_probes as catalog_list_probes, list_suites as catalog_list_suites
 
 REPS_EXPECTED = 5  # rep00 … rep04
 
@@ -59,7 +59,7 @@ def serve_rag(
 ):
     """
     Start the unprotected RAG API.
-    Expects `app = FastAPI()` in tesis_lab.api.rag.
+    Expects `app = FastAPI()` in api.rag.
     """
     s = get_settings()
     p = port or s.rag_port
@@ -70,7 +70,7 @@ def serve_rag(
         "python3",
         "-m",
         "uvicorn",
-        "tesis_lab.api.rag:app",
+        "api.rag:app",
         "--host",
         host,
         "--port",
@@ -93,7 +93,7 @@ def serve_shield(
 ):
     """
     Start the protected Shield API (LLM Guard proxy over RAG).
-    Expects `app = FastAPI()` in tesis_lab.api.shield.
+    Expects `app = FastAPI()` in api.shield.
     """
     s = get_settings()
     p = port or s.shield_port
@@ -104,7 +104,7 @@ def serve_shield(
         "python3",
         "-m",
         "uvicorn",
-        "tesis_lab.api.shield:app",
+        "api.shield:app",
         "--host",
         host,
         "--port",
@@ -133,7 +133,7 @@ def ingest_callback(
         typer.echo("❌ Falta --source (ej: --source regulatory_technical)")
         raise typer.Exit(code=2)
 
-    from tesis_lab.ingestion.registry import run_source
+    from ingestion.registry import run_source
     n = run_source(source, input_dir=input_dir, collection=collection, reset=reset)
     typer.echo(f"✅ Ingest '{source}' OK. docs={n} collection='{collection or source}'")
 
@@ -676,7 +676,7 @@ def run_legitimate(
     Execute legitimate prompts against the selected scenario and log results
     to the consolidated CSV for FP/TN calculation.
     """
-    from tesis_lab.eval.legitimate_runner import run_legitimate_prompts
+    from eval.legitimate_runner import run_legitimate_prompts
 
     s = get_settings()
     t: Literal["unprotected", "protected"] = target or s.target

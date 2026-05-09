@@ -18,9 +18,9 @@ try:
 except Exception:
     HAS_SENSITIVE = False
 
-from tesis_lab.api.middleware import RequestIdMiddleware, LatencyCSVLogger
-from tesis_lab.settings import get_settings
-from tesis_lab.eval.consolidator import log_request
+from api.middleware import RequestIdMiddleware, LatencyCSVLogger
+from settings import get_settings
+from eval.consolidator import log_request
 
 # Persist LLM Guard logs to file for post-experiment audit
 _LLM_GUARD_LOG_FILE = Path(os.getenv(

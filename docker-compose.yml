@@ -45,7 +45,7 @@ services:
       - ./garak_runs:/root/.local/share/garak/garak_runs
       - ./chroma_cache:/root/.cache/chroma
       - ./app/src:/root/proyecto_tesis/app/src
-    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/reports /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn tesis_lab.api.rag:app --host 0.0.0.0 --port 8000"]
+    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/reports /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn api.rag:app --host 0.0.0.0 --port 8000"]
     depends_on:
       - ollama_core
     healthcheck:
@@ -103,7 +103,7 @@ services:
       timeout: 5s
       retries: 12
 
-    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/reports /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn tesis_lab.api.shield:app --host 0.0.0.0 --port 8001"]
+    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/reports /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn api.shield:app --host 0.0.0.0 --port 8001"]
 
     depends_on:
       - ollama_core
@@ -152,7 +152,7 @@ services:
     security_opt:
       - no-new-privileges:true
       
-    entrypoint: ["python3", "-m", "tesis_lab.cli"]
+    entrypoint: ["python3", "-m", "cli"]
     command: ["attack", "garak", "--target", "unprotected", "--repetitions", "5"]
 
   ollama_bootstrap:

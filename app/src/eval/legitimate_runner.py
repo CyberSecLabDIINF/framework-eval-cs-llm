@@ -1,4 +1,4 @@
-# app/src/tesis_lab/eval/legitimate_runner.py
+# app/src/eval/legitimate_runner.py
 from __future__ import annotations
 
 import json
@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Optional
 import httpx
 
-from tesis_lab.settings import get_settings
-from tesis_lab.eval.consolidator import log_request
+from settings import get_settings
+from eval.consolidator import log_request
 
 
 def run_legitimate_prompts(

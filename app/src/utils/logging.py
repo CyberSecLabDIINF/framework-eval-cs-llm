@@ -5,12 +5,12 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from tesis_lab.utils.paths import RunPaths
+from utils.paths import RunPaths
 
 
 def setup_logging(
     *,
-    name: str = "tesis_lab",
+    name: str = "framework_eval_cs_llm",
     level: str = "INFO",
     run_paths: Optional[RunPaths] = None,
     filename: str = "app.log",

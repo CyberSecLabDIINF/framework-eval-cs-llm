@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Literal, Any
 
-from tesis_lab.settings import get_settings
+from settings import get_settings
 
 
 def _load_json(path: Path) -> dict:

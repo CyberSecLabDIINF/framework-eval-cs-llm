@@ -166,7 +166,7 @@ def get_settings() -> Settings:
 
     Usage::
 
-        from tesis_lab.settings import get_settings
+        from settings import get_settings
         s = get_settings()
     """
     s = Settings()

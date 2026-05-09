@@ -8,10 +8,10 @@ import ollama
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 import logging
-from tesis_lab.eval.consolidator import log_request
+from eval.consolidator import log_request
 
-from tesis_lab.api.middleware import RequestIdMiddleware, LatencyCSVLogger
-from tesis_lab.settings import get_settings
+from api.middleware import RequestIdMiddleware, LatencyCSVLogger
+from settings import get_settings
 
 app = FastAPI(title="RAG API")
 
