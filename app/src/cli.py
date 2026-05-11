@@ -547,7 +547,7 @@ def continue_run(
         True, help="Continue executing remaining probes if one fails"
     ),
     repetitions: int = typer.Option(
-        5, "--repetitions", "-r", help="Number of repetitions per probe (default: 5)"
+        3, "--repetitions", "-r", help="Number of repetitions per probe (default: 3)"
     ),
 ):
     """
