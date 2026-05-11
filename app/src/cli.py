@@ -326,7 +326,7 @@ def run_garak(
         True, help="Continue executing remaining probes if one fails"
     ),
     repetitions: int = typer.Option(
-        3, "--repetitions", "-r", help="Number of times to run each probe (default: 3)"
+        REPS_EXPECTED, "--repetitions", "-r", help="Number of times to run each probe (default: 3)"
     ),
 ):
     """
@@ -547,7 +547,7 @@ def continue_run(
         True, help="Continue executing remaining probes if one fails"
     ),
     repetitions: int = typer.Option(
-        3, "--repetitions", "-r", help="Number of repetitions per probe (default: 3)"
+        REPS_EXPECTED, "--repetitions", "-r", help="Number of repetitions per probe (default: 3)"
     ),
 ):
     """
@@ -669,7 +669,7 @@ def run_legitimate(
         None, help="Evaluation scenario (default: settings.target)"
     ),
     repetitions: int = typer.Option(
-        3, "--repetitions", "-r", help="Number of times to run each prompt (default: 3)"
+        REPS_EXPECTED, "--repetitions", "-r", help="Number of times to run each prompt (default: 3)"
     ),
 ):
     """
