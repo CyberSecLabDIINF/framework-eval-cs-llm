@@ -16,7 +16,7 @@ def run_source(
     """Ingest all PDFs from data/raw/<source> into ChromaDB."""
     s = get_settings()
 
-    resolved_input = (input_dir or (s.data_dir / "raw" / source)).resolve()
+    resolved_input = (input_dir or (s.data_dir / source)).resolve()
     if not resolved_input.exists():
         raise FileNotFoundError(f"Input directory not found: {resolved_input}")
 
