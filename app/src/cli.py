@@ -17,7 +17,7 @@ from utils.paths import make_run_paths, snapshot_configs, run_paths_from_existin
 from utils.logging import setup_logging
 from eval.garak_catalog import list_probes as catalog_list_probes, list_suites as catalog_list_suites
 
-REPS_EXPECTED = 5  # rep00 … rep04
+REPS_EXPECTED = 3  # rep00 … rep02
 
 app = typer.Typer(help="Security evaluation lab CLI (RAG + Shield + Garak + metrics).")
 serve_app = typer.Typer(help="Start API services (RAG / Shield).")
@@ -326,7 +326,7 @@ def run_garak(
         True, help="Continue executing remaining probes if one fails"
     ),
     repetitions: int = typer.Option(
-        5, "--repetitions", "-r", help="Number of times to run each probe (default: 5)"
+        3, "--repetitions", "-r", help="Number of times to run each probe (default: 3)"
     ),
 ):
     """
@@ -669,7 +669,7 @@ def run_legitimate(
         None, help="Evaluation scenario (default: settings.target)"
     ),
     repetitions: int = typer.Option(
-        5, "--repetitions", "-r", help="Number of times to run each prompt (default: 5)"
+        3, "--repetitions", "-r", help="Number of times to run each prompt (default: 3)"
     ),
 ):
     """
