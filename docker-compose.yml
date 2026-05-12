@@ -42,7 +42,7 @@ services:
       - LATENCY_CSV=/root/proyecto_tesis/artifacts/latency/latency_unprotected.csv
       - LATENCY_CSV_DIRECT=/root/proyecto_tesis/artifacts/latency/latency_unprotected_direct.csv
       - LATENCY_CSV_VIA_SHIELD=/root/proyecto_tesis/artifacts/latency/latency_unprotected_via_shield.csv
-      - CONSOLIDATED_CSV=/root/proyecto_tesis/artifacts/consolidated_${DATASET_TAG}_unprotected.csvs
+      - CONSOLIDATED_CSV=/root/proyecto_tesis/artifacts/consolidated_${DATASET_TAG}_unprotected.csv
 
     volumes:
       - ./data:/root/proyecto_tesis/data
