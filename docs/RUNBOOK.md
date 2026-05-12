@@ -791,17 +791,27 @@ for date, count in sorted(c.items()):
 docker compose --env-file .env.regulatory_technical down -v
 docker compose --env-file .env.academic_institutional down -v
 
-# Eliminar los artefactos
-rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
-rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
-rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
+# 1. Bajar contenedores activos (independiente de cómo fueron levantados)
+docker stop tesis_shield tesis_rag ollama_core
+docker rm tesis_shield tesis_rag ollama_core
 
-# Verificar que quedó vacío
+# 2. Eliminar imágenes reconstruibles (no tocar chroma_bootstrap ni garak_runner)
+docker rmi framework-eval-cs-llm-shield_api framework-eval-cs-llm-rag_api
+
+# 3. Eliminar artefactos
+sudo rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
+sudo rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
+sudo rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
+sudo rm -f  ~/framework-eval-cs-llm/artifacts/llm_guard.log
+sudo rm -f  ~/framework-eval-cs-llm/artifacts/verify_*.log
+
+# 4. Verificar que quedó limpio
+docker ps
 find ~/framework-eval-cs-llm/artifacts -type f | sort
+# Ambos deben quedar vacíos
 
-# Reset TOTAL incluyendo imágenes reconstruidas
-docker compose --env-file .env.regulatory_technical down -v --rmi local
-docker compose --env-file .env.academic_institutional down -v --rmi local
+# 5. Reconstruir imágenes con los fixes aplicados
+docker compose --env-file .env.regulatory_technical build rag_api shield_api
 ```
 
 ---
