@@ -612,6 +612,8 @@ docker compose --env-file .env.regulatory_technical restart rag_api
 docker compose --env-file .env.regulatory_technical restart shield_api
 ```
 
+
+
 **Verificar health manualmente:**
 
 ```bash
@@ -781,6 +783,25 @@ with open('/home/valentina/framework-eval-cs-llm/artifacts/latency/latency_unpro
 for date, count in sorted(c.items()):
     print(f'{date}: {count} requests')
 "
+```
+
+### Resetear TODO
+```bash
+# Eliminar los volúmenes Docker asociados (incluye ChromaDB)
+docker compose --env-file .env.regulatory_technical down -v
+docker compose --env-file .env.academic_institutional down -v
+
+# Eliminar los artefactos
+rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
+rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
+rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
+
+# Verificar que quedó vacío
+find ~/framework-eval-cs-llm/artifacts -type f | sort
+
+# Reset TOTAL incluyendo imágenes reconstruidas
+docker compose --env-file .env.regulatory_technical down -v --rmi local
+docker compose --env-file .env.academic_institutional down -v --rmi local
 ```
 
 ---
