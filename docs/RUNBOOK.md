@@ -831,6 +831,13 @@ sudo rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
 sudo rm -f  ~/framework-eval-cs-llm/artifacts/llm_guard.log
 sudo rm -f  ~/framework-eval-cs-llm/artifacts/verify_*.log
 
+# Borrar caché
+sudo rm -rf ~/framework-eval-cs-llm/ollama_data/*
+sudo rm -rf ~/framework-eval-cs-llm/llm_guard_cache/*
+sudo rm -rf ~/framework-eval-cs-llm/chroma_cache/*
+sudo rm -rf ~/framework-eval-cs-llm/chroma_db/*
+sudo rm -rf ~/framework-eval-cs-llm/garak_runs/*
+
 # Verificar que quedó limpio
 docker ps -a       # debe quedar vacío
 docker images      # debe quedar vacío
