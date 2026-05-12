@@ -811,9 +811,34 @@ docker ps
 find ~/framework-eval-cs-llm/artifacts -type f | sort
 # Ambos deben quedar vacíos
 
-# 5. Reconstruir imágenes con los fixes aplicados
-docker compose --env-file .env.regulatory_technical --profile lab build
-docker compose --env-file .env.regulatory_technical --profile attacks build
+#Detener y eliminar todos los contenedores
+docker stop $(docker ps -aq)
+docker rm $(docker ps -aq)
+
+# Eliminar todos los volúmenes
+docker volume rm $(docker volume ls -q)
+
+# Eliminar todas las imágenes
+docker rmi $(docker images -q) --force
+
+# Limpiar redes y cache de build
+docker system prune -a --volumes -f
+
+# Eliminar artefactos locales
+sudo rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
+sudo rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
+sudo rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
+sudo rm -f  ~/framework-eval-cs-llm/artifacts/llm_guard.log
+sudo rm -f  ~/framework-eval-cs-llm/artifacts/verify_*.log
+
+# Verificar que quedó limpio
+docker ps -a       # debe quedar vacío
+docker images      # debe quedar vacío
+docker volume ls   # debe quedar vacío
+find ~/framework-eval-cs-llm/artifacts -type f | sort  # debe quedar vacío
+
+# Continuar desde Paso 1 del RUNBOOK (bootstrap completo)
+
 ```
 
 ---
