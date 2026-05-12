@@ -29,7 +29,7 @@
 
 ```bash
 docker compose version
-# Debe responder: Docker Compose version v2.x.x
+# Debe responder: Docker Compose version v5.x.x
 ```
 
 ## Paso 0.5 — Smoke test
