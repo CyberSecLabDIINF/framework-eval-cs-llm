@@ -184,7 +184,7 @@ services:
 
 networks:
   red_internal:
-    driver: bridge
-    internal: true
+    external: true
+    name: framework-eval-cs-llm_red_internal
   red_front:
     driver: bridge
