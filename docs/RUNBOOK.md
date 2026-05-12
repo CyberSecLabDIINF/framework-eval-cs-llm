@@ -37,11 +37,12 @@ docker compose version
 > Ejecutar después de aplicar los fixes y reconstruir la imagen.
 > Dura aproximadamente 5-10 minutos. Si pasa sin errores, el experimento completo está listo.
 
-### Reconstruir la imagen
+### Reconstruir imágenes
 
 ```bash
 cd ~/framework-eval-cs-llm
-docker compose --env-file .env.regulatory_technical build
+docker compose --env-file .env.regulatory_technical --profile lab build
+docker compose --env-file .env.regulatory_technical --profile attacks build
 ```
 
 ### Levantar el stack
@@ -811,7 +812,8 @@ find ~/framework-eval-cs-llm/artifacts -type f | sort
 # Ambos deben quedar vacíos
 
 # 5. Reconstruir imágenes con los fixes aplicados
-docker compose --env-file .env.regulatory_technical build rag_api shield_api
+docker compose --env-file .env.regulatory_technical --profile lab build
+docker compose --env-file .env.regulatory_technical --profile attacks build
 ```
 
 ---
