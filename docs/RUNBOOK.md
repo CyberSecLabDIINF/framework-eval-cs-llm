@@ -32,6 +32,165 @@ docker compose version
 # Debe responder: Docker Compose version v2.x.x
 ```
 
+## Paso 0.5 — Smoke test
+
+> Ejecutar después de aplicar los fixes y reconstruir la imagen.
+> Dura aproximadamente 5-10 minutos. Si pasa sin errores, el experimento completo está listo.
+
+### Reconstruir la imagen
+
+```bash
+cd ~/framework-eval-cs-llm
+docker compose --env-file .env.regulatory_technical build
+```
+
+### Levantar el stack
+
+```bash
+docker compose --env-file .env.regulatory_technical --profile lab up -d
+docker compose --env-file .env.regulatory_technical ps
+# Esperar que tesis_rag y tesis_shield muestren (healthy)
+```
+
+### Verificar health de ambos targets
+
+```bash
+curl http://localhost:8000/health   # RAG directo (Escenario A)
+curl http://localhost:8001/health   # Shield proxy (Escenario B)
+```
+
+### Ingestar corpus de prueba
+
+```bash
+docker compose --env-file .env.regulatory_technical run --rm rag_api \
+  python3 -m cli ingest --source regulatory_technical --reset
+```
+
+### Verificar ground truth
+
+```bash
+docker exec tesis_rag python3 -m cli ingest verify \
+  --collection regulatory_technical
+# Todos los fragmentos CONFIDENTIAL deben pasar los dos pasos de verificación
+```
+
+### Ejecutar UNA probe con UNA repetición (Escenario A)
+
+```bash
+docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
+  garak_runner attack garak \
+  --target unprotected \
+  --suite LLM01 \
+  --probe promptinject.HijackKillHumans \
+  --repetitions 1
+```
+
+Verificar que se generó el reporte:
+
+```bash
+ls ~/framework-eval-cs-llm/artifacts/runs/
+# Debe aparecer un directorio con timestamp reciente
+
+ls ~/framework-eval-cs-llm/artifacts/runs/*/garak/*.report.jsonl
+# Debe haber al menos 1 archivo
+```
+
+Verificar que el `app.log` se generó dentro del run:
+
+```bash
+cat ~/framework-eval-cs-llm/artifacts/runs/*/logs/app.log
+# Debe mostrar las líneas de inicio y fin del probe
+```
+
+### Ejecutar prompts legítimos (Escenario A)
+
+```bash
+docker exec tesis_rag python3 -m cli attack legitimate \
+  --target unprotected \
+  --repetitions 1
+```
+
+Verificar el CSV consolidado:
+
+```bash
+python3 -c "
+import csv, glob
+files = glob.glob('/home/valentina/framework-eval-cs-llm/artifacts/consolidated_regulatory_technical_unprotected.csv')
+if not files:
+    print('❌ CSV no encontrado')
+else:
+    rows = list(csv.DictReader(open(files[0])))
+    print(f'✅ Filas: {len(rows)}')
+    print(f'   Columnas: {list(rows[0].keys())}')
+    print(f'   Dominios: {set(r[\"domain\"] for r in rows)}')
+    print(f'   Tipos de prompt: {set(r[\"prompt_type\"] for r in rows)}')
+"
+# Debe mostrar domain='regulatory_technical' y prompt_type='legitimate'
+```
+
+Verificar que el CSV de latencia tiene columna domain:
+
+```bash
+python3 -c "
+import csv
+with open('/home/valentina/framework-eval-cs-llm/artifacts/latency/latency_unprotected_direct.csv') as f:
+    rows = list(csv.DictReader(f))
+posts = [r for r in rows if r['method'] == 'POST']
+print(f'✅ Columnas: {list(rows[0].keys())}')
+print(f'   POST /generate: {len(posts)} requests')
+print(f'   Dominios: {set(r.get(\"domain\", \"SIN DOMAIN\") for r in posts)}')
+"
+# Debe mostrar columna 'domain' con valor 'regulatory_technical'
+```
+
+### Parchear garak_passed
+
+```bash
+docker exec tesis_rag python3 -m cli metrics patch-garak \
+  --domain regulatory_technical \
+  --scenario unprotected
+# Debe responder: ✅ patch-garak complete — N rows updated.
+```
+
+### Repetir para Escenario B
+
+```bash
+docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
+  garak_runner attack health --target protected
+
+docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
+  garak_runner attack garak \
+  --target protected \
+  --suite LLM01 \
+  --probe promptinject.HijackKillHumans \
+  --repetitions 1
+
+docker exec tesis_shield python3 -m cli attack legitimate \
+  --target protected \
+  --repetitions 1
+
+docker exec tesis_rag python3 -m cli metrics patch-garak \
+  --domain regulatory_technical \
+  --scenario protected
+```
+
+### Limpiar artefactos del smoke test
+
+```bash
+docker compose --env-file .env.regulatory_technical down
+
+rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
+rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
+rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
+
+echo "✅ Smoke test OK. Artefactos eliminados. Listo para el experimento real."
+```
+
+---
+
+> Si todos los pasos pasaron sin errores, continuar con el Paso 1 del RUNBOOK.
+> Si el bootstrap ya fue ejecutado anteriormente, ir directamente al Paso 2.
+
 ---
 
 ## Paso 1 — Bootstrap (una sola vez por máquina)

@@ -13,5 +13,8 @@
       "response_json_field": "response",
       "request_timeout": 600
     }
+  },
+  "run": {
+    "generations": 5
   }
 }

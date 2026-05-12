@@ -30,7 +30,7 @@ LATENCY_CSV = os.getenv(
 
 CONSOLIDATED_CSV = Path(os.getenv(
     "CONSOLIDATED_CSV",
-    str(s.artifacts_dir / "consolidated_{DATASET_TAG}_{SCENARIO}.csv")
+    str(s.artifacts_dir / f"consolidated_{DATASET_TAG}_{SCENARIO}.csv")
 ))
 
 LATENCY_DIRECT = os.getenv("LATENCY_CSV_DIRECT", str(s.artifacts_dir / "latency" / "latency_unprotected_direct.csv"))
@@ -43,6 +43,7 @@ app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
     LatencyCSVLogger,
     scenario="unprotected",
+    domain=DATASET_TAG,
     csv_path=LATENCY_DIRECT,
     skip_if_header=("x-forwarded-by", "shield"),
 )
@@ -51,6 +52,7 @@ app.add_middleware(
 app.add_middleware(
     LatencyCSVLogger,
     scenario="unprotected_via_shield",
+    domain=DATASET_TAG,
     csv_path=LATENCY_VIA_SHIELD,
     only_if_header=("x-forwarded-by", "shield"),
 )

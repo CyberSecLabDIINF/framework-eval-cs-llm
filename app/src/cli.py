@@ -24,11 +24,13 @@ serve_app = typer.Typer(help="Start API services (RAG / Shield).")
 ingest_app = typer.Typer(help="Ingest documents into ChromaDB.")
 attack_app = typer.Typer(help="Run adversarial probes via Garak.")
 analyze_app = typer.Typer(help="Analyze run results (latency / ASR comparison).")
+metrics_app = typer.Typer(help="Compute and patch experimental metrics.")
 
 app.add_typer(serve_app, name="serve")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(attack_app, name="attack")
 app.add_typer(analyze_app, name="analyze")
+app.add_typer(metrics_app, name="metrics")
 
 def _check_health(url: str, timeout_s: int = 2) -> bool:
     import urllib.request
@@ -45,8 +47,24 @@ def _load_owasp_suites(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _run_subprocess(cmd: List[str], cwd: Optional[Path] = None) -> int:
-    proc = subprocess.run(cmd, cwd=str(cwd) if cwd else None)
+def _run_subprocess(cmd: List[str], cwd: Optional[Path] = None, logger=None) -> int:
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,   # merge stderr into stdout
+        text=True,
+        bufsize=1,                  # line-buffered
+    )
+    for line in proc.stdout:
+        line = line.rstrip()
+        if not line:
+            continue
+        if logger:
+            logger.info(f"[garak] {line}")
+        else:
+            print(line)            
+    proc.wait()
     return int(proc.returncode)
 
 
@@ -405,7 +423,7 @@ def run_garak(
                     "--probes", pr,
                 ]
 
-                rc = _run_subprocess(cmd)
+                rc = _run_subprocess(cmd, logger=logger)
                 if rc != 0:
                     errors += 1
                     logger.error(f"Garak exited with rc={rc} for suite={suite_id} probe={pr} rep={rep+1}")
@@ -554,11 +572,13 @@ def continue_run(
     Resume an interrupted Garak run from the first incomplete probe.
     """
     s = get_settings()
-    logger = setup_logging(level="INFO", run_paths=None)
 
     # Resolve absolute path: accept both relative (to project root) and absolute
     if not run_dir.is_absolute():
         run_dir = Path(s.project_root) / run_dir
+
+    run_paths = run_paths_from_existing(run_dir)
+    logger = setup_logging(level="INFO", run_paths=run_paths)
 
     t: Literal["unprotected", "protected"] = target or (
         "protected" if "protected" in run_dir.name else "unprotected"
@@ -601,7 +621,6 @@ def continue_run(
     _cleanup_partial_probe(garak_dir, t, resume_suite, resume_probe, runid, logger)
 
     # Rebuild the Garak REST config pointing to the active target
-    run_paths = run_paths_from_existing(run_dir)
     tmp_cfg = run_paths.config_used_dir / "garak_rest_used.json"
     base_cfg = json.loads(s.garak_rest_base_path.read_text(encoding="utf-8"))
     base_cfg["rest"]["RestGenerator"]["uri"] = generate_url
@@ -640,7 +659,7 @@ def continue_run(
                     "--probes", probe_name,
                 ]
 
-                rc = _run_subprocess(cmd)
+                rc = _run_subprocess(cmd, logger=logger)
                 if rc != 0:
                     errors += 1
                     logger.error(f"Garak exited rc={rc} suite={suite_id} probe={probe_name} rep={rep + 1}")
@@ -686,7 +705,8 @@ def run_legitimate(
         str(s.artifacts_dir / f"consolidated_{s.dataset_tag}_{t}.csv")
     ))
 
-    logger = setup_logging(level="INFO", run_paths=None)
+    run_paths = make_run_paths(s, target=t, run_kind="legitimate")
+    logger = setup_logging(level="INFO", run_paths=run_paths)
     logger.info(f"Running legitimate prompts: target={t} domain={s.dataset_tag} repetitions={repetitions}")
 
     result = run_legitimate_prompts(
@@ -717,6 +737,46 @@ def where():
     typer.echo(f"rag_health:   {s.rag_health_url}")
     typer.echo(f"shield_health:{s.shield_health_url}")
 
+@metrics_app.command("patch-garak")
+def patch_garak(
+    domain: str = typer.Option(..., "--domain", "-d",
+        help="Knowledge domain (e.g. regulatory_technical)"),
+    scenario: str = typer.Option(..., "--scenario", "-s",
+        help="Scenario (unprotected | protected)"),
+):
+    """
+    Post-experiment: cross-reference Garak .report.jsonl files with the
+    consolidated CSV and fill the garak_passed column.
+    Run once after each complete Garak run (all probes, all repetitions).
+    """
+    from eval.consolidator import patch_garak_passed
+
+    s = get_settings()
+    logger = setup_logging(level="INFO", run_paths=None)
+
+    csv_path = s.artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
+    if not csv_path.exists():
+        logger.error(f"CSV not found: {csv_path}")
+        raise typer.Exit(code=1)
+
+    # Find the most recent run dir matching domain + scenario
+    pattern = f"*_{domain}_{scenario}_garak"
+    candidates = sorted((s.runs_dir).glob(pattern))
+    if not candidates:
+        logger.error(f"No run dirs found matching pattern: {pattern}")
+        raise typer.Exit(code=1)
+
+    run_dir = candidates[-1]   # most recent
+    garak_dir = run_dir / "garak"
+    if not garak_dir.exists():
+        logger.error(f"garak/ subdir not found in: {run_dir}")
+        raise typer.Exit(code=1)
+
+    logger.info(f"Patching CSV: {csv_path.name}")
+    logger.info(f"Garak dir:    {garak_dir}")
+
+    updated = patch_garak_passed(csv_path, garak_dir)
+    typer.echo(f"✅ patch-garak complete — {updated} rows updated.")
 
 def main():
     app()

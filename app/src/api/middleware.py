@@ -43,6 +43,7 @@ class LatencyCSVLogger(BaseHTTPMiddleware):
         self,
         app,
         scenario: str,
+        domain: str,
         csv_path: str,
         tag_header: str = "X-Garak-Tag",
         include_lengths: bool = True,
@@ -51,6 +52,7 @@ class LatencyCSVLogger(BaseHTTPMiddleware):
     ):
         super().__init__(app)
         self.scenario = scenario
+        self.domain = domain
         self.csv_path = Path(csv_path)
         self.tag_header = tag_header
         self.include_lengths = include_lengths
@@ -66,6 +68,7 @@ class LatencyCSVLogger(BaseHTTPMiddleware):
         header = [
             "ts_utc",
             "scenario",
+            "domain",
             "method",
             "path",
             "status_code",
@@ -132,6 +135,7 @@ class LatencyCSVLogger(BaseHTTPMiddleware):
             row = [
                 self._utc_now_iso(),
                 self.scenario,
+                self.domain,
                 request.method,
                 request.url.path,
                 status_code if "status_code" in locals() else 500,

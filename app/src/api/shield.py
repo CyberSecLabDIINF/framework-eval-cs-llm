@@ -52,7 +52,10 @@ CONSOLIDATED_CSV = Path(os.getenv(
     str(s.artifacts_dir / f"consolidated_{DATASET_TAG}_{SCENARIO}.csv")
 ))
 LATENCY_CSV = os.getenv("LATENCY_CSV", "/root/proyecto_tesis/artifacts/latency/latency_protected.csv")
-app.add_middleware(LatencyCSVLogger, scenario=SCENARIO, csv_path=LATENCY_CSV)
+app.add_middleware(LatencyCSVLogger, 
+    scenario=SCENARIO, 
+    domain=DATASET_TAG, 
+    csv_path=LATENCY_CSV)
 
 ENABLE_LLM_GUARD = os.getenv("ENABLE_LLM_GUARD", "1") == "1"
 ENABLE_OUTPUT_GUARD = os.getenv("ENABLE_OUTPUT_GUARD", "0") == "1"
