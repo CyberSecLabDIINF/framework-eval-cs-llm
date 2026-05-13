@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Optional
@@ -18,6 +19,7 @@ def run_legitimate_prompts(
     consolidated_csv: Path,
     repetitions: int = 5,
     timeout_s: float = 120.0,
+    logger: Optional[logging.Logger] = None,
 ) -> dict:
     """
     Execute legitimate prompts against the target endpoint and log results
@@ -33,6 +35,9 @@ def run_legitimate_prompts(
     Returns:
         dict with execution summary
     """
+    if logger is None:
+        logger = logging.getLogger("framework_eval_cs_llm")
+
     s = get_settings()
 
     prompts_path = s.get_legitimate_prompts_path(dataset_tag)
@@ -55,6 +60,8 @@ def run_legitimate_prompts(
     total = 0
     errors = 0
     blocked = 0
+    total_requests = len(prompts) * repetitions
+    i = 0
 
     for prompt_obj in prompts:
         prompt_id = prompt_obj["id"]
@@ -62,6 +69,11 @@ def run_legitimate_prompts(
         subdimension = prompt_obj.get("subdimension", "")
 
         for rep in range(repetitions):
+            i += 1
+            logger.info(
+                "Running legitimate prompt %d/%d id=%s subdimension=%s",
+                i, total_requests, prompt_id, subdimension,
+            )
             start = time.perf_counter()
             was_blocked = False
             scanner_triggered = None
@@ -83,10 +95,16 @@ def run_legitimate_prompts(
                     scanner_triggered = "LLMGuard"
                     blocked += 1
 
+                logger.info(
+                    "  → latency=%.0fms blocked=%s scanner=%s",
+                    elapsed_ms, was_blocked, scanner_triggered or "none",
+                )
+
             except Exception as e:
                 elapsed_ms = (time.perf_counter() - start) * 1000.0
                 response_text = f"ERROR: {e}"
                 errors += 1
+                logger.warning("  ✗ Error: %s", e)
 
             log_request(
                 consolidated_csv,
