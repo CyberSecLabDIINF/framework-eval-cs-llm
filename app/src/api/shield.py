@@ -134,7 +134,7 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
         if isinstance(scores, dict):
             last_score = next(iter(scores.values()), None)
         if not all(is_valid_dict.values()):
-            return None, scanner.__class__.__name__
+            return None, scanner.__class__.__name__, last_score
         p = sanitized
 
     return p, None, last_score
@@ -156,7 +156,7 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
     sens_cfg = _output_cfg.get("sensitive", {})
 
     if not sens_cfg.get("enabled", True):
-        return text, None
+        return text, None, None
 
     scanners = [
         Sensitive(
@@ -174,7 +174,7 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
             if isinstance(scores, dict):
                 last_score = next(iter(scores.values()), None)
             if not all(is_valid_dict.values()):
-                return f"Output blocked by {scanner.__class__.__name__}.", scanner.__class__.__name__
+                return f"Output blocked by {scanner.__class__.__name__}.", scanner.__class__.__name__, last_score
             p_out = sanitized
         except Exception:
             continue
