@@ -825,6 +825,54 @@ find ~/framework-eval-cs-llm/artifacts -type f | sort  # debe quedar vacío
 
 ---
 
+### RAG unhealthy — ChromaDB perdió la referencia a la colección
+
+**Síntoma:** `tesis_rag` muestra `(unhealthy)` en `docker compose ps`.
+
+**Causa:** ChromaDB inicializa la referencia a la colección al arrancar el
+contenedor. Si la colección fue borrada (reset total) o el contenedor se
+reinició sin que la colección existiera, la referencia queda inválida aunque
+la colección se ingeste después.
+
+**Solución:**
+
+```bash
+# Paso 1 — Reiniciar el contenedor para que reinicialice la referencia
+docker restart tesis_rag
+
+# Esperar ~30 segundos y verificar
+docker compose --env-file .env.regulatory_technical ps
+```
+
+Si sigue unhealthy después del restart, la colección no existe aún:
+
+```bash
+# Paso 2 — Reingestar y luego reiniciar
+docker compose --env-file .env.regulatory_technical run --rm rag_api \
+  python3 -m cli ingest --source regulatory_technical --reset
+
+docker restart tesis_rag
+
+# Verificar
+docker compose --env-file .env.regulatory_technical ps
+# tesis_rag debe mostrar (healthy)
+```
+
+### Verificar que Ollama usa GPU
+
+```bash
+nvidia-smi
+# Debe mostrar ollama_core ocupando ~5-6 GB de VRAM
+
+docker exec ollama_core ollama ps
+# Debe mostrar: llama3:8b ... 100% GPU
+
+# Si muestra 0% GPU o CPU, el problema es runtime: nvidia faltante en docker-compose.yml
+# o NVIDIA_VISIBLE_DEVICES=all no está seteado (ojo: con S al final, no DEVICE sin S)
+```
+
+---
+
 ### Otros comandos útiles
 
 ```bash
