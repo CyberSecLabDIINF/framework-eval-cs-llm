@@ -1,15 +1,27 @@
 # Tesis Lab — Manual de reproducibilidad
 
-## Prerrequisitos
+## Prerrequisitos de software
 
 - Docker >= 28.x
 - Docker Compose V2 (plugin integrado)
 
-Verificar versión:
-
 ```bash
 docker compose version
 # debe responder: Docker Compose version v2.x.x
+```
+
+## Prerrequisitos de hardware
+
+Verificar versión:
+
+- GPU NVIDIA con al menos 8 GB VRAM (validado en RTX 3070)
+- Driver NVIDIA >= 535 y CUDA >= 12.2
+- nvidia-container-toolkit instalado y configurado
+
+Verificar:
+```bash
+nvidia-smi
+docker run --rm --runtime=nvidia nvidia/cuda:12.2-base nvidia-smi
 ```
 
 ---

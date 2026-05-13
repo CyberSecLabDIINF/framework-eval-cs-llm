@@ -7,7 +7,7 @@ services:
     volumes:
       - ./ollama_data:/root/.ollama
     environment:
-      - NVIDIA_VISIBLE_DEVICE=all
+      - NVIDIA_VISIBLE_DEVICES=all
 
   rag_api:
     profiles: ["lab"]
