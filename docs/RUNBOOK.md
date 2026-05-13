@@ -216,7 +216,7 @@ echo "✅ Smoke test OK. Artefactos eliminados. Listo para el experimento real."
 
 ---
 
-> Si todos los pasos pasaron sin errores, continuar con el Paso 1 del RUNBOOK.
+> Si todos los pasos pasaron sin errores, continuar con el Paso 4.
 > Si el bootstrap ya fue ejecutado anteriormente, ir directamente al Paso 2.
 
 ---
@@ -244,33 +244,43 @@ docker exec tesis_rag python3 -m cli ingest verify \
 # Todos los fragmentos CONFIDENTIAL deben pasar la verificación
 ```
 
-#### 4.1.3 Verificar salud del target
+#### 4.1.3 Verificar que Ollama usa GPU
+
+```bash
+nvidia-smi
+# Debe mostrar ollama_core ocupando ~5-6 GB de VRAM
+
+docker exec ollama_core ollama ps
+# Debe mostrar: llama3:8b ... 100% GPU
+```
+
+#### 4.1.4 Verificar salud del target
 
 ```bash
 docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
   garak_runner attack health --target unprotected
 ```
 
-#### 4.1.4 Ejecutar ataques Garak
+#### 4.1.5 Ejecutar ataques Garak
 
 ```bash
 docker compose --env-file .env.regulatory_technical --profile attacks up garak_runner
 ```
 
-#### 4.1.5 Monitorear en tiempo real (abrir otra terminal con `ssh pc-u` y `tmux attach -t tesis`):
+#### 4.1.6 Monitorear en tiempo real (abrir otra terminal con `ssh pc-u` y `tmux attach -t tesis`):
 
 ```bash
 docker compose --env-file .env.regulatory_technical logs -f garak_runner
 ```
 
-#### 4.1.6 Ejecutar prompts legítimos
+#### 4.1.7 Ejecutar prompts legítimos
 
 ```bash
 docker exec tesis_rag python3 -m cli attack legitimate \
   --target unprotected
 ```
 
-#### 4.1.7 Parchear garak_passed en el CSV consolidado
+#### 4.1.8 Parchear garak_passed en el CSV consolidado
 
 ```bash
 docker exec tesis_rag python3 -m cli metrics patch-garak \
@@ -294,47 +304,57 @@ docker compose --env-file .env.academic_institutional --profile lab up -d
 docker compose --env-file .env.academic_institutional ps
 ```
 
-#### 4.2.3 Ingestar corpus
+#### 4.2.3 Verificar que Ollama usa GPU
+
+```bash
+nvidia-smi
+# Debe mostrar ollama_core ocupando ~5-6 GB de VRAM
+
+docker exec ollama_core ollama ps
+# Debe mostrar: llama3:8b ... 100% GPU
+```
+
+#### 4.2.4 Ingestar corpus
 
 ```bash
 docker compose --env-file .env.academic_institutional run --rm rag_api \
   python3 -m cli ingest --source academic_institutional --reset
 ```
 
-#### 4.2.4 Verificar ground truth
+#### 4.2.5 Verificar ground truth
 
 ```bash
 docker exec tesis_rag python3 -m cli ingest verify \
   --collection academic_institutional
 ```
 
-#### 4.2.5 Verificar salud del target
+#### 4.2.6 Verificar salud del target
 
 ```bash
 docker compose --env-file .env.academic_institutional --profile attacks run --rm \
   garak_runner attack health --target unprotected
 ```
 
-#### 4.2.6 Ejecutar ataques Garak
+#### 4.2.7 Ejecutar ataques Garak
 
 ```bash
 docker compose --env-file .env.academic_institutional --profile attacks up garak_runner
 ```
 
-#### 4.2.7 Monitorear
+#### 4.2.8 Monitorear
 
 ```bash
 docker compose --env-file .env.academic_institutional logs -f garak_runner
 ```
 
-#### 4.2.8 Ejecutar prompts legítimos
+#### 4.2.9 Ejecutar prompts legítimos
 
 ```bash
 docker exec tesis_rag python3 -m cli attack legitimate \
   --target unprotected
 ```
 
-#### 4.2.9 Parchear garak_passed en el CSV consolidado
+#### 4.2.10 Parchear garak_passed en el CSV consolidado
 
 ```bash
 docker exec tesis_rag python3 -m cli metrics patch-garak \
