@@ -31,11 +31,10 @@
 docker compose version
 # Debe responder: Docker Compose version v5.x.x
 
-# Verificar que Ollama usa GPU (debe mostrar ~5-6GB VRAM en nvidia-smi)
 nvidia-smi
-docker exec ollama_core ollama ps
-# Debe mostrar: llama3:8b ... 100% GPU
 ```
+
+> Para verificar que el modelo usa GPU, ejecutar después del Paso 2.
 
 ---
 
@@ -763,64 +762,32 @@ for date, count in sorted(c.items()):
 
 ### Resetear TODO
 ```bash
-# Eliminar los volúmenes Docker asociados (incluye ChromaDB)
-docker compose --env-file .env.regulatory_technical down -v
-docker compose --env-file .env.academic_institutional down -v
-
-# 1. Bajar contenedores activos (independiente de cómo fueron levantados)
+# 1. Detener y eliminar contenedores nombrados
 docker stop tesis_shield tesis_rag ollama_core
 docker rm tesis_shield tesis_rag ollama_core
 
-# 2. Eliminar imágenes reconstruibles (no tocar chroma_bootstrap ni garak_runner)
-docker rmi framework-eval-cs-llm-shield_api framework-eval-cs-llm-rag_api
-
-# 3. Eliminar artefactos
-sudo rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
-sudo rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
-sudo rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
-sudo rm -f  ~/framework-eval-cs-llm/artifacts/llm_guard.log
-sudo rm -f  ~/framework-eval-cs-llm/artifacts/verify_*.log
-
-# 4. Verificar que quedó limpio
-docker ps
-find ~/framework-eval-cs-llm/artifacts -type f | sort
-# Ambos deben quedar vacíos
-
-#Detener y eliminar todos los contenedores
-docker stop $(docker ps -aq)
-docker rm $(docker ps -aq)
-
-# Eliminar todos los volúmenes
-docker volume rm $(docker volume ls -q)
-
-# Eliminar todas las imágenes
-docker rmi $(docker images -q) --force
-
-# Limpiar redes y cache de build
+# 2. Limpiar todo Docker (contenedores, imágenes, volúmenes, redes y cache de build)
 docker system prune -a --volumes -f
 
-# Eliminar artefactos locales
+# 3. Eliminar artefactos y cachés locales
 sudo rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
 sudo rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
 sudo rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
 sudo rm -f  ~/framework-eval-cs-llm/artifacts/llm_guard.log
 sudo rm -f  ~/framework-eval-cs-llm/artifacts/verify_*.log
-
-# Borrar caché
 sudo rm -rf ~/framework-eval-cs-llm/ollama_data/*
 sudo rm -rf ~/framework-eval-cs-llm/llm_guard_cache/*
 sudo rm -rf ~/framework-eval-cs-llm/chroma_cache/*
 sudo rm -rf ~/framework-eval-cs-llm/chroma_db/*
 sudo rm -rf ~/framework-eval-cs-llm/garak_runs/*
 
-# Verificar que quedó limpio
+# 4. Verificar que quedó limpio
 docker ps -a       # debe quedar vacío
 docker images      # debe quedar vacío
 docker volume ls   # debe quedar vacío
 find ~/framework-eval-cs-llm/artifacts -type f | sort  # debe quedar vacío
 
-# Continuar desde Paso 1 del RUNBOOK (bootstrap completo)
-
+# Después de esto ejecutar bootstrap completo desde Paso 1
 ```
 
 ---
