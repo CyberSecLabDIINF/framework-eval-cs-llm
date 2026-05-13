@@ -3,6 +3,7 @@ services:
     profiles: ["lab"]
     image: ollama/ollama:latest
     container_name: ollama_core
+    runtime: nvidia
     networks: [red_internal]
     volumes:
       - ./ollama_data:/root/.ollama
