@@ -32,42 +32,65 @@ docker compose version
 # Debe responder: Docker Compose version v5.x.x
 ```
 
-## Paso 0.5 — Smoke test
+---
+
+## Paso 1 - Bootstrap (una sola vez por máquina)
+> Requiere conexión a internet. No repetir entre dominios ni escenarios.
+
+### 1.1 Modelo LLM (Ollama)
+
+```bash
+docker compose --profile bootstrap up -d ollama_bootstrap
+docker exec -it ollama_bootstrap ollama pull llama3:8b
+docker exec -it ollama_bootstrap ollama list
+docker compose --profile bootstrap down
+```
+
+### 1.2 Modelo de embeddings (ChromaDB ONNX)
+
+```bash
+docker compose --env-file .env.regulatory_technical --profile bootstrap up --attach chroma_bootstrap
+# Esperar mensaje: chroma onnx ok
+```
+
+---
+
+## Paso 2 - Levantar servicios base
+```bash
+docker compose --env-file .env.regulatory_technical --profile lab up -d
+```
+
+Verificar que los servicios estén healthy:
+
+```bash
+docker compose ps
+# rag_api y shield_api deben mostrar (healthy)
+```
+
+Verificar el sistema completo:
+
+```bash
+curl http://localhost:8001/health
+# Respuesta esperada: {"status":"ok","upstream_ok":true,...}
+```
+
+---
+
+## Paso 3 - Smoke test
 
 > Ejecutar después de aplicar los fixes y reconstruir la imagen.
 > Dura aproximadamente 5-10 minutos. Si pasa sin errores, el experimento completo está listo.
 
-### Reconstruir imágenes
 
-```bash
-cd ~/framework-eval-cs-llm
-docker compose --env-file .env.regulatory_technical --profile lab build
-docker compose --env-file .env.regulatory_technical --profile attacks build
-```
 
-### Levantar el stack
-
-```bash
-docker compose --env-file .env.regulatory_technical --profile lab up -d
-docker compose --env-file .env.regulatory_technical ps
-# Esperar que tesis_rag y tesis_shield muestren (healthy)
-```
-
-### Verificar health de ambos targets
-
-```bash
-curl http://localhost:8000/health   # RAG directo (Escenario A)
-curl http://localhost:8001/health   # Shield proxy (Escenario B)
-```
-
-### Ingestar corpus de prueba
+### 3.1 Ingestar corpus
 
 ```bash
 docker compose --env-file .env.regulatory_technical run --rm rag_api \
   python3 -m cli ingest --source regulatory_technical --reset
 ```
 
-### Verificar ground truth
+### 3.2 Verificar ground truth
 
 ```bash
 docker exec tesis_rag python3 -m cli ingest verify \
@@ -75,7 +98,7 @@ docker exec tesis_rag python3 -m cli ingest verify \
 # Todos los fragmentos CONFIDENTIAL deben pasar los dos pasos de verificación
 ```
 
-### Ejecutar UNA probe con UNA repetición (Escenario A)
+### 3.3 Ejecutar UNA probe con UNA repetición (Escenario A)
 
 ```bash
 docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
@@ -86,7 +109,7 @@ docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
   --repetitions 1
 ```
 
-Verificar que se generó el reporte:
+### 3.4 Verificar que se generó el reporte
 
 ```bash
 ls ~/framework-eval-cs-llm/artifacts/runs/
@@ -96,14 +119,14 @@ ls ~/framework-eval-cs-llm/artifacts/runs/*/garak/*.report.jsonl
 # Debe haber al menos 1 archivo
 ```
 
-Verificar que el `app.log` se generó dentro del run:
+### 3.5 Verificar que el `app.log` se generó dentro del run
 
 ```bash
 cat ~/framework-eval-cs-llm/artifacts/runs/*/logs/app.log
 # Debe mostrar las líneas de inicio y fin del probe
 ```
 
-### Ejecutar prompts legítimos (Escenario A)
+### 3.6 Ejecutar prompts legítimos (Escenario A)
 
 ```bash
 docker exec tesis_rag python3 -m cli attack legitimate \
@@ -111,7 +134,7 @@ docker exec tesis_rag python3 -m cli attack legitimate \
   --repetitions 1
 ```
 
-Verificar el CSV consolidado:
+### 3.7 Verificar el CSV consolidado
 
 ```bash
 python3 -c "
@@ -129,7 +152,7 @@ else:
 # Debe mostrar domain='regulatory_technical' y prompt_type='legitimate'
 ```
 
-Verificar que el CSV de latencia tiene columna domain:
+### 3.8 Verificar que el CSV de latencia tiene columna domain
 
 ```bash
 python3 -c "
@@ -144,7 +167,7 @@ print(f'   Dominios: {set(r.get(\"domain\", \"SIN DOMAIN\") for r in posts)}')
 # Debe mostrar columna 'domain' con valor 'regulatory_technical'
 ```
 
-### Parchear garak_passed
+### 3.9 Parchear garak_passed
 
 ```bash
 docker exec tesis_rag python3 -m cli metrics patch-garak \
@@ -153,7 +176,7 @@ docker exec tesis_rag python3 -m cli metrics patch-garak \
 # Debe responder: ✅ patch-garak complete — N rows updated.
 ```
 
-### Repetir para Escenario B
+### 3.10 Repetir para Escenario B
 
 ```bash
 docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
@@ -175,7 +198,7 @@ docker exec tesis_rag python3 -m cli metrics patch-garak \
   --scenario protected
 ```
 
-### Limpiar artefactos del smoke test
+### 3.11 Limpiar artefactos del smoke test
 
 ```bash
 docker compose --env-file .env.regulatory_technical down
@@ -194,75 +217,22 @@ echo "✅ Smoke test OK. Artefactos eliminados. Listo para el experimento real."
 
 ---
 
-## Paso 1 — Bootstrap (una sola vez por máquina)
-
-> Solo si es instalación nueva. No repetir entre dominios ni escenarios.
-
-### 1.1 Modelo LLM (Ollama)
-
-```bash
-docker compose --profile bootstrap up -d ollama_bootstrap
-docker exec -it ollama_bootstrap ollama pull llama3:8b
-docker exec -it ollama_bootstrap ollama list
-docker compose --profile bootstrap down
-```
-
-### 1.2 Modelo de embeddings — Dominio 1
-
-```bash
-docker compose --env-file .env.regulatory_technical --profile bootstrap up --attach chroma_bootstrap
-# Esperar mensaje: chroma onnx ok
-```
-
-### 1.3 Modelo de embeddings — Dominio 2
-
-```bash
-docker compose --env-file .env.academic_institutional --profile bootstrap up --attach chroma_bootstrap
-# Esperar mensaje: chroma onnx ok
-```
-
----
-
-## Paso 2 — Levantar servicios base
-
-> Hacer esto una vez antes de cualquier escenario. El stack se mantiene levantado durante todo el experimento.
-
-```bash
-docker compose --env-file .env.regulatory_technical --profile lab up -d
-```
-
-Verificar que los servicios estén healthy (puede tardar ~30 segundos):
-
-```bash
-docker compose --env-file .env.regulatory_technical ps
-# tesis_rag y tesis_shield deben mostrar (healthy)
-```
-
-Verificar el sistema completo:
-
-```bash
-curl http://localhost:8001/health
-# Respuesta esperada: {"status":"ok","upstream_ok":true,...}
-```
-
----
-
-## Paso 3 — Escenario A (sin LLM Guard)
+## Paso 4 — Escenario A (sin LLM Guard)
 
 > En Escenario A, `GARAK_TARGET=unprotected` en los env files. Verificar antes de ejecutar.
 
 ---
 
-### Escenario A — Dominio 1: regulatory_technical
+### 4.1 Escenario A — Dominio 1: regulatory_technical
 
-#### 3.1 Ingestar corpus
+#### 4.1.1 Ingestar corpus
 
 ```bash
 docker compose --env-file .env.regulatory_technical run --rm rag_api \
   python3 -m cli ingest --source regulatory_technical --reset
 ```
 
-#### 3.2 Verificar ground truth
+#### 4.1.2 Verificar ground truth
 
 ```bash
 docker exec tesis_rag python3 -m cli ingest verify \
@@ -270,33 +240,33 @@ docker exec tesis_rag python3 -m cli ingest verify \
 # Todos los fragmentos CONFIDENTIAL deben pasar la verificación
 ```
 
-#### 3.3 Verificar salud del target
+#### 4.1.3 Verificar salud del target
 
 ```bash
 docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
   garak_runner attack health --target unprotected
 ```
 
-#### 3.4 Ejecutar ataques Garak
+#### 4.1.4 Ejecutar ataques Garak
 
 ```bash
 docker compose --env-file .env.regulatory_technical --profile attacks up garak_runner
 ```
 
-Monitorear en tiempo real (abrir otra terminal con `ssh pc-u` y `tmux attach -t tesis`):
+#### 4.1.5 Monitorear en tiempo real (abrir otra terminal con `ssh pc-u` y `tmux attach -t tesis`):
 
 ```bash
 docker compose --env-file .env.regulatory_technical logs -f garak_runner
 ```
 
-#### 3.5 Ejecutar prompts legítimos
+#### 4.1.6 Ejecutar prompts legítimos
 
 ```bash
 docker exec tesis_rag python3 -m cli attack legitimate \
   --target unprotected
 ```
 
-#### 3.6 Parchear garak_passed en el CSV consolidado
+#### 4.1.7 Parchear garak_passed en el CSV consolidado
 
 ```bash
 docker exec tesis_rag python3 -m cli metrics patch-garak \
@@ -305,62 +275,62 @@ docker exec tesis_rag python3 -m cli metrics patch-garak \
 
 ---
 
-### Escenario A — Dominio 2: academic_institutional
+### 4.2 Escenario A — Dominio 2: academic_institutional
 
-#### 3.1 Bajar stack y levantar con dominio 2
+#### 4.2.1 Bajar stack y levantar con dominio 2
 
 ```bash
 docker compose --env-file .env.regulatory_technical down
 docker compose --env-file .env.academic_institutional --profile lab up -d
 ```
 
-Verificar healthy:
+#### 4.2.2 Verificar healthy
 
 ```bash
 docker compose --env-file .env.academic_institutional ps
 ```
 
-#### 3.2 Ingestar corpus
+#### 4.2.3 Ingestar corpus
 
 ```bash
 docker compose --env-file .env.academic_institutional run --rm rag_api \
   python3 -m cli ingest --source academic_institutional --reset
 ```
 
-#### 3.3 Verificar ground truth
+#### 4.2.4 Verificar ground truth
 
 ```bash
 docker exec tesis_rag python3 -m cli ingest verify \
   --collection academic_institutional
 ```
 
-#### 3.4 Verificar salud del target
+#### 4.2.5 Verificar salud del target
 
 ```bash
 docker compose --env-file .env.academic_institutional --profile attacks run --rm \
   garak_runner attack health --target unprotected
 ```
 
-#### 3.5 Ejecutar ataques Garak
+#### 4.2.6 Ejecutar ataques Garak
 
 ```bash
 docker compose --env-file .env.academic_institutional --profile attacks up garak_runner
 ```
 
-Monitorear:
+#### 4.2.7 Monitorear
 
 ```bash
 docker compose --env-file .env.academic_institutional logs -f garak_runner
 ```
 
-#### 3.6 Ejecutar prompts legítimos
+#### 4.2.8 Ejecutar prompts legítimos
 
 ```bash
 docker exec tesis_rag python3 -m cli attack legitimate \
   --target unprotected
 ```
 
-#### 3.7 Parchear garak_passed en el CSV consolidado
+#### 4.2.9 Parchear garak_passed en el CSV consolidado
 
 ```bash
 docker exec tesis_rag python3 -m cli metrics patch-garak \
@@ -369,7 +339,7 @@ docker exec tesis_rag python3 -m cli metrics patch-garak \
 
 ---
 
-## Paso 4 — Escenario B (con LLM Guard activo)
+## Paso 5 — Escenario B (con LLM Guard activo)
 
 Antes de iniciar, editar **ambos** env files y cambiar el target:
 
@@ -391,63 +361,63 @@ grep GARAK_TARGET .env.academic_institutional
 
 ---
 
-### Escenario B — Dominio 1: regulatory_technical
+### 5.1 Escenario B — Dominio 1: regulatory_technical
 
-#### 4.1 Levantar stack con dominio 1
+#### 5.1.1 Levantar stack con dominio 1
 
 ```bash
 docker compose --env-file .env.regulatory_technical down
 docker compose --env-file .env.regulatory_technical --profile lab up -d
 ```
 
-Verificar healthy:
+#### 5.1.2 Verificar healthy
 
 ```bash
 docker compose --env-file .env.regulatory_technical ps
 curl http://localhost:8001/health
 ```
 
-#### 4.2 Ingestar corpus
+#### 5.1.3 Ingestar corpus
 
 ```bash
 docker compose --env-file .env.regulatory_technical run --rm rag_api \
   python3 -m cli ingest --source regulatory_technical --reset
 ```
 
-#### 4.3 Verificar ground truth
+#### 5.1.4 Verificar ground truth
 
 ```bash
 docker exec tesis_rag python3 -m cli ingest verify \
   --collection regulatory_technical
 ```
 
-#### 4.4 Verificar salud del target
+#### 5.1.5 Verificar salud del target
 
 ```bash
 docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
   garak_runner attack health --target protected
 ```
 
-#### 4.5 Ejecutar ataques Garak
+#### 5.1.6 Ejecutar ataques Garak
 
 ```bash
 docker compose --env-file .env.regulatory_technical --profile attacks up garak_runner
 ```
 
-Monitorear:
+#### 5.1.7 Monitorear
 
 ```bash
 docker compose --env-file .env.regulatory_technical logs -f garak_runner
 ```
 
-#### 4.6 Ejecutar prompts legítimos
+#### 5.1.8 Ejecutar prompts legítimos
 
 ```bash
 docker exec tesis_shield python3 -m cli attack legitimate \
   --target protected
 ```
 
-#### 4.7 Parchear garak_passed en el CSV consolidado
+#### 5.1.9 Parchear garak_passed en el CSV consolidado
 
 ```bash
 docker exec tesis_rag python3 -m cli metrics patch-garak \
@@ -456,63 +426,63 @@ docker exec tesis_rag python3 -m cli metrics patch-garak \
 
 ---
 
-### Escenario B — Dominio 2: academic_institutional
+### 5.2 Escenario B — Dominio 2: academic_institutional
 
-#### 4.1 Bajar stack y levantar con dominio 2
+#### 5.2.1 Bajar stack y levantar con dominio 2
 
 ```bash
 docker compose --env-file .env.regulatory_technical down
 docker compose --env-file .env.academic_institutional --profile lab up -d
 ```
 
-Verificar healthy:
+#### 5.2.2 Verificar healthy:
 
 ```bash
 docker compose --env-file .env.academic_institutional ps
 curl http://localhost:8001/health
 ```
 
-#### 4.2 Ingestar corpus
+#### 5.2.3 Ingestar corpus
 
 ```bash
 docker compose --env-file .env.academic_institutional run --rm rag_api \
   python3 -m cli ingest --source academic_institutional --reset
 ```
 
-#### 4.3 Verificar ground truth
+#### 5.2.4 Verificar ground truth
 
 ```bash
 docker exec tesis_rag python3 -m cli ingest verify \
   --collection academic_institutional
 ```
 
-#### 4.4 Verificar salud del target
+#### 5.2.5 Verificar salud del target
 
 ```bash
 docker compose --env-file .env.academic_institutional --profile attacks run --rm \
   garak_runner attack health --target protected
 ```
 
-#### 4.5 Ejecutar ataques Garak
+#### 5.2.6 Ejecutar ataques Garak
 
 ```bash
 docker compose --env-file .env.academic_institutional --profile attacks up garak_runner
 ```
 
-Monitorear:
+#### 5.2.7 Monitorear
 
 ```bash
 docker compose --env-file .env.academic_institutional logs -f garak_runner
 ```
 
-#### 4.6 Ejecutar prompts legítimos
+#### 5.2.8 Ejecutar prompts legítimos
 
 ```bash
 docker exec tesis_shield python3 -m cli attack legitimate \
   --target protected
 ```
 
-#### 4.7 Parchear garak_passed en el CSV consolidado
+#### 5.2.9 Parchear garak_passed en el CSV consolidado
 
 ```bash
 docker exec tesis_rag python3 -m cli metrics patch-garak \
@@ -521,17 +491,17 @@ docker exec tesis_rag python3 -m cli metrics patch-garak \
 
 ---
 
-## Paso 5 — Procesamiento de resultados
+## Paso 6 — Procesamiento de resultados
 
 > Solo después de completar los 4 runs (A×regulatory_technical, A×academic_institutional, B×regulatory_technical, B×academic_institutional).
 
-### 5.1 Calcular métricas (TFA, LAS, PCC, NCP)
+### 6.1 Calcular métricas (TFA, LAS, PCC, NCP)
 
 ```bash
 docker exec tesis_rag python3 -m cli metrics compute
 ```
 
-### 5.2 Ejecutar pruebas estadísticas
+### 6.2 Ejecutar pruebas estadísticas
 
 ```bash
 docker exec tesis_rag python3 -m cli metrics stats
@@ -544,7 +514,7 @@ artifacts/runs/<run_id>/metrics.json
 artifacts/runs/<run_id>/summary.md
 ```
 
-### 5.3 Verificar integridad de los CSVs consolidados
+### 6.3 Verificar integridad de los CSVs consolidados
 
 ```bash
 # Contar filas por dominio y escenario (esperado: ~18.375 por combinación)
@@ -555,7 +525,7 @@ done
 
 ---
 
-## Paso 6 — Limpiar artefactos (reset completo)
+## Paso 7 — Limpiar artefactos (reset completo)
 
 > Usar solo si se quiere empezar desde cero. Esto borra TODOS los resultados.
 

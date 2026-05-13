@@ -572,13 +572,11 @@ def continue_run(
     Resume an interrupted Garak run from the first incomplete probe.
     """
     s = get_settings()
+    logger = setup_logging(level="INFO", run_paths=None)
 
     # Resolve absolute path: accept both relative (to project root) and absolute
     if not run_dir.is_absolute():
         run_dir = Path(s.project_root) / run_dir
-
-    run_paths = run_paths_from_existing(run_dir)
-    logger = setup_logging(level="INFO", run_paths=run_paths)
 
     t: Literal["unprotected", "protected"] = target or (
         "protected" if "protected" in run_dir.name else "unprotected"
@@ -621,6 +619,7 @@ def continue_run(
     _cleanup_partial_probe(garak_dir, t, resume_suite, resume_probe, runid, logger)
 
     # Rebuild the Garak REST config pointing to the active target
+    run_paths = run_paths_from_existing(run_dir)
     tmp_cfg = run_paths.config_used_dir / "garak_rest_used.json"
     base_cfg = json.loads(s.garak_rest_base_path.read_text(encoding="utf-8"))
     base_cfg["rest"]["RestGenerator"]["uri"] = generate_url
@@ -659,7 +658,8 @@ def continue_run(
                     "--probes", probe_name,
                 ]
 
-                rc = _run_subprocess(cmd, logger=logger)
+                rc = _run_subprocess(cmd, logger=logger
+                )
                 if rc != 0:
                     errors += 1
                     logger.error(f"Garak exited rc={rc} suite={suite_id} probe={probe_name} rep={rep + 1}")
@@ -705,8 +705,7 @@ def run_legitimate(
         str(s.artifacts_dir / f"consolidated_{s.dataset_tag}_{t}.csv")
     ))
 
-    run_paths = make_run_paths(s, target=t, run_kind="legitimate")
-    logger = setup_logging(level="INFO", run_paths=run_paths)
+    logger = setup_logging(level="INFO", run_paths=None)
     logger.info(f"Running legitimate prompts: target={t} domain={s.dataset_tag} repetitions={repetitions}")
 
     result = run_legitimate_prompts(

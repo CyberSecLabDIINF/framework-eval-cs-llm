@@ -6,13 +6,8 @@ services:
     networks: [red_internal]
     volumes:
       - ./ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICE=all
 
   rag_api:
     profiles: ["lab"]
