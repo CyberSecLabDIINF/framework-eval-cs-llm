@@ -30,6 +30,11 @@
 ```bash
 docker compose version
 # Debe responder: Docker Compose version v5.x.x
+
+# Verificar que Ollama usa GPU (debe mostrar ~5-6GB VRAM en nvidia-smi)
+nvidia-smi
+docker exec ollama_core ollama ps
+# Debe mostrar: llama3:8b ... 100% GPU
 ```
 
 ---
