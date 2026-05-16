@@ -10,13 +10,14 @@ import httpx
 import yaml
 
 from llm_guard import scan_prompt, scan_output
-from llm_guard.input_scanners import PromptInjection, Regex as InputRegex, TokenLimit
+from llm_guard.input_scanners import PromptInjection, TokenLimit
+from llm_guard.output_scanners import Sensitive
 
 try:
-    from llm_guard.output_scanners import Sensitive
-    HAS_SENSITIVE = True
+    from llm_guard.output_scanners import Regex as OutputRegex
+    HAS_OUTPUT_REGEX = True
 except Exception:
-    HAS_SENSITIVE = False
+    HAS_OUTPUT_REGEX = False
 
 from api.middleware import RequestIdMiddleware, LatencyCSVLogger
 from settings import get_settings
@@ -90,14 +91,13 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
     Validate and sanitize the input prompt.
     Returns (sanitized_prompt, None) if allowed.
     Returns (None, scanner_name) if blocked.
-    Controls: C2/C3 (PromptInjection), C1 (TokenLimit), C19 (Regex)
+    Controls: C1 (TokenLimit), C2/C3 (PromptInjection)
     """
     p = user_prompt.strip()
     if not ENABLE_LLM_GUARD:
         return p, None, None
 
     pi_cfg = _input_cfg.get("prompt_injection", {})
-    rx_cfg = _input_cfg.get("regex", {})
     tl_cfg = _input_cfg.get("token_limit", {})
 
     scanners = []
@@ -118,15 +118,6 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
             )
         )
 
-    if rx_cfg.get("enabled", True):
-        scanners.append(
-            InputRegex(
-                patterns=rx_cfg.get("patterns", ["\\[CONFIDENTIAL\\]"]),
-                is_blocked=rx_cfg.get("is_blocked", True),
-                match_type=rx_cfg.get("match_type", "search"),
-            )
-        )
-
     last_score = None
 
     for scanner in scanners:
@@ -134,51 +125,84 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
         if isinstance(scores, dict):
             last_score = next(iter(scores.values()), None)
         if not all(is_valid_dict.values()):
+            _llm_guard_logger.warning(
+                "INPUT BLOCKED | scanner=%s | score=%s | prompt_preview=%.120s",
+                scanner.__class__.__name__, last_score, p,
+            )
             return None, scanner.__class__.__name__, last_score
         p = sanitized
-
     return p, None, last_score
 
 
 def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[float]]:
     """
-    Validate and sanitize the model output.
-    Returns (sanitized_output, None) if allowed.
-    Returns (blocked_message, scanner_name) if blocked.
-    Controls: C20 (Sensitive)
+    Validate the model output using two complementary scanners:
+      - Sensitive   → C20 (semantic, score-based; participates in sensitivity analysis)
+      - OutputRegex → C19 (deterministic, binary; catches structured PII and
+                           [CONFIDENTIAL] marker leaking into responses)
+ 
+    The two scanners are evaluated in sequence. Sensitive runs first because it
+    covers cases where PII is paraphrased and lacks a recognizable structure;
+    OutputRegex acts as a deterministic safety net for structured PII that may
+    fall below the Sensitive threshold.
+ 
+    Returns (sanitized_output, None, score) if allowed.
+    Returns (blocked_message, scanner_name, score) if blocked.
     """
-    if not ENABLE_LLM_GUARD:
-        return text, None, None
-
-    if not HAS_SENSITIVE:
+    if not ENABLE_LLM_GUARD or not ENABLE_OUTPUT_GUARD:
         return text, None, None
 
     sens_cfg = _output_cfg.get("sensitive", {})
+    rx_cfg = _output_cfg.get("regex", {})
 
-    if not sens_cfg.get("enabled", True):
-        return text, None, None
+    scanners = []
 
-    scanners = [
-        Sensitive(
-            threshold=sens_cfg.get("threshold", 0.5),
-            redact=sens_cfg.get("redact", False),
-            use_onnx=sens_cfg.get("use_onnx", False),
+    # C20 — semantic scanner (score continuo, análisis de sensibilidad)
+    if sens_cfg.get("enabled", True):
+        scanners.append(
+            Sensitive(
+                threshold=sens_cfg.get("threshold", 0.5),
+                redact=sens_cfg.get("redact", False),
+                use_onnx=sens_cfg.get("use_onnx", False),
+            )
         )
-    ]
-
-    p_out = text
+ 
+    # C19 — deterministic regex scanner (binario, sin score)
+    if HAS_OUTPUT_REGEX and rx_cfg.get("enabled", True):
+        scanners.append(
+            OutputRegex(
+                patterns=rx_cfg.get("patterns", []),
+                is_blocked=rx_cfg.get("is_blocked", True),
+                match_type=rx_cfg.get("match_type", "search"),
+            )
+        )
+ 
+    p_out      = text
     last_score = None
+ 
     for scanner in scanners:
         try:
             sanitized, is_valid_dict, scores = scan_output([scanner], prompt, p_out)
             if isinstance(scores, dict):
                 last_score = next(iter(scores.values()), None)
             if not all(is_valid_dict.values()):
-                return f"Output blocked by {scanner.__class__.__name__}.", scanner.__class__.__name__, last_score
+                _llm_guard_logger.warning(
+                    "OUTPUT BLOCKED | scanner=%s | score=%s | prompt_preview=%.120s",
+                    scanner.__class__.__name__, last_score, prompt,
+                )
+                return (
+                    f"Output blocked by {scanner.__class__.__name__}.",
+                    scanner.__class__.__name__,
+                    last_score,
+                )
             p_out = sanitized
-        except Exception:
+        except Exception as exc:
+            _llm_guard_logger.error(
+                "Output scanner error | scanner=%s | error=%s",
+                scanner.__class__.__name__, exc,
+            )
             continue
-
+ 
     return p_out, None, last_score
 
 
@@ -250,7 +274,7 @@ async def generate(query: Query, request: Request):
     out_guarded, output_scanner, output_score = guard_output(query.prompt, out)
     latency_ms = (time.perf_counter() - start) * 1000.0
 
-    was_blocked = out_guarded != out
+    was_blocked = output_scanner is not None
     scanner_triggered = output_scanner if was_blocked else None
 
     request.state.response_len = len(out_guarded.encode("utf-8"))
@@ -287,6 +311,7 @@ async def health():
         "status": "ok",
         "mode": "proxy",
         "enable_llm_guard": ENABLE_LLM_GUARD,
+        "enable_output_guard": ENABLE_OUTPUT_GUARD,
         "upstream_rag": RAG_BASE_URL,
         "upstream_ok": upstream_ok,
     }

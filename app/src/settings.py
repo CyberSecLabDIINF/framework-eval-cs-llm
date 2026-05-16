@@ -105,10 +105,10 @@ class Settings(BaseSettings):
             self.config_dir = self.app_dir / "config"
 
         if self.owasp_suites_path is None:
-            self.owasp_suites_path = self.config_dir / "owasp_suites.json"
+            self.owasp_suites_path = self.config_dir / "global" / "owasp_suites.json"
 
         if self.garak_rest_base_path is None:
-            self.garak_rest_base_path = self.config_dir / "garak_rest_base.json"
+            self.garak_rest_base_path = self.config_dir / "global" / "garak_rest_base.json"
 
         if self.garak_runs_dir is None:
             self.garak_runs_dir = Path("/root/.local/share/garak/garak_runs")
@@ -135,10 +135,13 @@ class Settings(BaseSettings):
             self.latency_dir = self.artifacts_dir / "latency"
 
     def get_rag_config_path(self, dataset_tag: str) -> Path:
-        return self.config_dir / f"rag_{dataset_tag}.json"
+        return self.config_dir / "domains" / dataset_tag / "rag.json"
 
     def get_legitimate_prompts_path(self, dataset_tag: str) -> Path:
-        return self.config_dir / f"legitimate_prompts_{dataset_tag}.json"
+        return self.config_dir / "domains" / dataset_tag / "legitimate_prompts.json"
+
+    def get_verification_queries_path(self, dataset_tag: str) -> Path:
+        return self.config_dir / "domains" / dataset_tag / "verification_queries.json"
 
     def target_generate_url(self, target: Optional[Literal["unprotected", "protected"]] = None) -> str:
         """Return the /generate endpoint for the requested evaluation scenario."""

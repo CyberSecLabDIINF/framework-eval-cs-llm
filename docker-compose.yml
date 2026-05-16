@@ -27,9 +27,8 @@ services:
       - LATENCY_DIR=/root/proyecto_tesis/artifacts/latency
       - GARAK_RUNS_DIR=/root/.local/share/garak/garak_runs
       - DATASET_TAG=${DATASET_TAG}
-      - RAG_CONFIG_PATH=${RAG_CONFIG_PATH}
-      - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/owasp_suites.json
-      - GARAK_REST_BASE_PATH=/root/proyecto_tesis/app/config/garak_rest_base.json
+      - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/global/owasp_suites.json
+      - GARAK_REST_BASE_PATH=/root/proyecto_tesis/app/config/global/garak_rest_base.json
       - PYTHONPATH=/root/proyecto_tesis/app/src
       - OLLAMA_HOST=http://ollama_core:11434
       - CHROMA_PATH=/root/proyecto_tesis/chroma_db
@@ -77,18 +76,16 @@ services:
       - LATENCY_DIR=/root/proyecto_tesis/artifacts/latency
       - GARAK_RUNS_DIR=/root/.local/share/garak/garak_runs
       - DATASET_TAG=${DATASET_TAG}
-      - RAG_CONFIG_PATH=${RAG_CONFIG_PATH}
-      - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/owasp_suites.json
-      - GARAK_REST_BASE_PATH=/root/proyecto_tesis/app/config/garak_rest_base.json
+      - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/global/owasp_suites.json
+      - GARAK_REST_BASE_PATH=/root/proyecto_tesis/app/config/global/garak_rest_base.json
       - PYTHONPATH=/root/proyecto_tesis/app/src
       - RAG_BASE_URL=http://rag_api:8000
       - OLLAMA_HOST=http://ollama_core:11434
       - CHROMA_PATH=/root/proyecto_tesis/chroma_db
       - SHIELD_BASE_URL=http://shield_api:8001
       - LATENCY_CSV=/root/proyecto_tesis/artifacts/latency/latency_protected.csv
-      - ENABLE_OUTPUT_GUARD=0
       - CONSOLIDATED_CSV=/root/proyecto_tesis/artifacts/consolidated_${DATASET_TAG}_protected.csv
-      - LLM_GUARD_CONFIG_PATH=/root/proyecto_tesis/app/config/llm_guard_config.yaml
+      - LLM_GUARD_CONFIG_PATH=/root/proyecto_tesis/app/config/global/llm_guard_config.yaml
       - LLM_GUARD_LOG_FILE=/root/proyecto_tesis/artifacts/llm_guard.log
 
     volumes:
@@ -134,13 +131,12 @@ services:
       - RAG_BASE_URL=http://rag_api:8000
       - SHIELD_BASE_URL=http://shield_api:8001
       - GARAK_RUNS_DIR=/root/.local/share/garak/garak_runs
-      - GARAK_REST_BASE_PATH=/root/proyecto_tesis/app/config/garak_rest_base.json
+      - GARAK_REST_BASE_PATH=/root/proyecto_tesis/app/config/global/garak_rest_base.json
       - DATA_DIR=/root/proyecto_tesis/data
       - CONFIG_DIR=/root/proyecto_tesis/app/config     
       - LATENCY_DIR=/root/proyecto_tesis/artifacts/latency
       - DATASET_TAG=${DATASET_TAG}
-      - RAG_CONFIG_PATH=${RAG_CONFIG_PATH}         
-      - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/owasp_suites.json
+      - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/global/owasp_suites.json
 
     volumes:
       - ./artifacts:/root/proyecto_tesis/artifacts
