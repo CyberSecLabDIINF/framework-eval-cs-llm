@@ -152,7 +152,7 @@ services:
       - no-new-privileges:true
       
     entrypoint: ["python3", "-m", "cli"]
-    command: ["attack", "garak", "--target", "unprotected", "--repetitions", "5"]
+    command: ["attack", "garak", "--target", "${GARAK_TARGET}", "--repetitions", "5"]
 
   ollama_bootstrap:
     profiles: ["bootstrap"]
