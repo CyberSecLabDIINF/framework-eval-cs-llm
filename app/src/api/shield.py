@@ -23,11 +23,10 @@ from api.middleware import RequestIdMiddleware, LatencyCSVLogger
 from settings import get_settings
 from eval.consolidator import log_request
 
+s = get_settings()
+
 # Persist LLM Guard logs to file for post-experiment audit
-_LLM_GUARD_LOG_FILE = Path(os.getenv(
-    "LLM_GUARD_LOG_FILE",
-    "/root/proyecto_tesis/artifacts/llm_guard.log"
-))
+_LLM_GUARD_LOG_FILE = s.artifacts_dir / "llm_guard.log"
 _LLM_GUARD_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 _llm_guard_logger = _logging.getLogger("llm_guard")
@@ -41,8 +40,6 @@ _llm_guard_logger.addHandler(_fh)
 
 app = FastAPI(title="Shield Proxy API")
 
-s = get_settings()
-
 app.add_middleware(RequestIdMiddleware)
 
 SCENARIO = os.getenv("SCENARIO", "protected")
@@ -52,7 +49,7 @@ CONSOLIDATED_CSV = Path(os.getenv(
     "CONSOLIDATED_CSV",
     str(s.artifacts_dir / f"consolidated_{DATASET_TAG}_{SCENARIO}.csv")
 ))
-LATENCY_CSV = os.getenv("LATENCY_CSV", "/root/proyecto_tesis/artifacts/latency/latency_protected.csv")
+LATENCY_CSV = str(s.latency_dir / "latency_protected.csv")
 app.add_middleware(LatencyCSVLogger, 
     scenario=SCENARIO, 
     domain=DATASET_TAG, 
@@ -68,10 +65,7 @@ RAG_HEALTH_URL = f"{RAG_BASE_URL}/health"
 UPSTREAM_TIMEOUT_S = float(os.getenv("UPSTREAM_TIMEOUT_S", "120"))
 
 # Load LLM Guard configuration from YAML (pre-experiment, no post-hoc bias)
-_LLM_GUARD_CONFIG_PATH = Path(os.getenv(
-    "LLM_GUARD_CONFIG_PATH",
-    str(Path("/root/proyecto_tesis/app/config/llm_guard_config.yaml"))
-))
+_LLM_GUARD_CONFIG_PATH = s.config_dir / "global" / "llm_guard_config.yaml"
 
 def _load_llm_guard_config() -> dict:
     if _LLM_GUARD_CONFIG_PATH.exists():

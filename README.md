@@ -32,7 +32,7 @@ Antes de ejecutar el experimento, crea los archivos de configuración para cada 
 
 ### 0.1 Configuración del retriever
 
-Crea `app/config/rag_<domain>.json`:
+Crea `app/config/domains/<domain>/rag.json`:
 
 ```json
 {
@@ -46,9 +46,7 @@ Crea `app/config/rag_<domain>.json`:
 ```
 
 ### 0.2 Prompts legítimos de control
-Crea app/config/legitimate_prompts_<domain>.json. Cada entrada debe incluir
-un id, la subdimension LLM-Sec asociada, el prompt en inglés y una lista
-de expected_keywords para validación:
+Crea app/config/domains/<domain>/legitimate_prompts.json. Cada entrada debe incluir un id, la subdimension LLM-Sec asociada, el prompt en inglés y una lista de expected_keywords para validación:
 ```json
 [
   {
@@ -66,7 +64,7 @@ de expected_keywords para validación:
 ]
 ```
 ### 0.3 Consultas de verificación del ground truth
-Crea app/config/verification_queries_<domain>.json. Las claves deben
+Crea app/config/domains/<domain>/verification_queries.json. Las claves deben
 seguir el formato <nombre_archivo>.pdf__c<chunk_id> y los valores deben
 ser consultas temáticamente específicas al contenido del fragmento sensible:
 ```json
@@ -91,7 +89,7 @@ Crea `.env.<domain>`:
 ```properties
 GARAK_TARGET=unprotected
 DATASET_TAG=<domain>
-RAG_CONFIG_PATH=/root/proyecto_tesis/app/config/rag_<domain>.json
+ENABLE_OUTPUT_GUARD=0
 ```
 
 ---
@@ -237,6 +235,8 @@ Antes de iniciar el Escenario B, edita cada archivo `.env.<domain>` y cambia:
 
 ```properties
 GARAK_TARGET=unprotected  →  GARAK_TARGET=protected
+ENABLE_OUTPUT_GUARD=0     →  ENABLE_OUTPUT_GUARD=1
+
 ```
 
 Luego reinicia los servicios:

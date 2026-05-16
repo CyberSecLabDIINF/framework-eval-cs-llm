@@ -19,14 +19,11 @@ s = get_settings()
 logger = logging.getLogger("rag")
 
 DATASET_TAG = os.getenv("DATASET_TAG", s.dataset_tag)
-CONFIG_RAG_PATH = Path(os.getenv("RAG_CONFIG_PATH", str(s.get_rag_config_path(DATASET_TAG)))).resolve()
-CHROMA_PATH = Path(os.getenv("CHROMA_PATH", str(s.project_root / "chroma_db"))).resolve()
+CONFIG_RAG_PATH = s.get_rag_config_path(DATASET_TAG)
+CHROMA_PATH = str(s.chroma_db_path)
 OLLAMA_HOST_ENV = os.getenv("OLLAMA_HOST")
 SCENARIO = os.getenv("SCENARIO", "unprotected")
-LATENCY_CSV = os.getenv(
-    "LATENCY_CSV",
-    str(s.reports_dir / "latency" / "latency.csv"),  # legacy compatible
-)
+LATENCY_CSV = str(s.latency_dir / "latency_unprotected.csv")
 
 CONSOLIDATED_CSV = Path(os.getenv(
     "CONSOLIDATED_CSV",

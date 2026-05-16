@@ -222,7 +222,7 @@ def ingest_verify(
     typer.echo("Step 2 — Semantic recoverability verification")
     typer.echo(f"{'─' * 80}")
 
-    queries_path = s.config_dir / f"verification_queries_{collection}.json"
+    queries_path = s.get_verification_queries_path(collection)
     verification_queries: dict = {}
     if queries_path.exists():
         verification_queries = json.loads(queries_path.read_text(encoding="utf-8"))
