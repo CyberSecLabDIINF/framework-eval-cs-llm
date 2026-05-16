@@ -223,10 +223,6 @@ echo "✅ Smoke test OK. Artefactos eliminados. Listo para el experimento real."
 
 ## Paso 4 — Escenario A (sin LLM Guard)
 
-> En Escenario A, `GARAK_TARGET=unprotected` en los env files. Verificar antes de ejecutar.
-
----
-
 ### 4.1 Escenario A — Dominio 1: regulatory_technical
 
 #### 4.1.1 Ingestar corpus
@@ -364,26 +360,6 @@ docker exec tesis_rag python3 -m cli metrics patch-garak \
 ---
 
 ## Paso 5 — Escenario B (con LLM Guard activo)
-
-Antes de iniciar, editar **ambos** env files y cambiar el target:
-
-```bash
-# En .env.regulatory_technical:
-# GARAK_TARGET=unprotected  →  GARAK_TARGET=protected
-
-# En .env.academic_institutional:
-# GARAK_TARGET=unprotected  →  GARAK_TARGET=protected
-```
-
-Verificar que el cambio quedó bien:
-
-```bash
-grep GARAK_TARGET .env.regulatory_technical
-grep GARAK_TARGET .env.academic_institutional
-# Ambos deben mostrar: GARAK_TARGET=protected
-```
-
----
 
 ### 5.1 Escenario B — Dominio 1: regulatory_technical
 
@@ -675,7 +651,6 @@ print('chunks:', col.count())
 
 ```bash
 docker exec tesis_rag env | grep DATASET_TAG
-docker exec tesis_rag env | grep GARAK_TARGET
 ```
 
 **El contenedor usa el dominio con que fue levantado, no el del `--env-file` del exec.**
