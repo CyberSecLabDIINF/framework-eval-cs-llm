@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from pathlib import Path
 import time
 import hashlib
@@ -81,6 +82,37 @@ SYSTEM_PROMPT_HASH = hashlib.sha256(
 ).hexdigest()
 
 DOMAIN_DISTANCE_THRESHOLD = float(os.getenv("DOMAIN_DISTANCE_THRESHOLD", "1.0"))
+
+# ---------------------------------------------------------------------------
+# C11 — Semantic query coherence validation
+# Rejects queries whose minimum distance to any corpus fragment exceeds the
+# configured threshold, indicating no semantic relationship with the corpus.
+# Distinct from C4: C4 validates domain membership; C11 validates minimum
+# semantic coherence before retrieval is attempted.
+# Fails open: if ChromaDB is unavailable, the query is allowed through.
+# ---------------------------------------------------------------------------
+QUERY_COHERENCE_THRESHOLD = float(os.getenv("QUERY_COHERENCE_THRESHOLD", "1.5"))
+
+# ---------------------------------------------------------------------------
+# C12 — Corpus reconnaissance detection
+# Detects queries designed for systematic enumeration of the vector store.
+# Two complementary strategies:
+#   Lexical  — explicit patterns signaling bulk retrieval intent.
+#   Structural — excessive length or term repetition suggesting enumeration.
+# ---------------------------------------------------------------------------
+_C12_RECON_PATTERNS = re.compile(
+    r"\b(list all|show all|dump all|retrieve all|get all|extract all"
+    r"|show every|list every|enumerate all|enumerate every"
+    r"|all documents|all contents|all records|all data|all files"
+    r"|full database|entire corpus|entire database|everything in the"
+    r"|what documents|which documents|how many documents"
+    r"|index of|table of contents of the database"
+    r"|reveal (your|the) (corpus|index|database|documents)"
+    r"|what is indexed|what have you indexed)\b",
+    re.IGNORECASE,
+)
+_C12_MAX_TOKENS = 80        # queries above this token count are suspicious
+_C12_REPEAT_RATIO = 0.6     # ratio of repeated tokens above this is suspicious
 
 # ---------------------------------------------------------------------------
 # C8 — Sensitivity-based vector store partitioning
@@ -185,6 +217,59 @@ def is_on_domain(query: str) -> bool:
         logger.exception("Domain validation failed", exc_info=e)
         return True  # fail-open: do not block on error
 
+def is_coherent_query(query: str) -> bool:
+    """
+    C11 — Validate minimum semantic coherence of the query before retrieval.
+    Returns False if the minimum distance to any corpus fragment exceeds
+    QUERY_COHERENCE_THRESHOLD, indicating a structurally incoherent or
+    adversarially encoded query.
+    Fails open: if ChromaDB is unavailable, the query is allowed through.
+    """
+    try:
+        results = collection.query(
+            query_texts=[query],
+            n_results=1,
+            include=["distances"],
+        )
+        distance = results["distances"][0][0]
+        return distance <= QUERY_COHERENCE_THRESHOLD
+    except Exception as e:
+        logger.exception("Coherence validation failed", exc_info=e)
+        return True  # fail-open: do not block on error
+
+def is_safe_from_reconnaissance(query: str) -> bool:
+    """
+    C12 — Detect queries designed for systematic corpus reconnaissance.
+
+    Returns False if the query matches either detection strategy:
+      Lexical:    explicit bulk-retrieval or enumeration patterns.
+      Structural: excessive length (> _C12_MAX_TOKENS tokens) combined with
+                  high term repetition (repeated-token ratio > _C12_REPEAT_RATIO),
+                  which is characteristic of enumeration-by-exhaustion attempts.
+
+    Fails closed on lexical matches (deterministic).
+    Structural check only triggers when BOTH conditions are met simultaneously
+    to avoid false positives on legitimate long queries.
+    """
+    # Lexical check — deterministic, fail closed.
+    if _C12_RECON_PATTERNS.search(query):
+        logger.warning("C12: lexical reconnaissance pattern detected")
+        return False
+
+    # Structural check — requires both conditions simultaneously.
+    tokens = query.lower().split()
+    if len(tokens) > _C12_MAX_TOKENS:
+        unique = set(tokens)
+        repeat_ratio = 1.0 - (len(unique) / len(tokens))
+        if repeat_ratio > _C12_REPEAT_RATIO:
+            logger.warning(
+                "C12: structural reconnaissance detected — tokens=%d repeat_ratio=%.2f",
+                len(tokens), repeat_ratio,
+            )
+            return False
+
+    return True
+
 def validate_corpus_integrity(fragments: list) -> tuple:
     """
     C9 — Validate integrity of retrieved fragments before LLM context injection.
@@ -261,6 +346,20 @@ async def generate(query: Query, request: Request):
                 block_reason="domain_validation_failed",
                 log=not forwarded_by_shield,
             )
+        if not is_coherent_query(query.prompt):
+            return _blocked_response(
+                request, query, start, garak_tag, prompt_type,
+                message="Query does not meet minimum semantic coherence requirements.",
+                block_reason="query_coherence_failed",
+                log=not forwarded_by_shield,
+            )
+        if not is_safe_from_reconnaissance(query.prompt):
+            return _blocked_response(
+                request, query, start, garak_tag, prompt_type,
+                message="Query flagged as potential corpus reconnaissance attempt.",
+                block_reason="corpus_reconnaissance_detected",
+                log=not forwarded_by_shield,
+            )
 
     context, fragments = retrieve_context(query.prompt, k=3)
 
@@ -320,6 +419,9 @@ def health():
         "latency_csv": str(LATENCY_CSV),
         "corpus_hashes_loaded": len(CORPUS_HASHES),
         "allowed_sensitivity": ALLOWED_SENSITIVITY,
+        "coherence_threshold": QUERY_COHERENCE_THRESHOLD,
+        "c12_recon_max_tokens": _C12_MAX_TOKENS,
+        "c12_recon_repeat_ratio": _C12_REPEAT_RATIO,
     }
 
 
