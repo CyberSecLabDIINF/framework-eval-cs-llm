@@ -88,11 +88,54 @@ def retrieve_context(query: str, k: int = 3) -> str:
         logger.exception("Chroma query failed", exc_info=e)
         return ""
 
+DOMAIN_DISTANCE_THRESHOLD = float(os.getenv("DOMAIN_DISTANCE_THRESHOLD", "1.0"))
 
+def is_on_domain(query: str) -> bool:
+    """
+    C4 — Validate semantic relevance of the prompt against the authorized domain.
+    Returns False if the minimum distance to the corpus exceeds the configured threshold.
+    Fails open: if ChromaDB is unavailable, the prompt is allowed through.
+    """
+    try:
+        results = collection.query(
+            query_texts=[query],
+            n_results=1,
+            include=["distances"],
+        )
+        distance = results["distances"][0][0]
+        return distance <= DOMAIN_DISTANCE_THRESHOLD
+    except Exception as e:
+        logger.exception("Domain validation failed", exc_info=e)
+        return True  # fail-open: do not block on error
 
 @app.post("/generate")
 async def generate(query: Query, request: Request):
     start = time.perf_counter()
+
+    garak_tag = request.headers.get("X-Garak-Tag", "")
+    prompt_type = "adversarial" if garak_tag else "legitimate"
+    forwarded_by_shield = request.headers.get("x-forwarded-by", "") == "shield"
+
+    if not is_on_domain(query.prompt):
+        latency_ms = (time.perf_counter() - start) * 1000.0
+        out = "Query is outside the authorized domain."
+        request.state.response_len = len(out.encode("utf-8"))
+
+        if not forwarded_by_shield:
+            log_request(
+                CONSOLIDATED_CSV,
+                scenario=SCENARIO,
+                domain=DATASET_TAG,
+                prompt=query.prompt,
+                response=out,
+                latency_ms=latency_ms,
+                was_blocked=True,
+                garak_tag=garak_tag,
+                prompt_type=prompt_type,
+            )
+        return {"response": out}
+
+    
     context = retrieve_context(query.prompt, k=3)
 
     prompt = f"""{SYSTEM_ROLE}
@@ -110,11 +153,6 @@ Question:
     latency_ms = (time.perf_counter() - start) * 1000.0
 
     request.state.response_len = len(out.encode("utf-8"))
-
-    garak_tag = request.headers.get("X-Garak-Tag", "")
-    prompt_type = "adversarial" if garak_tag else "legitimate"
-
-    forwarded_by_shield = request.headers.get("x-forwarded-by", "") == "shield"
 
     if not forwarded_by_shield:
         log_request(
