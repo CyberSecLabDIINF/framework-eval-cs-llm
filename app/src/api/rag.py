@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import string
 from pathlib import Path
 import time
 import hashlib
@@ -113,6 +114,25 @@ _C12_RECON_PATTERNS = re.compile(
 )
 _C12_MAX_TOKENS = 80        # queries above this token count are suspicious
 _C12_REPEAT_RATIO = 0.6     # ratio of repeated tokens above this is suspicious
+
+# ---------------------------------------------------------------------------
+# C17 — Context-grounded response validation
+# Measures token overlap between the model response and the retrieved context.
+# Responses whose grounding ratio falls below the threshold are blocked.
+# Threshold is intentionally permissive (0.15) to tolerate paraphrasing while
+# still catching fully hallucinated or out-of-scope responses.
+# ---------------------------------------------------------------------------
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "shall", "can", "need", "dare", "ought",
+    "to", "of", "in", "for", "on", "with", "at", "by", "from", "as",
+    "into", "through", "during", "before", "after", "above", "below",
+    "and", "but", "or", "nor", "so", "yet", "both", "either", "neither",
+    "not", "no", "if", "then", "that", "this", "these", "those", "it",
+    "its", "i", "you", "he", "she", "we", "they", "what", "which", "who",
+})
+_C17_GROUNDING_THRESHOLD = float(os.getenv("C17_GROUNDING_THRESHOLD", "0.15"))
 
 # ---------------------------------------------------------------------------
 # C8 — Sensitivity-based vector store partitioning
@@ -270,6 +290,53 @@ def is_safe_from_reconnaissance(query: str) -> bool:
 
     return True
 
+def is_grounded_response(response: str, context: str) -> tuple:
+    """
+    C17 — Validate that the model response is grounded in the retrieved context.
+
+    Computes the ratio of significant response tokens that also appear in the
+    context. Significant tokens are non-stop-word, alphabetic tokens of at
+    least 4 characters.
+
+    Returns:
+        (True, ratio)   — response is sufficiently grounded.
+        (False, ratio)  — response grounding ratio is below threshold.
+
+    Edge cases:
+        - Empty response: treated as grounded (nothing to validate).
+        - No significant tokens in response: treated as grounded (e.g. short
+          acknowledgment responses).
+        - Empty context: treated as not grounded (fail closed).
+    """
+    if not response.strip():
+        return True, 1.0
+
+    if not context.strip():
+        logger.warning("C17: empty context — cannot validate grounding, blocking response")
+        return False, 0.0
+
+    def _tokenize(text: str) -> set:
+        translator = str.maketrans("", "", string.punctuation)
+        tokens = text.lower().translate(translator).split()
+        return {t for t in tokens if len(t) >= 4 and t not in _STOP_WORDS}
+
+    response_tokens = _tokenize(response)
+    if not response_tokens:
+        return True, 1.0
+
+    context_tokens = _tokenize(context)
+    overlap = response_tokens & context_tokens
+    ratio = len(overlap) / len(response_tokens)
+
+    if ratio < _C17_GROUNDING_THRESHOLD:
+        logger.warning(
+            "C17: response grounding too low — ratio=%.3f threshold=%.3f",
+            ratio, _C17_GROUNDING_THRESHOLD,
+        )
+        return False, ratio
+
+    return True, ratio
+
 def validate_corpus_integrity(fragments: list) -> tuple:
     """
     C9 — Validate integrity of retrieved fragments before LLM context injection.
@@ -385,6 +452,17 @@ Question:
 
     response = client.generate(model=MODEL_NAME, prompt=prompt)
     out = response.get("response", "")
+
+    # C17 — Block response if not sufficiently grounded in retrieved context.
+    if IS_PROTECTED:
+        grounded, grounding_ratio = is_grounded_response(out, context)
+        if not grounded:
+            return _blocked_response(
+                request, query, start, garak_tag, prompt_type,
+                message="Response could not be grounded in the retrieved context.",
+                block_reason="response_not_grounded",
+            )
+
     latency_ms = (time.perf_counter() - start) * 1000.0
 
     request.state.response_len = len(out.encode("utf-8"))
@@ -422,6 +500,7 @@ def health():
         "coherence_threshold": QUERY_COHERENCE_THRESHOLD,
         "c12_recon_max_tokens": _C12_MAX_TOKENS,
         "c12_recon_repeat_ratio": _C12_REPEAT_RATIO,
+        "c17_grounding_threshold": _C17_GROUNDING_THRESHOLD,
     }
 
 
