@@ -185,10 +185,16 @@ class Query(BaseModel):
 def retrieve_context(query: str, k: int = 3) -> tuple:
     """
     Retrieve the top-k fragments from ChromaDB for the given query.
- 
-    C8 — Only fragments whose sensitivity level is within ALLOWED_SENSITIVITY
-    are eligible for retrieval, enforcing vector store partitioning at query time.
- 
+
+    C8  — Only fragments whose sensitivity level is within ALLOWED_SENSITIVITY
+          are eligible for retrieval, enforcing vector store partitioning at query time.
+    C14 — Document metadata is intentionally excluded from the include list.
+          Passing only ["documents", "ids"] ensures that source paths, page numbers,
+          chunk indices, and any other metadata fields stored in ChromaDB are never
+          injected into the LLM context or exposed to the caller. The fragment IDs
+          are used internally for C9 integrity verification only and are never
+          included in the prompt sent to the model.
+
     Returns:
         context_str  — fragments joined for prompt injection.
         fragments    — list of (doc_id, text) pairs, used by C9 integrity check.
