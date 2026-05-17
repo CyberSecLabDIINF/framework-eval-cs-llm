@@ -865,6 +865,14 @@ docker exec ollama_core ollama ps
 
 ---
 
+### Actualización de componente `rag.py`, `shield.py` o `docker-compose.yml`
+```bash
+docker compose --env-file .env.regulatory_technical --profile lab down
+docker compose --env-file .env.regulatory_technical --profile lab up -d --build
+```
+
+---
+
 ### Otros comandos útiles
 
 ```bash
