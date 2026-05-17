@@ -886,6 +886,9 @@ for date, count in sorted(c.items()):
 "
 ```
 
+> ⚠️ `artifacts/calibration/` contiene evidencia experimental de los umbrales.
+> No está incluido en los comandos de borrado abajo, pero verifica antes de ejecutar.
+
 ### Resetear TODO
 ```bash
 # 1. Detener y eliminar contenedores nombrados
@@ -915,9 +918,6 @@ find ~/framework-eval-cs-llm/artifacts -type f | sort  # debe quedar vacío
 
 # Después de esto ejecutar bootstrap completo desde Paso 1
 ```
-
-> ⚠️ `artifacts/calibration/` contiene evidencia experimental de los umbrales.
-> No está incluido en los comandos de borrado abajo, pero verifica antes de ejecutar.
 
 ---
 
