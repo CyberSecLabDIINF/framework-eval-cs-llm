@@ -80,6 +80,28 @@ _output_cfg = _cfg.get("output_scanners", {})
 class Query(BaseModel):
     prompt: str
 
+_CONTROL_TOKEN_RE = re.compile(r"<\|[a-zA-Z0-9_]+\|>")
+ 
+ 
+def _sanitize_control_chars(text: str) -> str:
+    """
+    C2 — Remove control characters and special tokens from prompt input.
+ 
+    Covers:
+      - Model special tokens: <|endoftext|>, <|im_start|>, <|fim_prefix|>, etc.
+      - Null bytes and C0/C1 Unicode control characters (except \\n, \\t, \\r)
+    """
+    # Special tokens used by GPT, Llama, and similar tokenizers
+    text = _CONTROL_TOKEN_RE.sub("", text)
+    # Null bytes
+    text = text.replace("\x00", "")
+    # Unicode control characters (category Cc), preserving whitespace
+    text = "".join(
+        ch for ch in text
+        if unicodedata.category(ch) != "Cc" or ch in ("\n", "\t", "\r")
+    )
+    return text.strip()
+
 def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optional[float]]:
     """
     Validate and sanitize the input prompt.
@@ -90,6 +112,8 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
     p = user_prompt.strip()
     if not ENABLE_LLM_GUARD:
         return p, None, None
+
+    p = _sanitize_control_chars(p)
 
     pi_cfg = _input_cfg.get("prompt_injection", {})
     tl_cfg = _input_cfg.get("token_limit", {})
@@ -145,6 +169,8 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
     """
     if not ENABLE_LLM_GUARD or not ENABLE_OUTPUT_GUARD:
         return text, None, None
+
+    text = _sanitize_control_chars(text)
 
     sens_cfg = _output_cfg.get("sensitive", {})
     rx_cfg = _output_cfg.get("regex", {})
