@@ -88,7 +88,7 @@ def load_legitimate_queries(domain: str, s) -> List[str]:
     candidates = [
         s.project_root / f"legitimate_prompts_{domain}.json",
         s.project_root / "app" / "data" / f"legitimate_prompts_{domain}.json",
-        s.project_root / "config" / "domains" / domain / "legitimate_prompts.json",
+        s.project_root / "app" / "config" / "domains" / domain / "legitimate_prompts.json",
     ]
     for path in candidates:
         if path.exists():
