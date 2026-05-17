@@ -113,8 +113,6 @@ cat ~/framework-eval-cs-llm/artifacts/corpus_version_registry.csv
 > Ejecutar después de aplicar los fixes y reconstruir la imagen.
 > Dura aproximadamente 5-10 minutos. Si pasa sin errores, el experimento completo está listo.
 
-
-
 ### 3.1 Ingestar corpus
 
 ```bash
@@ -128,6 +126,33 @@ docker compose --env-file .env.regulatory_technical run --rm rag_api \
 docker exec tesis_rag python3 -m cli ingest verify \
   --collection regulatory_technical
 # Todos los fragmentos CONFIDENTIAL deben pasar los dos pasos de verificación
+```
+
+### 3.2.1 Calibrar C11 (coherencia semántica de queries)
+
+```bash
+docker exec tesis_rag python app/scripts/calibrate_c11.py --domain regulatory_technical
+# Anotar el valor sugerido y verificar que coincide con .env:
+grep QUERY_COHERENCE_THRESHOLD .env.regulatory_technical
+# Debe mostrar: QUERY_COHERENCE_THRESHOLD=1.35
+```
+
+### 3.2.2 Calibrar C17 (grounding de respuestas)
+
+```bash
+docker exec tesis_rag python app/scripts/calibrate_c17.py \
+  --domain regulatory_technical --target unprotected
+# Anotar el valor sugerido y verificar que coincide con .env:
+grep C17_GROUNDING_THRESHOLD .env.regulatory_technical
+# Debe mostrar: C17_GROUNDING_THRESHOLD=0.0556
+```
+
+### 3.2.3 Guardar CSVs de calibración como evidencia
+
+```bash
+mkdir -p artifacts/calibration
+docker cp tesis_rag:/root/proyecto_tesis/calibration_c11_regulatory_technical.csv artifacts/calibration/
+docker cp tesis_rag:/root/proyecto_tesis/calibration_c17_regulatory_technical.csv artifacts/calibration/
 ```
 
 ### 3.3 Ejecutar UNA probe con UNA repetición (Escenario A)
@@ -243,7 +268,8 @@ echo "✅ Smoke test OK. Artefactos eliminados. Listo para el experimento real."
 ```
 
 ---
-
+> ⚠️ No eliminar `artifacts/calibration/` — contiene evidencia experimental
+> de los umbrales calibrados que se referencia en la tesis.
 > Si todos los pasos pasaron sin errores, continuar con el Paso 4.
 > Si el bootstrap ya fue ejecutado anteriormente, ir directamente al Paso 2.
 
@@ -354,6 +380,23 @@ docker compose --env-file .env.academic_institutional run --rm rag_api \
 ```bash
 docker exec tesis_rag python3 -m cli ingest verify \
   --collection academic_institutional
+```
+
+#### 4.2.5.1 Verificar umbrales calibrados para academic_institutional
+
+```bash
+docker exec tesis_rag python app/scripts/calibrate_c11.py --domain academic_institutional
+grep QUERY_COHERENCE_THRESHOLD .env.academic_institutional
+# Debe mostrar: QUERY_COHERENCE_THRESHOLD=1.1723
+
+docker exec tesis_rag python app/scripts/calibrate_c17.py \
+  --domain academic_institutional --target unprotected
+grep C17_GROUNDING_THRESHOLD .env.academic_institutional
+# Debe mostrar: C17_GROUNDING_THRESHOLD=0.0714
+
+mkdir -p artifacts/calibration
+docker cp tesis_rag:/root/proyecto_tesis/calibration_c11_academic_institutional.csv artifacts/calibration/
+docker cp tesis_rag:/root/proyecto_tesis/calibration_c17_academic_institutional.csv artifacts/calibration/
 ```
 
 #### 4.2.6 Verificar salud del target
@@ -872,6 +915,9 @@ find ~/framework-eval-cs-llm/artifacts -type f | sort  # debe quedar vacío
 
 # Después de esto ejecutar bootstrap completo desde Paso 1
 ```
+
+> ⚠️ `artifacts/calibration/` contiene evidencia experimental de los umbrales.
+> No está incluido en los comandos de borrado abajo, pero verifica antes de ejecutar.
 
 ---
 
