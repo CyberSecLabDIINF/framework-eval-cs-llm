@@ -81,17 +81,61 @@ SYSTEM_PROMPT_HASH = hashlib.sha256(
 
 DOMAIN_DISTANCE_THRESHOLD = float(os.getenv("DOMAIN_DISTANCE_THRESHOLD", "1.0"))
 
+# ---------------------------------------------------------------------------
+# C9 — Corpus integrity baseline (computed once at startup, held in memory)
+# Each document in the collection is hashed (SHA-256) and stored by its ID.
+# Before any fragment is injected into the LLM context, its hash is re-checked
+# against this baseline.  A mismatch triggers a hard block.
+# ---------------------------------------------------------------------------
+def _build_corpus_hashes() -> dict:
+    """
+    Fetch every document stored in ChromaDB and compute its SHA-256 hash.
+    Returns a mapping of {doc_id: hex_digest}.
+    Called once at module load time; result is stored in CORPUS_HASHES.
+    """
+    hashes: dict = {}
+    try:
+        total = collection.count()
+        if total == 0:
+            logger.warning("C9: collection is empty at startup — no hashes computed")
+            return hashes
+        # Retrieve all documents in a single call (no query needed).
+        result = collection.get(include=["documents"])
+        ids = result.get("ids", [])
+        docs = result.get("documents", [])
+        for doc_id, text in zip(ids, docs):
+            hashes[doc_id] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        logger.info("C9: corpus baseline built — %d document hashes stored", len(hashes))
+    except Exception as e:
+        logger.exception("C9: failed to build corpus hashes at startup", exc_info=e)
+    return hashes
+ 
+CORPUS_HASHES: dict = _build_corpus_hashes()
+
 class Query(BaseModel):
     prompt: str
 
-def retrieve_context(query: str, k: int = 3) -> str:
+def retrieve_context(query: str, k: int = 3) -> tuple:
+    """
+    Retrieve the top-k fragments from ChromaDB for the given query.
+ 
+    Returns:
+        context_str  — fragments joined for prompt injection.
+        fragments    — list of (doc_id, text) pairs, used by C9 integrity check.
+    """
     try:
-        results = collection.query(query_texts=[query], n_results=k)
+        results = collection.query(
+            query_texts=[query],
+            n_results=k,
+            include=["documents", "ids"],
+        )
         docs = results.get("documents", [[]])[0] or []
-        return "\n\n".join(docs)
+        ids  = results.get("ids",       [[]])[0] or []
+        fragments = list(zip(ids, docs))
+        return "\n\n".join(docs), fragments
     except Exception as e:
         logger.exception("Chroma query failed", exc_info=e)
-        return ""
+        return "", []
 
 def validate_system_prompt_integrity() -> bool:
     """
@@ -120,6 +164,31 @@ def is_on_domain(query: str) -> bool:
     except Exception as e:
         logger.exception("Domain validation failed", exc_info=e)
         return True  # fail-open: do not block on error
+
+def validate_corpus_integrity(fragments: list) -> tuple:
+    """
+    C9 — Validate integrity of retrieved fragments before LLM context injection.
+ 
+    For each (doc_id, text) pair returned by ChromaDB, recomputes the SHA-256
+    hash and compares it against the baseline stored in CORPUS_HASHES.
+ 
+    Returns:
+        (True, None)           — all fragments pass.
+        (False, tampered_id)   — first doc_id whose hash does not match.
+ 
+    Behavior on unknown IDs: a fragment whose ID was not present at startup
+    is treated as a tampered document (fail-closed).
+    """
+    for doc_id, text in fragments:
+        expected = CORPUS_HASHES.get(doc_id)
+        if expected is None:
+            logger.warning("C9: unknown doc_id '%s' — not in baseline, treating as tampered", doc_id)
+            return False, doc_id
+        actual = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if actual != expected:
+            logger.warning("C9: integrity mismatch for doc_id '%s'", doc_id)
+            return False, doc_id
+    return True, None
 
 @app.post("/generate")
 async def generate(query: Query, request: Request):
@@ -169,7 +238,28 @@ async def generate(query: Query, request: Request):
         return {"response": out}
 
     
-    context = retrieve_context(query.prompt, k=3)
+    context, fragments = retrieve_context(query.prompt, k=3)
+
+    # C9 — Block request if any retrieved fragment fails the integrity check.
+    integrity_ok, tampered_id = validate_corpus_integrity(fragments)
+    if not integrity_ok:
+        latency_ms = (time.perf_counter() - start) * 1000.0
+        out = "Corpus integrity check failed."
+        request.state.response_len = len(out.encode("utf-8"))
+ 
+        log_request(
+            CONSOLIDATED_CSV,
+            scenario=SCENARIO,
+            domain=DATASET_TAG,
+            prompt=query.prompt,
+            response=out,
+            latency_ms=latency_ms,
+            was_blocked=True,
+            garak_tag=garak_tag,
+            prompt_type=prompt_type,
+            block_reason="corpus_integrity_failed",
+        )
+        return {"response": out}
 
     prompt = f"""{SYSTEM_ROLE}
 
@@ -215,6 +305,7 @@ def health():
         "model_name": MODEL_NAME,
         "docs_in_db": collection.count(),
         "latency_csv": str(LATENCY_CSV),
+        "corpus_hashes_loaded": len(CORPUS_HASHES),
     }
 
 
