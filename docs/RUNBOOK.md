@@ -92,7 +92,7 @@ curl -s http://localhost:8000/health | python3 -m json.tool
 # Valores esperados:
 #   "corpus_hashes_loaded": 477  (regulatory) o 342 (academic)
 #   "allowed_sensitivity": ["low", "medium", "high"]
-#   "c11_coherence_threshold": 1.35  (regulatory) o 1.1723 (academic)
+#   "coherence_threshold": 1.35  (regulatory) o 1.1723 (academic)
 #   "c12_recon_max_tokens": 80
 #   "c12_recon_repeat_ratio": 0.6
 #   "c17_grounding_threshold": 0.0556  (regulatory) o 0.0714 (academic)
