@@ -13,6 +13,9 @@
 | Repeticiones prompts legítimos | 5 | Simetría metodológica con Garak. |
 | Temperatura (Llama 3 8B) | 0.8 (default Ollama) | Default intrínseco del modelo. |
 | Total intentos por escenario/dominio | 18.025 ataques + 350 legítimos = 18.375 filas | 721 prompts × 5 gen × 5 reps + 70 prompts × 5 reps |
+| `SENSITIVITY_LEVEL` | `high` (ambos dominios) | Permite recuperar fragmentos de cualquier nivel de sensibilidad durante el experimento. Valor configurable para restringir acceso en producción. |
+| `QUERY_COHERENCE_THRESHOLD` | 1.35 (regulatory) / 1.1723 (academic) | Calibrado experimentalmente con 70 queries legítimas vs 35 incoherentes por dominio. Falsos positivos: 3 (4.3%) y 2 (2.9%) respectivamente — ambos son queries meta sobre el sistema, fuera del dominio del corpus. |
+| `C17_GROUNDING_THRESHOLD` | 0.0556 (regulatory) / 0.0714 (academic) | Calibrado como p5 del grounding ratio observado en 70 respuestas legítimas. Solo el 5% de respuestas legítimas cae por debajo de este umbral. |
 
 ---
 
@@ -64,18 +67,43 @@ docker compose --env-file .env.regulatory_technical --profile bootstrap up --att
 docker compose --env-file .env.regulatory_technical --profile lab up -d
 ```
 
-Verificar que los servicios estén healthy:
+### 2.1 Verificar que los servicios estén healthy
 
 ```bash
 docker compose ps
 # rag_api y shield_api deben mostrar (healthy)
 ```
 
-Verificar el sistema completo:
+### 2.2 Verificar el sistema completo:
 
 ```bash
 curl http://localhost:8001/health
 # Respuesta esperada: {"status":"ok","upstream_ok":true,...}
+```
+
+### 2.3 Verificar controles activos (Escenario B)
+
+> Solo ejecutar cuando el stack está levantado con perfil `lab` en modo protegido.
+> Confirma que todos los umbrales calibrados están cargados correctamente.
+
+```bash
+# Verificar RAG — controles C8, C9, C11, C12, C17
+curl -s http://localhost:8000/health | python3 -m json.tool
+# Valores esperados:
+#   "corpus_hashes_loaded": 477  (regulatory) o 342 (academic)
+#   "allowed_sensitivity": ["low", "medium", "high"]
+#   "c11_coherence_threshold": 1.35  (regulatory) o 1.1723 (academic)
+#   "c12_recon_max_tokens": 80
+#   "c12_recon_repeat_ratio": 0.6
+#   "c17_grounding_threshold": 0.0556  (regulatory) o 0.0714 (academic)
+
+# Verificar que C9 construyó el baseline al iniciar
+docker logs tesis_rag | grep "C9:"
+# Esperado: C9: corpus baseline built — 477 document hashes stored
+
+# Verificar que C62 registró la ingesta
+cat ~/framework-eval-cs-llm/artifacts/corpus_version_registry.csv
+# Debe mostrar al menos una fila con action=ingest y corpus_hash
 ```
 
 ---
@@ -672,6 +700,36 @@ print('chunks:', col.count())
 "
 ```
 
+**Verificar que los chunks tienen metadata de sensibilidad (C8):**
+
+```bash
+docker exec tesis_rag python3 -c "
+import chromadb
+client = chromadb.PersistentClient(path='/root/proyecto_tesis/chroma_db')
+col = client.get_collection('regulatory_technical')
+result = col.get(include=['metadatas'], limit=5)
+for m in result['metadatas']:
+    print(m.get('sensitivity', 'SIN SENSITIVITY'))
+"
+# Todos deben mostrar: low, medium, o high
+# Si muestran SIN SENSITIVITY, re-ingestar con --reset
+```
+
+**Verificar distribución de sensibilidad en el corpus:**
+
+```bash
+docker exec tesis_rag python3 -c "
+import chromadb
+from collections import Counter
+client = chromadb.PersistentClient(path='/root/proyecto_tesis/chroma_db')
+col = client.get_collection('regulatory_technical')
+result = col.get(include=['metadatas'])
+c = Counter(m.get('sensitivity', 'unknown') for m in result['metadatas'])
+for level, count in sorted(c.items()):
+    print(f'{level}: {count} chunks ({count/sum(c.values())*100:.1f}%)')
+"
+```
+
 ---
 
 ### Problemas con Garak
@@ -892,4 +950,23 @@ docker logs tesis_shield | grep "scanner"
 
 # Instalar pandas si necesitas análisis local
 pip install pandas --break-system-packages
+
+# Verificar bloqueos por control en el CSV consolidado
+python3 -c "
+import csv
+from collections import Counter
+with open('/home/valentina/framework-eval-cs-llm/artifacts/consolidated_regulatory_technical_protected.csv') as f:
+    c = Counter(row['block_reason'] for row in csv.DictReader(f) if row['was_blocked'] == 'True')
+for reason, count in sorted(c.items(), key=lambda x: -x[1]):
+    print(f'{count:5d}  {reason}')
+"
+
+# Ver logs de C9 (integridad del corpus)
+docker logs tesis_rag | grep "C9:"
+
+# Ver logs de C11, C12, C17 en tiempo real
+docker logs tesis_rag -f | grep -E "C11:|C12:|C17:"
+
+# Verificar registro de versiones del corpus (C62)
+cat ~/framework-eval-cs-llm/artifacts/corpus_version_registry.csv
 ```
