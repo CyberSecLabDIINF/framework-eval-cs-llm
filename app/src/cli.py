@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import hashlib
 import json
 import os
 import re
@@ -7,6 +9,7 @@ import glob
 import argparse
 import subprocess
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Literal, List
 
@@ -136,6 +139,64 @@ def serve_shield(
     raise typer.Exit(code=_run_subprocess(cmd))
 
 
+def _record_corpus_version(
+    artifacts_dir: Path,
+    source: str,
+    collection_name: str,
+    doc_count: int,
+    corpus_hash: str,
+    action: str = "ingest",
+) -> None:
+    """
+    C62 — Append a corpus version record to the persistent registry CSV.
+
+    Each record captures:
+      timestamp      — UTC ISO-8601 datetime of the ingestion event.
+      source         — logical domain name (e.g. regulatory_technical).
+      collection     — ChromaDB collection name.
+      action         — operation type: 'ingest' or 'reset+ingest'.
+      doc_count      — total document count after the operation.
+      corpus_hash    — SHA-256 of all document IDs sorted and concatenated,
+                       providing a stable fingerprint of the corpus state.
+    """
+    registry_path = artifacts_dir / "corpus_version_registry.csv"
+    file_exists = registry_path.exists()
+
+    with registry_path.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["timestamp", "source", "collection", "action", "doc_count", "corpus_hash"],
+        )
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow({
+            "timestamp":   datetime.now(timezone.utc).isoformat(),
+            "source":      source,
+            "collection":  collection_name,
+            "action":      action,
+            "doc_count":   doc_count,
+            "corpus_hash": corpus_hash,
+        })
+
+
+def _compute_corpus_hash(chroma_path: Path, collection_name: str) -> str:
+    """
+    Compute a stable SHA-256 fingerprint of the corpus by hashing the sorted
+    concatenation of all document IDs in the collection.
+    Returns 'error' if the collection cannot be read.
+    """
+    try:
+        import chromadb
+        client = chromadb.PersistentClient(path=str(chroma_path))
+        col = client.get_collection(collection_name)
+        result = col.get(include=[])
+        ids = sorted(result.get("ids", []))
+        combined = "|".join(ids)
+        return hashlib.sha256(combined.encode("utf-8")).hexdigest()
+    except Exception:
+        return "error"
+
+
 @ingest_app.callback(invoke_without_command=True)
 def ingest_callback(
     ctx: typer.Context,
@@ -154,6 +215,19 @@ def ingest_callback(
     from ingestion.registry import run_source
     n = run_source(source, input_dir=input_dir, collection=collection, reset=reset)
     typer.echo(f"✅ Ingest '{source}' OK. docs={n} collection='{collection or source}'")
+
+    s = get_settings()
+    corpus_hash = _compute_corpus_hash(s.chroma_db_path, collection or source)
+    action = "reset+ingest" if reset else "ingest"
+    _record_corpus_version(
+        artifacts_dir=s.artifacts_dir,
+        source=source,
+        collection_name=collection or source,
+        doc_count=n,
+        corpus_hash=corpus_hash,
+        action=action,
+    )
+    typer.echo(f"   corpus_hash={corpus_hash[:16]}…  registry=corpus_version_registry.csv")
 
 @ingest_app.command("verify")
 def ingest_verify(
