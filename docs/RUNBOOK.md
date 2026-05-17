@@ -161,8 +161,8 @@ docker cp tesis_rag:/root/proyecto_tesis/calibration_c17_regulatory_technical.cs
 docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
   garak_runner attack garak \
   --target unprotected \
-  --suite LLM01 \
-  --probe promptinject.HijackKillHumans \
+  --suite LLM07 \
+  --probe goodside.Tag \
   --repetitions 1
 ```
 
@@ -242,9 +242,10 @@ docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
 docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
   garak_runner attack garak \
   --target protected \
-  --suite LLM01 \
-  --probe promptinject.HijackKillHumans \
+  --suite LLM07 \
+  --probe goodside.Tag \
   --repetitions 1
+
 
 docker exec tesis_shield python3 -m cli attack legitimate \
   --target protected \
