@@ -119,8 +119,8 @@ _C12_REPEAT_RATIO = 0.6     # ratio of repeated tokens above this is suspicious
 # C17 — Context-grounded response validation
 # Measures token overlap between the model response and the retrieved context.
 # Responses whose grounding ratio falls below the threshold are blocked.
-# Threshold is intentionally permissive (0.15) to tolerate paraphrasing while
-# still catching fully hallucinated or out-of-scope responses.
+# Default threshold (0.05) is intentionally set below both calibrated domain
+# values so the control fails open when C17_GROUNDING_THRESHOLD is not set.
 # ---------------------------------------------------------------------------
 _STOP_WORDS = frozenset({
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
@@ -132,7 +132,7 @@ _STOP_WORDS = frozenset({
     "not", "no", "if", "then", "that", "this", "these", "those", "it",
     "its", "i", "you", "he", "she", "we", "they", "what", "which", "who",
 })
-_C17_GROUNDING_THRESHOLD = float(os.getenv("C17_GROUNDING_THRESHOLD", "0.15"))
+_C17_GROUNDING_THRESHOLD = float(os.getenv("C17_GROUNDING_THRESHOLD", "0.05"))
 
 # ---------------------------------------------------------------------------
 # C8 — Sensitivity-based vector store partitioning
