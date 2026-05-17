@@ -47,6 +47,7 @@ services:
       - ./garak_runs:/root/.local/share/garak/garak_runs
       - ./chroma_cache:/root/.cache/chroma
       - ./app/src:/root/proyecto_tesis/app/src
+      - ./app/scripts:/root/proyecto_tesis/app/scripts
     command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/reports /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn api.rag:app --host 0.0.0.0 --port 8000"]
     depends_on:
       - ollama_core
@@ -142,6 +143,7 @@ services:
       - ./artifacts:/root/proyecto_tesis/artifacts
       - ./app/config:/root/proyecto_tesis/app/config:ro
       - ./app/src:/root/proyecto_tesis/app/src:ro
+      - ./app/scripts:/root/proyecto_tesis/app/scripts:ro
       - ./garak_runs:/root/.local/share/garak/garak_runs
       - ./data:/root/proyecto_tesis/data
       - ./chroma_db:/root/proyecto_tesis/chroma_db   
