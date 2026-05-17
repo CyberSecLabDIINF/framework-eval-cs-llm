@@ -26,6 +26,7 @@ COLUMNS = [
     "should_block",
     "was_blocked",
     "scanner_triggered",
+    "block_reason",
     "input_scanner_score",
     "output_scanner_score",
     "garak_passed",
@@ -77,6 +78,7 @@ def log_request(
     latency_ms: float,
     was_blocked: bool,
     scanner_triggered: Optional[str] = None,
+    block_reason: Optional[str] = None,
     garak_tag: str = "",
     prompt_type: str = "adversarial",
     repetition: Optional[int] = None,
@@ -110,6 +112,7 @@ def log_request(
         "should_block": should_block,
         "was_blocked": 1 if was_blocked else 0,
         "scanner_triggered": scanner_triggered or "",
+        "block_reason": block_reason or "",
         "input_scanner_score": round(input_scanner_score, 4) if input_scanner_score is not None else "",
         "output_scanner_score": round(output_scanner_score, 4) if output_scanner_score is not None else "",
         "garak_passed": "",  # filled post-experiment by patch_garak_passed()

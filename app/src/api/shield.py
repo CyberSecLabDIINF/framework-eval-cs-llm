@@ -1,5 +1,7 @@
 import os
+import re
 import time
+import unicodedata
 from pathlib import Path
 from typing import Optional, Dict, Any
 import logging as _logging
@@ -264,6 +266,7 @@ async def generate(query: Query, request: Request):
             latency_ms=latency_ms,
             was_blocked=True,
             scanner_triggered=input_scanner,
+            block_reason=f"input_{input_scanner.lower()}",
             garak_tag=garak_tag,
             prompt_type=prompt_type,
             input_scanner_score=input_score,
@@ -308,6 +311,7 @@ async def generate(query: Query, request: Request):
         latency_ms=latency_ms,
         was_blocked=was_blocked,
         scanner_triggered=scanner_triggered,
+        block_reason=f"output_{output_scanner.lower()}" if output_scanner is not None else None,
         garak_tag=garak_tag,
         prompt_type=prompt_type,
         input_scanner_score=input_score,

@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import time
+import hashlib
 
 import chromadb
 import ollama
@@ -74,10 +75,14 @@ collection = chroma_client.get_or_create_collection(name=COLLECTION_NAME)
 
 client = ollama.Client(host=OLLAMA_HOST)
 
+SYSTEM_PROMPT_HASH = hashlib.sha256(
+    (SYSTEM_ROLE + RESTRICTIONS).encode("utf-8")
+).hexdigest()
+
+DOMAIN_DISTANCE_THRESHOLD = float(os.getenv("DOMAIN_DISTANCE_THRESHOLD", "1.0"))
 
 class Query(BaseModel):
     prompt: str
-
 
 def retrieve_context(query: str, k: int = 3) -> str:
     try:
@@ -88,7 +93,15 @@ def retrieve_context(query: str, k: int = 3) -> str:
         logger.exception("Chroma query failed", exc_info=e)
         return ""
 
-DOMAIN_DISTANCE_THRESHOLD = float(os.getenv("DOMAIN_DISTANCE_THRESHOLD", "1.0"))
+def validate_system_prompt_integrity() -> bool:
+    """
+    C32 — Verify that the system prompt has not been modified.
+    Compares current hash against the hash computed at startup.
+    """
+    current_hash = hashlib.sha256(
+        (SYSTEM_ROLE + RESTRICTIONS).encode("utf-8")
+    ).hexdigest()
+    return current_hash == SYSTEM_PROMPT_HASH
 
 def is_on_domain(query: str) -> bool:
     """
@@ -116,6 +129,25 @@ async def generate(query: Query, request: Request):
     prompt_type = "adversarial" if garak_tag else "legitimate"
     forwarded_by_shield = request.headers.get("x-forwarded-by", "") == "shield"
 
+    if not validate_system_prompt_integrity():
+        latency_ms = (time.perf_counter() - start) * 1000.0
+        out = "System prompt integrity check failed."
+        request.state.response_len = len(out.encode("utf-8"))
+
+        log_request(
+            CONSOLIDATED_CSV,
+            scenario=SCENARIO,
+            domain=DATASET_TAG,
+            prompt=query.prompt,
+            response=out,
+            latency_ms=latency_ms,
+            was_blocked=True,
+            garak_tag=garak_tag,
+            prompt_type=prompt_type,
+            block_reason="system_prompt_integrity_failed",
+        )
+        return {"response": out}
+
     if not is_on_domain(query.prompt):
         latency_ms = (time.perf_counter() - start) * 1000.0
         out = "Query is outside the authorized domain."
@@ -130,6 +162,7 @@ async def generate(query: Query, request: Request):
                 response=out,
                 latency_ms=latency_ms,
                 was_blocked=True,
+                block_reason="domain_validation_failed",
                 garak_tag=garak_tag,
                 prompt_type=prompt_type,
             )
