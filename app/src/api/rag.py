@@ -24,6 +24,7 @@ CONFIG_RAG_PATH = s.get_rag_config_path(DATASET_TAG)
 CHROMA_PATH = str(s.chroma_db_path)
 OLLAMA_HOST_ENV = os.getenv("OLLAMA_HOST")
 SCENARIO = os.getenv("SCENARIO", "unprotected")
+IS_PROTECTED = SCENARIO == "protected"
 LATENCY_CSV = str(s.latency_dir / "latency_unprotected.csv")
 
 CONSOLIDATED_CSV = Path(os.getenv(
@@ -82,6 +83,20 @@ SYSTEM_PROMPT_HASH = hashlib.sha256(
 DOMAIN_DISTANCE_THRESHOLD = float(os.getenv("DOMAIN_DISTANCE_THRESHOLD", "1.0"))
 
 # ---------------------------------------------------------------------------
+# C8 — Sensitivity-based vector store partitioning
+# SENSITIVITY_LEVEL defines the ceiling allowed for this session.
+# The retrieval filter includes only chunks at or below the configured level.
+# Mapping: low={low}, medium={low, medium}, high={low, medium, high}
+# ---------------------------------------------------------------------------
+_SENSITIVITY_CEILING: dict = {
+    "low":    ["low"],
+    "medium": ["low", "medium"],
+    "high":   ["low", "medium", "high"],
+}
+SENSITIVITY_LEVEL = os.getenv("SENSITIVITY_LEVEL", "high").lower()
+ALLOWED_SENSITIVITY = _SENSITIVITY_CEILING.get(SENSITIVITY_LEVEL, ["low", "medium", "high"])
+
+# ---------------------------------------------------------------------------
 # C9 — Corpus integrity baseline (computed once at startup, held in memory)
 # Each document in the collection is hashed (SHA-256) and stored by its ID.
 # Before any fragment is injected into the LLM context, its hash is re-checked
@@ -119,15 +134,20 @@ def retrieve_context(query: str, k: int = 3) -> tuple:
     """
     Retrieve the top-k fragments from ChromaDB for the given query.
  
+    C8 — Only fragments whose sensitivity level is within ALLOWED_SENSITIVITY
+    are eligible for retrieval, enforcing vector store partitioning at query time.
+ 
     Returns:
         context_str  — fragments joined for prompt injection.
         fragments    — list of (doc_id, text) pairs, used by C9 integrity check.
     """
     try:
+        where_filter = {"sensitivity": {"$in": ALLOWED_SENSITIVITY}} if IS_PROTECTED else None
         results = collection.query(
             query_texts=[query],
             n_results=k,
             include=["documents", "ids"],
+            where=where_filter,
         )
         docs = results.get("documents", [[]])[0] or []
         ids  = results.get("ids",       [[]])[0] or []
@@ -190,6 +210,34 @@ def validate_corpus_integrity(fragments: list) -> tuple:
             return False, doc_id
     return True, None
 
+def _blocked_response(
+    request: Request,
+    query: Query,
+    start: float,
+    garak_tag: str,
+    prompt_type: str,
+    message: str,
+    block_reason: str,
+    log: bool = True,
+) -> dict:
+    latency_ms = (time.perf_counter() - start) * 1000.0
+    request.state.response_len = len(message.encode("utf-8"))
+    if log:
+        log_request(
+            CONSOLIDATED_CSV,
+            scenario=SCENARIO,
+            domain=DATASET_TAG,
+            prompt=query.prompt,
+            response=message,
+            latency_ms=latency_ms,
+            was_blocked=True,
+            garak_tag=garak_tag,
+            prompt_type=prompt_type,
+            block_reason=block_reason,
+        )
+    return {"response": message}
+
+
 @app.post("/generate")
 async def generate(query: Query, request: Request):
     start = time.perf_counter()
@@ -198,68 +246,33 @@ async def generate(query: Query, request: Request):
     prompt_type = "adversarial" if garak_tag else "legitimate"
     forwarded_by_shield = request.headers.get("x-forwarded-by", "") == "shield"
 
-    if not validate_system_prompt_integrity():
-        latency_ms = (time.perf_counter() - start) * 1000.0
-        out = "System prompt integrity check failed."
-        request.state.response_len = len(out.encode("utf-8"))
-
-        log_request(
-            CONSOLIDATED_CSV,
-            scenario=SCENARIO,
-            domain=DATASET_TAG,
-            prompt=query.prompt,
-            response=out,
-            latency_ms=latency_ms,
-            was_blocked=True,
-            garak_tag=garak_tag,
-            prompt_type=prompt_type,
-            block_reason="system_prompt_integrity_failed",
-        )
-        return {"response": out}
-
-    if not is_on_domain(query.prompt):
-        latency_ms = (time.perf_counter() - start) * 1000.0
-        out = "Query is outside the authorized domain."
-        request.state.response_len = len(out.encode("utf-8"))
-
-        if not forwarded_by_shield:
-            log_request(
-                CONSOLIDATED_CSV,
-                scenario=SCENARIO,
-                domain=DATASET_TAG,
-                prompt=query.prompt,
-                response=out,
-                latency_ms=latency_ms,
-                was_blocked=True,
-                block_reason="domain_validation_failed",
-                garak_tag=garak_tag,
-                prompt_type=prompt_type,
+    # Pre-retrieval checks: C32 and C4 act on the prompt before the vector store is touched.
+    if IS_PROTECTED:
+        if not validate_system_prompt_integrity():
+            return _blocked_response(
+                request, query, start, garak_tag, prompt_type,
+                message="System prompt integrity check failed.",
+                block_reason="system_prompt_integrity_failed",
             )
-        return {"response": out}
+        if not is_on_domain(query.prompt):
+            return _blocked_response(
+                request, query, start, garak_tag, prompt_type,
+                message="Query is outside the authorized domain.",
+                block_reason="domain_validation_failed",
+                log=not forwarded_by_shield,
+            )
 
-    
     context, fragments = retrieve_context(query.prompt, k=3)
 
-    # C9 — Block request if any retrieved fragment fails the integrity check.
-    integrity_ok, tampered_id = validate_corpus_integrity(fragments)
-    if not integrity_ok:
-        latency_ms = (time.perf_counter() - start) * 1000.0
-        out = "Corpus integrity check failed."
-        request.state.response_len = len(out.encode("utf-8"))
- 
-        log_request(
-            CONSOLIDATED_CSV,
-            scenario=SCENARIO,
-            domain=DATASET_TAG,
-            prompt=query.prompt,
-            response=out,
-            latency_ms=latency_ms,
-            was_blocked=True,
-            garak_tag=garak_tag,
-            prompt_type=prompt_type,
-            block_reason="corpus_integrity_failed",
-        )
-        return {"response": out}
+    # Post-retrieval check: C9 validates fragment integrity before context injection.
+    if IS_PROTECTED:
+        integrity_ok, _ = validate_corpus_integrity(fragments)
+        if not integrity_ok:
+            return _blocked_response(
+                request, query, start, garak_tag, prompt_type,
+                message="Corpus integrity check failed.",
+                block_reason="corpus_integrity_failed",
+            )
 
     prompt = f"""{SYSTEM_ROLE}
 
@@ -306,6 +319,7 @@ def health():
         "docs_in_db": collection.count(),
         "latency_csv": str(LATENCY_CSV),
         "corpus_hashes_loaded": len(CORPUS_HASHES),
+        "allowed_sensitivity": ALLOWED_SENSITIVITY,
     }
 
 
