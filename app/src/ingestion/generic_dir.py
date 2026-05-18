@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 from typing import List, Optional
 
 import chromadb
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
+
+
+_RUT_RE = re.compile(r"\d{1,2}\.\d{3}\.\d{3}-[\dkK]")
+
+
+def _classify_sensitivity(text: str) -> str:
+    if re.search(r"\[CONFIDENTIAL\]", text):
+        return "high"
+    if _RUT_RE.search(text):
+        return "medium"
+    return "low"
 
 
 def _sha1_text(s: str) -> str:
@@ -119,6 +131,7 @@ def ingest_dir_pdfs(
                     "chunk_overlap": chunk_overlap,
                     "path": str(pdf_path),
                     "collection": collection,
+                    "sensitivity": _classify_sensitivity(chunk_text),
                 }
             )
 
