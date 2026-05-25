@@ -149,7 +149,7 @@ def patch_garak_passed(csv_path: Path, garak_dir: Path) -> int:
                     obj = json.loads(line)
                 except Exception:
                     continue
-                if obj.get("entry_type") != "check":
+                if obj.get("entry_type") != "eval":
                     continue
                 # Resolve probe name tolerating field name variations
                 probe = None
@@ -161,13 +161,16 @@ def patch_garak_passed(csv_path: Path, garak_dir: Path) -> int:
                 if probe is None:
                     continue
                 passed = obj.get("passed")
-                if isinstance(passed, bool):
-                    probe_results.setdefault(probe, []).append(passed)
+                total = obj.get("total")
+                if isinstance(passed, int) and isinstance(total, int) and total > 0:
+                    probe_results.setdefault(probe, {"passed": 0, "total": 0})
+                    probe_results[probe]["passed"] += passed
+                    probe_results[probe]["total"] += total
 
     # Compute garak_passed per probe: 1 if majority passed (attack failed), 0 if majority failed (attack succeeded)
     probe_garak_passed: dict[str, int] = {}
-    for probe, results in probe_results.items():
-        pass_rate = sum(results) / len(results)
+    for probe, counts in probe_results.items():
+        pass_rate = counts["passed"] / counts["total"]
         probe_garak_passed[probe] = 1 if pass_rate >= 0.5 else 0
 
     # Read, update, rewrite CSV
