@@ -432,6 +432,270 @@ def deep_analysis_tfa(df_a: pd.DataFrame, df_b: pd.DataFrame, domain: str):
             flag = " ⚠️" if rate > 0.1 else ""
             print(f"  {probe:45s} {len(sub):>10} {exp:>10} {rate:>8.4f}{flag}")
 
+def deep_analysis_by_detector(runs_dir: Path, domains: list):
+    """
+    TFA breakdown by probe × detector for Scenario A.
+    Highlights difference between primary and secondary detectors
+    where multiple detectors exist for the same probe.
+    """
+    print(f"\n{'='*70}")
+    print(f"  DETECTOR-LEVEL ANALYSIS — Scenario A")
+    print(f"{'='*70}")
+
+    for domain in domains:
+        run_a = find_run_dir(runs_dir, domain, "unprotected")
+        if not run_a:
+            print(f"  [WARN] No unprotected run found for {domain}")
+            continue
+
+        print(f"\n  DOMAIN: {domain.upper()}")
+        print(f"  {'-'*65}")
+
+        # Aggregate passed/total per (probe, detector)
+        results: dict[tuple, dict] = defaultdict(lambda: {"passed": 0, "total": 0})
+
+        for jsonl_file in sorted((run_a / "garak").glob("*.report.jsonl")):
+            with jsonl_file.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if obj.get("entry_type") != "eval":
+                        continue
+                    probe    = obj.get("probe", "unknown")
+                    detector = obj.get("detector", "unknown")
+                    results[(probe, detector)]["passed"] += obj.get("passed", 0)
+                    results[(probe, detector)]["total"]  += obj.get("total", 0)
+
+        # Group by probe to detect multi-detector probes
+        from collections import defaultdict as dd
+        by_probe: dict[str, list] = dd(list)
+        for (probe, detector), v in results.items():
+            tfa = v["passed"] / v["total"] if v["total"] > 0 else None
+            by_probe[probe].append({
+                "detector": detector,
+                "passed":   v["passed"],
+                "total":    v["total"],
+                "TFA":      tfa,
+                "primary":  PRIMARY_DETECTOR.get(probe) == detector
+                            if probe in PRIMARY_DETECTOR else True,
+            })
+
+        print(f"\n  {'Probe':45s} {'Detector':30s} {'Primary':>8} "
+              f"{'Passed':>8} {'Total':>8} {'TFA':>8}")
+        print(f"  {'-'*106}")
+
+        for probe in sorted(by_probe.keys()):
+            detectors = sorted(by_probe[probe], key=lambda x: x["detector"])
+            suite = PROBE_TO_SUITE.get(probe, "?")
+            for i, d in enumerate(detectors):
+                probe_label = probe if i == 0 else ""
+                primary_str = "✅ yes" if d["primary"] else "no"
+                tfa_str     = f"{d['TFA']:.4f}" if d["TFA"] is not None else "N/A"
+                # Flag large gap between detectors
+                flag = ""
+                if len(detectors) > 1 and not d["primary"] and i > 0:
+                    tfa_primary = next(
+                        (x["TFA"] for x in detectors if x["primary"]), None
+                    )
+                    if tfa_primary is not None and d["TFA"] is not None:
+                        gap = abs(d["TFA"] - tfa_primary)
+                        flag = f"  Δ={gap:.4f}" if gap > 0.001 else ""
+                print(f"  {probe_label:45s} {d['detector']:30s} {primary_str:>8} "
+                      f"{d['passed']:>8} {d['total']:>8} {tfa_str:>8}{flag}")
+
+        # Summary: probes with multiple detectors
+        multi = {p: ds for p, ds in by_probe.items() if len(ds) > 1}
+        if multi:
+            print(f"\n  MULTI-DETECTOR PROBES — Gap analysis (primary vs secondary)")
+            print(f"  {'Probe':45s} {'Primary TFA':>12} {'Secondary TFA':>14} {'Gap':>8}")
+            print(f"  {'-'*82}")
+            for probe, detectors in sorted(multi.items()):
+                primary   = next((d for d in detectors if d["primary"]), None)
+                secondary = next((d for d in detectors if not d["primary"]), None)
+                if primary and secondary:
+                    gap = secondary["TFA"] - primary["TFA"]
+                    print(f"  {probe:45s} {primary['TFA']:>12.4f} "
+                          f"{secondary['TFA']:>14.4f} {gap:>+8.4f}")
+                    print(f"  {'→ Using primary (stricter) for TFA calculation':45s}")
+
+def deep_analysis_confusion_a(artifacts_dir: Path, domains: list):
+    """
+    Prints partial confusion matrix for Scenario A in terminal.
+    Mirrors what plot_confusion_matrix_scenario_a shows visually.
+    """
+    print(f"\n{'='*70}")
+    print(f"  PARTIAL CONFUSION MATRIX — Scenario A (no active classifier)")
+    print(f"  FP does not exist: no blocking mechanism active by design.")
+    print(f"{'='*70}")
+
+    for domain in domains:
+        df_a = load_consolidated(artifacts_dir, domain, "unprotected")
+        if df_a.empty:
+            print(f"  [WARN] No data for {domain}")
+            continue
+
+        path = artifacts_dir / f"consolidated_{domain}_unprotected.csv"
+        df_full = pd.read_csv(path)
+        df_legit = df_full[df_full["prompt_type"] == "legitimate"].copy()
+        df_legit["response_has_confidential"] = pd.to_numeric(
+            df_legit["response_has_confidential"], errors="coerce"
+        ).fillna(0).astype(int)
+
+        df_adv = df_a[df_a["garak_passed"].notna()].copy()
+        df_adv["garak_passed"] = df_adv["garak_passed"].astype(int)
+
+        TP = int((df_adv["garak_passed"] == 1).sum())
+        FN = int((df_adv["garak_passed"] == 0).sum())
+        TN = int((df_legit["response_has_confidential"] == 0).sum())
+        legit_leaked = int((df_legit["response_has_confidential"] == 1).sum())
+
+        total_adv   = TP + FN
+        total_legit = TN + legit_leaked
+
+        recall   = TP / total_adv   if total_adv   > 0 else 0
+        fnr      = FN / total_adv   if total_adv   > 0 else 0
+        tn_rate  = TN / total_legit if total_legit > 0 else 0
+        leak_rate = legit_leaked / total_legit if total_legit > 0 else 0
+
+        print(f"\n  DOMAIN: {domain.upper()}")
+        print(f"  {'-'*65}")
+        print(f"\n  {'':25s} {'Resisted':>12} {'Failed':>12}")
+        print(f"  {'Actual ATTACK':25s} {'TP = '+str(TP):>12} {'FN = '+str(FN):>12}")
+        print(f"  {'Actual LEGIT':25s} {'TN = '+str(TN):>12} {'FP = N/A':>12}")
+
+        print(f"\n  ADVERSARIAL — Model intrinsic resistance")
+        print(f"  {'-'*50}")
+        print(f"  {'Total adversarial':35s} {total_adv:>8}")
+        print(f"  {'TP (resisted)':35s} {TP:>8}  ({recall*100:.2f}%)")
+        print(f"  {'FN (attack succeeded)':35s} {FN:>8}  ({fnr*100:.2f}%)")
+        print(f"  {'Recall = TFA_A':35s} {recall:>8.4f}")
+        print(f"  {'FNR':35s} {fnr:>8.4f}")
+
+        print(f"\n  LEGITIMATE — Model behavior on clean prompts")
+        print(f"  {'-'*50}")
+        print(f"  {'Total legitimate':35s} {total_legit:>8}")
+        print(f"  {'TN (no leakage)':35s} {TN:>8}  ({tn_rate*100:.2f}%)")
+        print(f"  {'Leaked confidential data':35s} {legit_leaked:>8}  ({leak_rate*100:.2f}%)")
+        print(f"  {'FP':35s} {'N/A':>8}  (no classifier active)")
+
+        # By subdimension
+        print(f"\n  BY SUBDIMENSION")
+        print(f"  {'Subdim':6s} {'TP':>8} {'FN':>8} {'Recall':>8} {'FNR':>8}")
+        print(f"  {'-'*44}")
+        for subdim in sorted(df_adv["subdimension"].dropna().unique()):
+            sub = df_adv[df_adv["subdimension"] == subdim]
+            tp  = int((sub["garak_passed"] == 1).sum())
+            fn  = int((sub["garak_passed"] == 0).sum())
+            rec = tp / (tp + fn) if (tp + fn) > 0 else 0
+            fnr_s = fn / (tp + fn) if (tp + fn) > 0 else 0
+            print(f"  {subdim:6s} {tp:>8} {fn:>8} {rec:>8.4f} {fnr_s:>8.4f}")
+
+def deep_analysis_confusion(artifacts_dir: Path, domains: list):
+    """
+    Confusion matrix and derived metrics for LLM Guard (Scenario B only).
+    For Scenario A, reports model intrinsic resistance using garak_passed.
+    
+    Confusion matrix (Scenario B):
+      TP: should_block=1, was_blocked=1  (attack correctly blocked)
+      FN: should_block=1, was_blocked=0  (attack missed by LLM Guard)
+      FP: should_block=0, was_blocked=1  (legitimate blocked — false alarm)
+      TN: should_block=0, was_blocked=0  (legitimate correctly passed)
+    """
+    print(f"\n{'='*70}")
+    print(f"  CONFUSION MATRIX ANALYSIS — LLM Guard (Scenario B)")
+    print(f"{'='*70}")
+
+    for domain in domains:
+        df_b = load_consolidated(artifacts_dir, domain, "protected")
+        df_a = load_consolidated(artifacts_dir, domain, "unprotected")
+
+        print(f"\n  DOMAIN: {domain.upper()}")
+        print(f"  {'-'*65}")
+
+        # ── Scenario A: intrinsic model resistance ───────────
+        if not df_a.empty and "garak_passed" in df_a.columns:
+            df_a_valid = df_a[df_a["garak_passed"].notna()].copy()
+            df_a_valid["garak_passed"] = df_a_valid["garak_passed"].astype(int)
+            total_a  = len(df_a_valid)
+            resist_a = int((df_a_valid["garak_passed"] == 1).sum())
+            fail_a   = total_a - resist_a
+            print(f"\n  Scenario A — Intrinsic model resistance (no classifier)")
+            print(f"  {'Total adversarial attempts':40s} {total_a:>8}")
+            print(f"  {'Resisted by model (garak_passed=1)':40s} {resist_a:>8}  ({resist_a/total_a*100:.2f}%)")
+            print(f"  {'Succeeded against model (garak_passed=0)':40s} {fail_a:>8}  ({fail_a/total_a*100:.2f}%)")
+            print(f"  Note: No FP/TN concept applies — no active classifier.")
+
+        # ── Scenario B: full confusion matrix ───────────────
+        if df_b.empty:
+            print(f"\n  Scenario B — Not available yet.")
+            continue
+
+        # Split adversarial and legitimate
+        adv  = df_b[df_b["prompt_type"] == "adversarial"].copy()
+        legit = df_b[df_b["prompt_type"] == "legitimate"].copy()
+
+        TP = int(((adv["should_block"]  == 1) & (adv["was_blocked"]  == 1)).sum())
+        FN = int(((adv["should_block"]  == 1) & (adv["was_blocked"]  == 0)).sum())
+        FP = int(((legit["should_block"] == 0) & (legit["was_blocked"] == 1)).sum())
+        TN = int(((legit["should_block"] == 0) & (legit["was_blocked"] == 0)).sum())
+
+        total     = TP + FN + FP + TN
+        precision = TP / (TP + FP) if (TP + FP) > 0 else None
+        recall    = TP / (TP + FN) if (TP + FN) > 0 else None  # = TFA_B
+        f1        = (2 * precision * recall / (precision + recall)
+                     if precision and recall else None)
+        specificity = TN / (TN + FP) if (TN + FP) > 0 else None
+        fpr         = FP / (FP + TN) if (FP + TN) > 0 else None
+        fnr         = FN / (FN + TP) if (FN + TP) > 0 else None
+        accuracy    = (TP + TN) / total if total > 0 else None
+
+        print(f"\n  Scenario B — LLM Guard Confusion Matrix")
+        print(f"\n  {'':25s} {'Predicted BLOCK':>16} {'Predicted PASS':>16}")
+        print(f"  {'Actual ATTACK':25s} {'TP = ' + str(TP):>16} {'FN = ' + str(FN):>16}")
+        print(f"  {'Actual LEGITIMATE':25s} {'FP = ' + str(FP):>16} {'TN = ' + str(TN):>16}")
+
+        print(f"\n  DERIVED METRICS")
+        print(f"  {'-'*50}")
+
+        def fmt(v):
+            return f"{v:.4f}  ({v*100:.2f}%)" if v is not None else "N/A"
+
+        print(f"  {'Accuracy  (TP+TN)/total':35s} {fmt(accuracy)}")
+        print(f"  {'Precision TP/(TP+FP)':35s} {fmt(precision)}")
+        print(f"  {'Recall    TP/(TP+FN)  [= TFA_B]':35s} {fmt(recall)}")
+        print(f"  {'F1 score  2·P·R/(P+R)':35s} {fmt(f1)}")
+        print(f"  {'Specificity TN/(TN+FP)':35s} {fmt(specificity)}")
+        print(f"  {'FPR  FP/(FP+TN)':35s} {fmt(fpr)}")
+        print(f"  {'FNR  FN/(FN+TP)':35s} {fmt(fnr)}")
+
+        # ── By subdimension ──────────────────────────────────
+        print(f"\n  BY SUBDIMENSION — Scenario B")
+        print(f"  {'Subdim':6s} {'TP':>6} {'FN':>6} {'FP':>6} {'TN':>6} "
+              f"{'Recall':>8} {'Prec':>8} {'F1':>8}")
+        print(f"  {'-'*60}")
+
+        for subdim in sorted(df_b["subdimension"].dropna().unique()):
+            sub_adv   = adv[adv["subdimension"] == subdim]
+            sub_legit = legit[legit["subdimension"] == subdim]
+            tp = int(((sub_adv["should_block"]  == 1) & (sub_adv["was_blocked"]  == 1)).sum())
+            fn = int(((sub_adv["should_block"]  == 1) & (sub_adv["was_blocked"]  == 0)).sum())
+            fp = int(((sub_legit["should_block"] == 0) & (sub_legit["was_blocked"] == 1)).sum())
+            tn = int(((sub_legit["should_block"] == 0) & (sub_legit["was_blocked"] == 0)).sum())
+            rec  = tp / (tp + fn) if (tp + fn) > 0 else None
+            prec = tp / (tp + fp) if (tp + fp) > 0 else None
+            f1s  = (2 * prec * rec / (prec + rec)
+                    if prec and rec else None)
+            rec_s  = f"{rec:.4f}"  if rec  is not None else "N/A"
+            prec_s = f"{prec:.4f}" if prec is not None else "N/A"
+            f1_s   = f"{f1s:.4f}"  if f1s  is not None else "N/A"
+            print(f"  {subdim:6s} {tp:>6} {fn:>6} {fp:>6} {tn:>6} "
+                  f"{rec_s:>8} {prec_s:>8} {f1_s:>8}")
+
 def deep_analysis_las(lat_a: pd.DataFrame, lat_b: pd.DataFrame):
     """
     Deep LAS analysis from latency CSVs.
@@ -884,23 +1148,51 @@ def plot_latency_histogram(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir
         return
     setup_style()
 
-    fig, ax = plt.subplots(figsize=(9, 5))
-    lat_a["latency_ms"].plot.hist(
-        bins=80, alpha=0.5, color=SCENARIO_COLORS["A"],
-        label="Scenario A", density=True, ax=ax
-    )
-    lat_a["latency_ms"].plot.kde(
-        color=SCENARIO_COLORS["A"], linewidth=2, ax=ax
-    )
-    if not lat_b.empty:
-        lat_b["latency_ms"].plot.hist(
-            bins=80, alpha=0.5, color=SCENARIO_COLORS["B"],
-            label="Scenario B", density=True, ax=ax
-        )
-        lat_b["latency_ms"].plot.kde(
-            color=SCENARIO_COLORS["B"], linewidth=2, ax=ax
-        )
+    fig, ax = plt.subplots(figsize=(11, 6))
 
+    vals_a = lat_a["latency_ms"].dropna()
+    ax.hist(vals_a, bins=80, alpha=0.4, color=SCENARIO_COLORS["A"],
+            label="Scenario A", density=True)
+    vals_a.plot.kde(color=SCENARIO_COLORS["A"], linewidth=2, ax=ax, label="_nolegend_")
+
+    # Mean lines and stats text
+    mean_a = vals_a.mean()
+    std_a  = vals_a.std()
+    ax.axvline(mean_a, color=SCENARIO_COLORS["A"], linewidth=1.5,
+               linestyle="--", alpha=0.8)
+
+    stats_text = f"Scenario A\n  mean={mean_a:.0f} ms\n  std={std_a:.0f} ms"
+
+    if not lat_b.empty:
+        vals_b = lat_b["latency_ms"].dropna()
+        ax.hist(vals_b, bins=80, alpha=0.4, color=SCENARIO_COLORS["B"],
+                label="Scenario B", density=True)
+        vals_b.plot.kde(color=SCENARIO_COLORS["B"], linewidth=2, ax=ax, label="_nolegend_")
+
+        mean_b = vals_b.mean()
+        std_b  = vals_b.std()
+        ax.axvline(mean_b, color=SCENARIO_COLORS["B"], linewidth=1.5,
+                   linestyle="--", alpha=0.8)
+
+        # Mann-Whitney p-value
+        _, p_val = mannwhitneyu(vals_a.values, vals_b.values, alternative="less")
+        sig = "significant" if p_val < 0.05 else "not significant"
+        stats_text += (
+            f"\n\nScenario B\n  mean={mean_b:.0f} ms\n  std={std_b:.0f} ms"
+            f"\n\nMann-Whitney U\n  p={p_val:.2e}\n  ({sig}, α=0.05)"
+        )
+        xmax = max(vals_a.quantile(0.999), vals_b.quantile(0.999))
+    else:
+        xmax = vals_a.quantile(0.999)
+
+    # Annotation box top-right
+    ax.text(0.97, 0.97, stats_text,
+            transform=ax.transAxes,
+            fontsize=8.5, verticalalignment="top", horizontalalignment="right",
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="white",
+                      edgecolor="gray", alpha=0.85))
+
+    ax.set_xlim(left=0, right=xmax * 1.05)
     ax.set_xlabel("Latency (ms)")
     ax.set_ylabel("Density")
     ax.set_title("Latency Distribution — Histogram + KDE")
@@ -994,9 +1286,313 @@ def plot_latency_distribution_by_suite(lat_a: pd.DataFrame, figures_dir: Path):
     _save(fig, figures_dir, "las_distribution_by_suite_A.png")
     plt.close(fig)
 
+def plot_confusion_matrix(artifacts_dir: Path, domains: list, figures_dir: Path):
+    """
+    Heatmap confusion matrix for LLM Guard — Scenario B.
+    One subplot per domain.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    setup_style()
+
+    valid_domains = []
+    matrices = []
+
+    for domain in domains:
+        df_b = load_consolidated(artifacts_dir, domain, "protected")
+        if df_b.empty:
+            print(f"  [skip] confusion matrix: no Scenario B data for {domain}")
+            continue
+        adv   = df_b[df_b["prompt_type"] == "adversarial"]
+        legit = df_b[df_b["prompt_type"] == "legitimate"]
+        TP = int(((adv["should_block"]  == 1) & (adv["was_blocked"]  == 1)).sum())
+        FN = int(((adv["should_block"]  == 1) & (adv["was_blocked"]  == 0)).sum())
+        FP = int(((legit["should_block"] == 0) & (legit["was_blocked"] == 1)).sum())
+        TN = int(((legit["should_block"] == 0) & (legit["was_blocked"] == 0)).sum())
+        valid_domains.append(domain)
+        matrices.append(np.array([[TP, FN], [FP, TN]]))
+
+    if not valid_domains:
+        print("  [skip] confusion matrix: no Scenario B data available yet.")
+        return
+
+    n = len(valid_domains)
+    fig, axes = plt.subplots(1, n, figsize=(5 * n, 4))
+    if n == 1:
+        axes = [axes]
+
+    labels = ["BLOCK", "PASS"]
+    row_labels = ["Actual\nATTACK", "Actual\nLEGIT"]
+
+    for ax, domain, matrix in zip(axes, valid_domains, matrices):
+        total = matrix.sum()
+        # Normalize for color, show raw counts as annotation
+        norm = matrix / total if total > 0 else matrix
+
+        im = ax.imshow(norm, cmap="Blues", vmin=0, vmax=1)
+
+        ax.set_xticks([0, 1])
+        ax.set_xticklabels(["Predicted\nBLOCK", "Predicted\nPASS"], fontsize=9)
+        ax.set_yticks([0, 1])
+        ax.set_yticklabels(row_labels, fontsize=9)
+
+        cell_labels = [["TP", "FN"], ["FP", "TN"]]
+        colors_text  = [["white", "black"], ["black", "white"]]
+
+        for i in range(2):
+            for j in range(2):
+                val  = matrix[i, j]
+                pct  = val / total * 100 if total > 0 else 0
+                label = cell_labels[i][j]
+                color = "white" if norm[i, j] > 0.4 else "black"
+                ax.text(j, i,
+                        f"{label}\n{val:,}\n({pct:.1f}%)",
+                        ha="center", va="center",
+                        fontsize=10, fontweight="bold", color=color)
+
+        # Derived metrics annotation
+        TP, FN, FP, TN = matrix[0,0], matrix[0,1], matrix[1,0], matrix[1,1]
+        precision   = TP/(TP+FP) if (TP+FP) > 0 else 0
+        recall      = TP/(TP+FN) if (TP+FN) > 0 else 0
+        f1          = 2*precision*recall/(precision+recall) if (precision+recall) > 0 else 0
+        specificity = TN/(TN+FP) if (TN+FP) > 0 else 0
+
+        stats = (f"Precision: {precision:.3f}\n"
+                 f"Recall (TFA): {recall:.3f}\n"
+                 f"F1: {f1:.3f}\n"
+                 f"Specificity: {specificity:.3f}")
+        ax.text(1.35, 0.5, stats,
+                transform=ax.transAxes,
+                fontsize=8.5, va="center",
+                bbox=dict(boxstyle="round,pad=0.4", facecolor="white",
+                          edgecolor="gray", alpha=0.85))
+
+        ax.set_title(domain.replace("_", " ").title(), fontsize=10)
+
+    fig.suptitle("Confusion Matrix — LLM Guard (Scenario B)", fontweight="bold")
+    fig.tight_layout()
+    _save(fig, figures_dir, "confusion_matrix_scenario_b.png")
+    plt.close(fig)
+
+
+def plot_detector_heatmap(runs_dir: Path, domains: list, figures_dir: Path):
+    """
+    Heatmap: TFA per probe × detector for Scenario A.
+    Highlights primary detector and gap between detectors.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    setup_style()
+
+    # Collect all (probe, detector) pairs across domains
+    all_keys: set[tuple] = set()
+    domain_data: dict[str, dict] = {}
+
+    for domain in domains:
+        run_a = find_run_dir(runs_dir, domain, "unprotected")
+        if not run_a:
+            continue
+        results: dict[tuple, dict] = defaultdict(lambda: {"passed": 0, "total": 0})
+        for jsonl_file in sorted((run_a / "garak").glob("*.report.jsonl")):
+            with jsonl_file.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if obj.get("entry_type") != "eval":
+                        continue
+                    probe    = obj.get("probe", "unknown")
+                    detector = obj.get("detector", "unknown")
+                    results[(probe, detector)]["passed"] += obj.get("passed", 0)
+                    results[(probe, detector)]["total"]  += obj.get("total", 0)
+
+        domain_data[domain] = {
+            k: v["passed"] / v["total"] if v["total"] > 0 else 0
+            for k, v in results.items()
+        }
+        all_keys.update(results.keys())
+
+    if not domain_data:
+        print("  [skip] detector heatmap: no data available.")
+        return
+
+    # Build sorted axes
+    all_keys_sorted = sorted(all_keys, key=lambda x: (x[0], x[1]))
+    row_labels = [f"{PROBE_SHORT.get(p, p)}\n{d.split('.')[-1]}"
+                  for p, d in all_keys_sorted]
+    col_labels = [dom.replace("_", " ").title() for dom in domain_data]
+
+    matrix = np.array([
+        [domain_data[dom].get(key, float("nan")) for dom in domain_data]
+        for key in all_keys_sorted
+    ])
+
+    fig, ax = plt.subplots(figsize=(4 + len(domain_data) * 2, 1.5 + len(all_keys_sorted) * 0.5))
+    im = ax.imshow(matrix, cmap="RdYlGn", vmin=0, vmax=1, aspect="auto")
+
+    ax.set_xticks(range(len(col_labels)))
+    ax.set_xticklabels(col_labels, fontsize=9)
+    ax.set_yticks(range(len(row_labels)))
+    ax.set_yticklabels(row_labels, fontsize=8)
+
+    # Annotate cells
+    for i in range(len(all_keys_sorted)):
+        for j in range(len(domain_data)):
+            val = matrix[i, j]
+            if not np.isnan(val):
+                color = "white" if val < 0.4 else "black"
+                # Mark primary detector with bold
+                probe, detector = all_keys_sorted[i]
+                is_primary = (PRIMARY_DETECTOR.get(probe) == detector
+                              or probe not in PRIMARY_DETECTOR)
+                weight = "bold" if is_primary else "normal"
+                ax.text(j, i, f"{val:.3f}",
+                        ha="center", va="center",
+                        fontsize=8, color=color, fontweight=weight)
+
+    plt.colorbar(im, ax=ax, label="TFA", shrink=0.6)
+    ax.set_title("TFA per Probe × Detector — Scenario A\n"
+                 "(bold = primary detector used for TFA calculation)",
+                 fontsize=10)
+    fig.tight_layout()
+    _save(fig, figures_dir, "detector_heatmap_scenario_a.png")
+    plt.close(fig)
+
+def plot_confusion_matrix_scenario_a(artifacts_dir: Path, domains: list, figures_dir: Path):
+    """
+    Partial confusion matrix for Scenario A (no active classifier).
+    TP/FN from garak_passed (adversarial), TN from legitimate prompts.
+    FP does not exist: no blocking mechanism is active.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    setup_style()
+
+    valid_domains = []
+    matrices = []
+    tn_counts = []
+
+    for domain in domains:
+        df_a_adv = load_consolidated(artifacts_dir, domain, "unprotected")
+        if df_a_adv.empty:
+            print(f"  [skip] confusion matrix A: no data for {domain}")
+            continue
+
+        # Load full CSV including legitimate rows
+        path = artifacts_dir / f"consolidated_{domain}_unprotected.csv"
+        df_full = pd.read_csv(path)
+        df_legit = df_full[df_full["prompt_type"] == "legitimate"].copy()
+
+        # TP / FN from garak_passed
+        df_adv_valid = df_a_adv[df_a_adv["garak_passed"].notna()].copy()
+        df_adv_valid["garak_passed"] = df_adv_valid["garak_passed"].astype(int)
+        TP = int((df_adv_valid["garak_passed"] == 1).sum())
+        FN = int((df_adv_valid["garak_passed"] == 0).sum())
+
+        # TN: legitimate prompts that did not expose confidential data
+        df_legit["response_has_confidential"] = pd.to_numeric(
+            df_legit["response_has_confidential"], errors="coerce"
+        ).fillna(0).astype(int)
+        TN = int((df_legit["response_has_confidential"] == 0).sum())
+        # Legitimate that leaked confidential → also a failure, not FP
+        legit_leaked = int((df_legit["response_has_confidential"] == 1).sum())
+
+        valid_domains.append(domain)
+        matrices.append((TP, FN, TN, legit_leaked))
+
+    if not valid_domains:
+        print("  [skip] confusion matrix A: no data available.")
+        return
+
+    n = len(valid_domains)
+    fig, axes = plt.subplots(1, n, figsize=(6 * n, 5))
+    if n == 1:
+        axes = [axes]
+
+    for ax, domain, (TP, FN, TN, legit_leaked) in zip(axes, valid_domains, matrices):
+        total_adv   = TP + FN
+        total_legit = TN + legit_leaked
+
+        # 2×2 matrix: rows=actual, cols=resisted/failed
+        # [TP, FN]
+        # [TN, N/A] ← FP does not exist
+        matrix_display = np.array([
+            [TP,           FN],
+            [TN,           float("nan")],
+        ])
+
+        # Color only defined cells
+        color_matrix = np.array([
+            [TP / total_adv if total_adv > 0 else 0,
+             FN / total_adv if total_adv > 0 else 0],
+            [1.0,  float("nan")],  # TN always green-ish
+        ])
+
+        cmap = plt.cm.RdYlGn
+        cmap.set_bad(color="#eeeeee")  # gray for N/A cell
+
+        im = ax.imshow(
+            np.ma.masked_invalid(color_matrix),
+            cmap=cmap, vmin=0, vmax=1, aspect="auto"
+        )
+
+        ax.set_xticks([0, 1])
+        ax.set_xticklabels(["Resisted", "Failed"], fontsize=10)
+        ax.set_yticks([0, 1])
+        ax.set_yticklabels(["Actual\nATTACK", "Actual\nLEGIT"], fontsize=10)
+
+        # Cell annotations
+        cell_meta = [
+            (0, 0, f"TP\n{TP:,}\n({TP/total_adv*100:.1f}%)",   "black"),
+            (0, 1, f"FN\n{FN:,}\n({FN/total_adv*100:.1f}%)",   "black"),
+            (1, 0, f"TN\n{TN:,}\n({TN/total_legit*100:.1f}%)", "black"),
+            (1, 1, "FP\nN/A\n(no classifier)", "gray"),
+        ]
+        for row, col, text, color in cell_meta:
+            weight = "bold" if text.startswith("FP") is False else "normal"
+            ax.text(col, row, text,
+                    ha="center", va="center",
+                    fontsize=9, color=color, fontweight=weight)
+
+        # Metrics annotation
+        recall      = TP / total_adv if total_adv > 0 else 0
+        fnr         = FN / total_adv if total_adv > 0 else 0
+        tn_rate     = TN / total_legit if total_legit > 0 else 0
+        legit_leak_rate = legit_leaked / total_legit if total_legit > 0 else 0
+
+        stats = (
+            f"Model resistance (TFA_A)\n"
+            f"  Recall = {recall:.4f}\n"
+            f"  FNR    = {fnr:.4f}\n\n"
+            f"Legitimate prompts\n"
+            f"  TN rate = {tn_rate:.4f}\n"
+            f"  Leaked  = {legit_leaked} ({legit_leak_rate*100:.1f}%)\n\n"
+            f"FP = N/A\n"
+            f"(no active classifier)"
+        )
+        ax.text(1.38, 0.5, stats,
+                transform=ax.transAxes,
+                fontsize=8, va="center",
+                bbox=dict(boxstyle="round,pad=0.4", facecolor="white",
+                          edgecolor="gray", alpha=0.85))
+
+        ax.set_title(domain.replace("_", " ").title(), fontsize=10)
+
+    fig.suptitle(
+        "Partial Confusion Matrix — Scenario A (no active classifier)\n"
+        "FP cell grayed out: blocking mechanism absent by design",
+        fontweight="bold", fontsize=10
+    )
+    fig.tight_layout()
+    _save(fig, figures_dir, "confusion_matrix_scenario_a.png")
+    plt.close(fig)
 
 def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
-                       lat_b: pd.DataFrame, artifacts_dir: Path, figures_dir: Path):
+                       lat_b: pd.DataFrame, artifacts_dir: Path, runs_dir: Path, figures_dir: Path):
     print(f"\n{'='*70}")
     print(f"  GENERATING FIGURES → {figures_dir}")
     print(f"{'='*70}")
@@ -1027,6 +1623,9 @@ def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
     plot_latency_histogram(lat_a, lat_b, figures_dir)
     plot_las_by_suite(lat_a, lat_b, figures_dir)
     plot_latency_distribution_by_suite(lat_a, figures_dir)
+    plot_confusion_matrix_scenario_a(artifacts_dir, domains, figures_dir)
+    plot_confusion_matrix(artifacts_dir, domains, figures_dir)
+    plot_detector_heatmap(runs_dir, domains, figures_dir)
 
     n = len(list(figures_dir.glob("*.png")))
     print(f"\n  Done. {n} figures saved.\n")
@@ -1097,13 +1696,17 @@ def main():
             df_a = load_consolidated(artifacts, domain, "unprotected")
             df_b = load_consolidated(artifacts, domain, "protected")
             deep_analysis_tfa(df_a, df_b, domain)
+        deep_analysis_by_detector(runs_dir, domains)
+        deep_analysis_confusion_a(artifacts, domains)
+        deep_analysis_confusion(artifacts, domains)
         deep_analysis_las(lat_a, lat_b)
+
 
     print(f"\n{'='*70}\n")
 
     # ── Figures ─────────────────────────────────────────────
     if args.plots:
-        generate_all_plots(tfa_by_domain, lat_a, lat_b, artifacts, figures_dir)
+        generate_all_plots(tfa_by_domain, lat_a, lat_b, artifacts, runs_dir, figures_dir)
 
 
 if __name__ == "__main__":
