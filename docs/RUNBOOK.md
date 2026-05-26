@@ -16,6 +16,7 @@
 | `SENSITIVITY_LEVEL` | `high` (ambos dominios) | Permite recuperar fragmentos de cualquier nivel de sensibilidad durante el experimento. |
 | `QUERY_COHERENCE_THRESHOLD` | 1.35 (regulatory) / 1.1723 (academic) | Calibrado con 70 queries legítimas vs 35 incoherentes por dominio. FP: 3 (4.3%) y 2 (2.9%). |
 | `C17_GROUNDING_THRESHOLD` | 0.0556 (regulatory) / 0.0714 (academic) | Calibrado como p5 del grounding ratio en 70 respuestas legítimas. |
+| `DOMAIN_DISTANCE_THRESHOLD` | TBD (regulatory) / TBD (academic) | Calibrado como umbral de distancia semántica para validación de relevancia de dominio en ChromaDB. |
 | Detector primario (encoding probes) | `encoding.DecodeMatch` | Más estricto que `DecodeApprox`. Se descarta `DecodeApprox` para evitar doble conteo en TFA. Total correcto: 6400 intentos por probe, no 12800. |
 
 ---
@@ -127,6 +128,10 @@ docker exec tesis_rag python3 -m cli ingest verify --collection <DOMAIN>
 ### 3.3 Calibrar umbrales (solo primera vez por dominio)
 
 ```bash
+# C4 — domain relevance threshold
+docker exec tesis_rag python app/scripts/calibrate_c4.py --domain <DOMAIN>
+grep DOMAIN_DISTANCE_THRESHOLD .env.<DOMAIN>
+
 # C11 — coherencia semántica de queries
 docker exec tesis_rag python app/scripts/calibrate_c11.py --domain <DOMAIN>
 grep QUERY_COHERENCE_THRESHOLD .env.<DOMAIN>
@@ -251,33 +256,50 @@ docker compose --env-file .env.<DOMAIN> run --rm rag_api \
 docker exec tesis_rag python3 -m cli ingest verify --collection <DOMAIN>
 ```
 
-### 4.4 Verificar salud del target
+### 4.4 Calibrar umbrales
+
+```bash
+# C4 — domain relevance threshold
+docker exec tesis_rag python app/scripts/calibrate_c4.py --domain <DOMAIN>
+grep DOMAIN_DISTANCE_THRESHOLD .env.<DOMAIN>
+
+# C11 — coherencia semántica de queries
+docker exec tesis_rag python app/scripts/calibrate_c11.py --domain <DOMAIN>
+grep QUERY_COHERENCE_THRESHOLD .env.<DOMAIN>
+
+# C17 — grounding de respuestas
+docker exec tesis_rag python app/scripts/calibrate_c17.py \
+  --domain <DOMAIN> --target unprotected
+grep C17_GROUNDING_THRESHOLD .env.<DOMAIN>
+```
+
+### 4.5 Verificar salud del target
 
 ```bash
 docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
   garak_runner attack health --target unprotected
 ```
 
-### 4.5 Ejecutar ataques Garak
+### 4.6 Ejecutar ataques Garak
 
 ```bash
 docker compose --env-file .env.<DOMAIN> --profile attacks up garak_runner
 ```
 
-### 4.6 Monitorear en tiempo real
+### 4.7 Monitorear en tiempo real
 
 ```bash
 # En otra terminal (tmux attach -t tesis)
 docker compose --env-file .env.<DOMAIN> logs -f garak_runner
 ```
 
-### 4.7 Ejecutar prompts legítimos
+### 4.8 Ejecutar prompts legítimos
 
 ```bash
 docker exec tesis_rag python3 -m cli attack legitimate --target unprotected
 ```
 
-### 4.8 Parchear garak_passed
+### 4.9 Parchear garak_passed
 
 ```bash
 # Dentro del stack Docker
@@ -288,7 +310,7 @@ docker compose --env-file .env.<DOMAIN> --profile lab run --rm garak_runner \
 PYTHONPATH=app/src python3 -m cli metrics patch-garak --domain <DOMAIN> --scenario unprotected
 ```
 
-### 4.9 Cambiar al siguiente dominio
+### 4.10 Cambiar al siguiente dominio
 
 ```bash
 docker compose --env-file .env.<DOMAIN_ANTERIOR> down
@@ -307,10 +329,6 @@ Antes de iniciar, verificar los env files:
 grep GARAK_TARGET .env.regulatory_technical
 grep GARAK_TARGET .env.academic_institutional
 # Ambos deben mostrar: GARAK_TARGET=protected
-
-grep ENABLE_OUTPUT_GUARD .env.regulatory_technical
-grep ENABLE_OUTPUT_GUARD .env.academic_institutional
-# Ambos deben mostrar: ENABLE_OUTPUT_GUARD=1
 ```
 
 ### 5.1 Levantar stack
@@ -339,6 +357,10 @@ docker exec tesis_rag python3 -m cli ingest verify --collection <DOMAIN>
 ### 5.4 Calibrar umbrales para Escenario B
 
 ```bash
+# C4 — domain relevance threshold
+docker exec tesis_rag python app/scripts/calibrate_c4.py --domain <DOMAIN>
+grep DOMAIN_DISTANCE_THRESHOLD .env.<DOMAIN>
+
 docker exec tesis_rag python app/scripts/calibrate_c11.py --domain <DOMAIN>
 grep QUERY_COHERENCE_THRESHOLD .env.<DOMAIN>
 

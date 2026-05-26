@@ -58,7 +58,6 @@ app.add_middleware(LatencyCSVLogger,
     csv_path=LATENCY_CSV)
 
 ENABLE_LLM_GUARD = os.getenv("ENABLE_LLM_GUARD", "1") == "1"
-ENABLE_OUTPUT_GUARD = os.getenv("ENABLE_OUTPUT_GUARD", "0") == "1"
 
 RAG_BASE_URL = os.getenv("RAG_BASE_URL", f"http://127.0.0.1:{s.rag_port}")
 RAG_GENERATE_URL = f"{RAG_BASE_URL}/generate"
@@ -169,7 +168,7 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
     Returns (sanitized_output, None, score) if allowed.
     Returns (blocked_message, scanner_name, score) if blocked.
     """
-    if not ENABLE_LLM_GUARD or not ENABLE_OUTPUT_GUARD:
+    if not ENABLE_LLM_GUARD:
         return text, None, None
 
     text = _sanitize_control_chars(text)
@@ -335,7 +334,6 @@ async def health():
         "status": "ok",
         "mode": "proxy",
         "enable_llm_guard": ENABLE_LLM_GUARD,
-        "enable_output_guard": ENABLE_OUTPUT_GUARD,
         "upstream_rag": RAG_BASE_URL,
         "upstream_ok": upstream_ok,
     }

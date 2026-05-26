@@ -67,7 +67,6 @@ services:
     environment:
       - SCENARIO=protected
       - ENABLE_LLM_GUARD=1
-      - ENABLE_OUTPUT_GUARD=1
       - PROJECT_ROOT=/root/proyecto_tesis
       - APP_DIR=/root/proyecto_tesis/app
       - DATA_DIR=/root/proyecto_tesis/data

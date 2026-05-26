@@ -89,7 +89,6 @@ Crea `.env.<domain>`:
 ```properties
 GARAK_TARGET=unprotected
 DATASET_TAG=<domain>
-ENABLE_OUTPUT_GUARD=0
 ```
 
 ---
@@ -235,7 +234,6 @@ Antes de iniciar el Escenario B, edita cada archivo `.env.<domain>` y cambia:
 
 ```properties
 GARAK_TARGET=unprotected  →  GARAK_TARGET=protected
-ENABLE_OUTPUT_GUARD=0     →  ENABLE_OUTPUT_GUARD=1
 ```
 
 Luego reinicia los servicios:
