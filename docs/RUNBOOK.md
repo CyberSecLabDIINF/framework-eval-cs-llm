@@ -12,10 +12,11 @@
 | Repeticiones externas (Garak) | 5 | Verifican estabilidad de infraestructura entre runs. |
 | Repeticiones prompts legítimos | 5 | Simetría metodológica con Garak. |
 | Temperatura (Llama 3 8B) | 0.8 (default Ollama) | Default intrínseco del modelo. |
-| Total intentos por escenario/dominio | 18.025 ataques + 350 legítimos = 18.375 filas | 721 prompts × 5 gen × 5 reps + 70 prompts × 5 reps |
-| `SENSITIVITY_LEVEL` | `high` (ambos dominios) | Permite recuperar fragmentos de cualquier nivel de sensibilidad durante el experimento. Valor configurable para restringir acceso en producción. |
-| `QUERY_COHERENCE_THRESHOLD` | 1.35 (regulatory) / 1.1723 (academic) | Calibrado experimentalmente con 70 queries legítimas vs 35 incoherentes por dominio. Falsos positivos: 3 (4.3%) y 2 (2.9%) respectivamente — ambos son queries meta sobre el sistema, fuera del dominio del corpus. |
-| `C17_GROUNDING_THRESHOLD` | 0.0556 (regulatory) / 0.0714 (academic) | Calibrado como p5 del grounding ratio observado en 70 respuestas legítimas. Solo el 5% de respuestas legítimas cae por debajo de este umbral. |
+| Total intentos por escenario/dominio | 56.425 ataques + 700 legítimos | 11 probes × prompts × 5 gen × 5 reps + 70 prompts × 5 reps × 2 dominios |
+| `SENSITIVITY_LEVEL` | `high` (ambos dominios) | Permite recuperar fragmentos de cualquier nivel de sensibilidad durante el experimento. |
+| `QUERY_COHERENCE_THRESHOLD` | 1.35 (regulatory) / 1.1723 (academic) | Calibrado con 70 queries legítimas vs 35 incoherentes por dominio. FP: 3 (4.3%) y 2 (2.9%). |
+| `C17_GROUNDING_THRESHOLD` | 0.0556 (regulatory) / 0.0714 (academic) | Calibrado como p5 del grounding ratio en 70 respuestas legítimas. |
+| Detector primario (encoding probes) | `encoding.DecodeMatch` | Más estricto que `DecodeApprox`. Se descarta `DecodeApprox` para evitar doble conteo en TFA. Total correcto: 6400 intentos por probe, no 12800. |
 
 ---
 
@@ -26,6 +27,8 @@
 | Dominio 1 | `regulatory_technical` |
 | Dominio 2 | `academic_institutional` |
 
+Los comandos usan `<DOMAIN>` como placeholder. Reemplazar por el dominio correspondiente.
+
 ---
 
 ## Paso 0 — Verificar prerrequisitos (una vez)
@@ -35,13 +38,13 @@ docker compose version
 # Debe responder: Docker Compose version v5.x.x
 
 nvidia-smi
+# Debe mostrar la RTX 3070 sin error
 ```
-
-> Para verificar que el modelo usa GPU, ejecutar después del Paso 2.
 
 ---
 
-## Paso 1 - Bootstrap (una sola vez por máquina)
+## Paso 1 — Bootstrap (una sola vez por máquina)
+
 > Requiere conexión a internet. No repetir entre dominios ni escenarios.
 
 ### 1.1 Modelo LLM (Ollama)
@@ -62,32 +65,29 @@ docker compose --env-file .env.regulatory_technical --profile bootstrap up --att
 
 ---
 
-## Paso 2 - Levantar servicios base
+## Paso 2 — Levantar servicios base
+
 ```bash
-docker compose --env-file .env.regulatory_technical --profile lab up -d
+docker compose --env-file .env.<DOMAIN> --profile lab up -d
 ```
 
 ### 2.1 Verificar que los servicios estén healthy
 
 ```bash
-docker compose ps
+docker compose --env-file .env.<DOMAIN> ps
 # rag_api y shield_api deben mostrar (healthy)
 ```
 
-### 2.2 Verificar el sistema completo:
+### 2.2 Verificar el sistema completo
 
 ```bash
 curl http://localhost:8001/health
 # Respuesta esperada: {"status":"ok","upstream_ok":true,...}
 ```
 
-### 2.3 Verificar controles activos (Escenario B)
-
-> Solo ejecutar cuando el stack está levantado con perfil `lab` en modo protegido.
-> Confirma que todos los umbrales calibrados están cargados correctamente.
+### 2.3 Verificar controles activos (solo Escenario B)
 
 ```bash
-# Verificar RAG — controles C8, C9, C11, C12, C17
 curl -s http://localhost:8000/health | python3 -m json.tool
 # Valores esperados:
 #   "corpus_hashes_loaded": 477  (regulatory) o 342 (academic)
@@ -97,169 +97,119 @@ curl -s http://localhost:8000/health | python3 -m json.tool
 #   "c12_recon_repeat_ratio": 0.6
 #   "c17_grounding_threshold": 0.0556  (regulatory) o 0.0714 (academic)
 
-# Verificar que C9 construyó el baseline al iniciar
 docker logs tesis_rag | grep "C9:"
 # Esperado: C9: corpus baseline built — 477 document hashes stored
 
-# Verificar que C62 registró la ingesta
 cat ~/framework-eval-cs-llm/artifacts/corpus_version_registry.csv
 # Debe mostrar al menos una fila con action=ingest y corpus_hash
 ```
 
 ---
 
-## Paso 3 - Smoke test
+## Paso 3 — Smoke test
 
-> Ejecutar después de aplicar los fixes y reconstruir la imagen.
 > Dura aproximadamente 5-10 minutos. Si pasa sin errores, el experimento completo está listo.
 
 ### 3.1 Ingestar corpus
 
 ```bash
-docker compose --env-file .env.regulatory_technical run --rm rag_api \
-  python3 -m cli ingest --source regulatory_technical --reset
+docker compose --env-file .env.<DOMAIN> run --rm rag_api \
+  python3 -m cli ingest --source <DOMAIN> --reset
 ```
 
 ### 3.2 Verificar ground truth
 
 ```bash
-docker exec tesis_rag python3 -m cli ingest verify \
-  --collection regulatory_technical
+docker exec tesis_rag python3 -m cli ingest verify --collection <DOMAIN>
 # Todos los fragmentos CONFIDENTIAL deben pasar los dos pasos de verificación
 ```
 
-### 3.2.1 Calibrar C11 (coherencia semántica de queries)
+### 3.3 Calibrar umbrales (solo primera vez por dominio)
 
 ```bash
-docker exec tesis_rag python app/scripts/calibrate_c11.py --domain regulatory_technical
-# Anotar el valor sugerido y verificar que coincide con .env:
-grep QUERY_COHERENCE_THRESHOLD .env.regulatory_technical
-# Debe mostrar: QUERY_COHERENCE_THRESHOLD=1.35
-```
+# C11 — coherencia semántica de queries
+docker exec tesis_rag python app/scripts/calibrate_c11.py --domain <DOMAIN>
+grep QUERY_COHERENCE_THRESHOLD .env.<DOMAIN>
 
-### 3.2.2 Calibrar C17 (grounding de respuestas)
-
-```bash
+# C17 — grounding de respuestas
 docker exec tesis_rag python app/scripts/calibrate_c17.py \
-  --domain regulatory_technical --target unprotected
-# Anotar el valor sugerido y verificar que coincide con .env:
-grep C17_GROUNDING_THRESHOLD .env.regulatory_technical
-# Debe mostrar: C17_GROUNDING_THRESHOLD=0.0556
+  --domain <DOMAIN> --target unprotected
+grep C17_GROUNDING_THRESHOLD .env.<DOMAIN>
 ```
 
-### 3.2.3 Guardar CSVs de calibración como evidencia
+### 3.4 Ejecutar una probe con una repetición
 
 ```bash
-mkdir -p artifacts/calibration
-docker cp tesis_rag:/root/proyecto_tesis/calibration_c11_regulatory_technical.csv artifacts/calibration/
-docker cp tesis_rag:/root/proyecto_tesis/calibration_c17_regulatory_technical.csv artifacts/calibration/
-```
-
-### 3.3 Ejecutar UNA probe con UNA repetición (Escenario A)
-
-```bash
-docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
+# Escenario A
+docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
   garak_runner attack garak \
   --target unprotected \
   --suite LLM07 \
   --probe goodside.Tag \
   --repetitions 1
+
+# Escenario B
+docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
+  garak_runner attack garak \
+  --target protected \
+  --suite LLM07 \
+  --probe goodside.Tag \
+  --repetitions 1
 ```
 
-### 3.4 Verificar que se generó el reporte
+### 3.5 Verificar artefactos generados
 
 ```bash
 ls ~/framework-eval-cs-llm/artifacts/runs/
 # Debe aparecer un directorio con timestamp reciente
 
 ls ~/framework-eval-cs-llm/artifacts/runs/*/garak/*.report.jsonl
-# Debe haber al menos 1 archivo
-```
-
-### 3.5 Verificar que el `app.log` se generó dentro del run
-
-```bash
 cat ~/framework-eval-cs-llm/artifacts/runs/*/logs/app.log
-# Debe mostrar las líneas de inicio y fin del probe
 ```
 
-### 3.6 Ejecutar prompts legítimos (Escenario A)
+### 3.6 Ejecutar prompts legítimos
 
 ```bash
+# Escenario A
 docker exec tesis_rag python3 -m cli attack legitimate \
-  --target unprotected \
-  --repetitions 1
+  --target unprotected --repetitions 1
+
+# Escenario B
+docker exec tesis_shield python3 -m cli attack legitimate \
+  --target protected --repetitions 1
 ```
 
-### 3.7 Verificar el CSV consolidado
+### 3.7 Verificar CSV consolidado
 
 ```bash
 python3 -c "
 import csv, glob
-files = glob.glob('/home/valentina/framework-eval-cs-llm/artifacts/consolidated_regulatory_technical_unprotected.csv')
+files = glob.glob('artifacts/consolidated_<DOMAIN>_unprotected.csv')
 if not files:
     print('❌ CSV no encontrado')
 else:
     rows = list(csv.DictReader(open(files[0])))
     print(f'✅ Filas: {len(rows)}')
     print(f'   Columnas: {list(rows[0].keys())}')
-    print(f'   Dominios: {set(r[\"domain\"] for r in rows)}')
     print(f'   Tipos de prompt: {set(r[\"prompt_type\"] for r in rows)}')
 "
-# Debe mostrar domain='regulatory_technical' y prompt_type='legitimate'
 ```
 
-### 3.8 Verificar que el CSV de latencia tiene columna domain
+### 3.8 Parchear garak_passed
 
 ```bash
-python3 -c "
-import csv
-with open('/home/valentina/framework-eval-cs-llm/artifacts/latency/latency_unprotected_direct.csv') as f:
-    rows = list(csv.DictReader(f))
-posts = [r for r in rows if r['method'] == 'POST']
-print(f'✅ Columnas: {list(rows[0].keys())}')
-print(f'   POST /generate: {len(posts)} requests')
-print(f'   Dominios: {set(r.get(\"domain\", \"SIN DOMAIN\") for r in posts)}')
-"
-# Debe mostrar columna 'domain' con valor 'regulatory_technical'
+# Dentro del stack Docker
+docker compose --env-file .env.<DOMAIN> --profile lab run --rm garak_runner \
+  python -m tesis_lab.cli metrics patch-garak --domain <DOMAIN> --scenario unprotected
+
+# O localmente (con venv activo)
+PYTHONPATH=app/src python3 -m cli metrics patch-garak --domain <DOMAIN> --scenario unprotected
 ```
 
-### 3.9 Parchear garak_passed
+### 3.9 Limpiar artefactos del smoke test
 
 ```bash
-docker exec tesis_rag python3 -m cli metrics patch-garak \
-  --domain regulatory_technical \
-  --scenario unprotected
-# Debe responder: ✅ patch-garak complete — N rows updated.
-```
-
-### 3.10 Repetir para Escenario B
-
-```bash
-docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
-  garak_runner attack health --target protected
-
-docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
-  garak_runner attack garak \
-  --target protected \
-  --suite LLM07 \
-  --probe goodside.Tag \
-  --repetitions 1
-
-
-docker exec tesis_shield python3 -m cli attack legitimate \
-  --target protected \
-  --repetitions 1
-
-docker exec tesis_rag python3 -m cli metrics patch-garak \
-  --domain regulatory_technical \
-  --scenario protected
-```
-
-### 3.11 Limpiar artefactos del smoke test
-
-```bash
-docker compose --env-file .env.regulatory_technical down
+docker compose --env-file .env.<DOMAIN> down
 
 rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
 rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
@@ -268,186 +218,90 @@ rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
 echo "✅ Smoke test OK. Artefactos eliminados. Listo para el experimento real."
 ```
 
----
-> ⚠️ No eliminar `artifacts/calibration/` — contiene evidencia experimental
-> de los umbrales calibrados que se referencia en la tesis.
-> Si todos los pasos pasaron sin errores, continuar con el Paso 4.
-> Si el bootstrap ya fue ejecutado anteriormente, ir directamente al Paso 2.
+> ⚠️ No eliminar `artifacts/calibration/` — contiene evidencia experimental de los umbrales calibrados.
 
 ---
 
 ## Paso 4 — Escenario A (sin LLM Guard)
 
-> En Escenario A, `GARAK_TARGET=unprotected` en los env files. Verificar antes de ejecutar.
+> Se ejecuta el mismo flujo para ambos dominios. Solo cambia el `--env-file` y el nombre del dominio.
 
----
-
-### 4.1 Escenario A — Dominio 1: regulatory_technical
-
-#### 4.1.1 Ingestar corpus
+### 4.1 Levantar stack
 
 ```bash
-docker compose --env-file .env.regulatory_technical run --rm rag_api \
-  python3 -m cli ingest --source regulatory_technical --reset
+docker compose --env-file .env.<DOMAIN> --profile lab up -d
+docker compose --env-file .env.<DOMAIN> ps
+# rag_api y shield_api deben mostrar (healthy)
 ```
 
-#### 4.1.2 Verificar ground truth
-
-```bash
-docker exec tesis_rag python3 -m cli ingest verify \
-  --collection regulatory_technical
-# Todos los fragmentos CONFIDENTIAL deben pasar la verificación
-```
-
-#### 4.1.3 Verificar que Ollama usa GPU
+### 4.2 Verificar GPU
 
 ```bash
 nvidia-smi
-# Debe mostrar ollama_core ocupando ~5-6 GB de VRAM
-
 docker exec ollama_core ollama ps
 # Debe mostrar: llama3:8b ... 100% GPU
 ```
 
-#### 4.1.4 Verificar salud del target
+### 4.3 Ingestar corpus y verificar ground truth
 
 ```bash
-docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
+docker compose --env-file .env.<DOMAIN> run --rm rag_api \
+  python3 -m cli ingest --source <DOMAIN> --reset
+
+docker exec tesis_rag python3 -m cli ingest verify --collection <DOMAIN>
+```
+
+### 4.4 Verificar salud del target
+
+```bash
+docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
   garak_runner attack health --target unprotected
 ```
 
-#### 4.1.5 Ejecutar ataques Garak
+### 4.5 Ejecutar ataques Garak
 
 ```bash
-docker compose --env-file .env.regulatory_technical --profile attacks up garak_runner
+docker compose --env-file .env.<DOMAIN> --profile attacks up garak_runner
 ```
 
-#### 4.1.6 Monitorear en tiempo real (abrir otra terminal con `ssh pc-u` y `tmux attach -t tesis`):
+### 4.6 Monitorear en tiempo real
 
 ```bash
-docker compose --env-file .env.regulatory_technical logs -f garak_runner
+# En otra terminal (tmux attach -t tesis)
+docker compose --env-file .env.<DOMAIN> logs -f garak_runner
 ```
 
-#### 4.1.7 Ejecutar prompts legítimos
+### 4.7 Ejecutar prompts legítimos
 
 ```bash
-docker exec tesis_rag python3 -m cli attack legitimate \
-  --target unprotected
+docker exec tesis_rag python3 -m cli attack legitimate --target unprotected
 ```
 
-#### 4.1.8 Parchear garak_passed en el CSV consolidado
+### 4.8 Parchear garak_passed
 
 ```bash
-docker exec tesis_rag python3 -m cli metrics patch-garak \
-  --domain regulatory_technical --scenario unprotected
+# Dentro del stack Docker
+docker compose --env-file .env.<DOMAIN> --profile lab run --rm garak_runner \
+  python -m tesis_lab.cli metrics patch-garak --domain <DOMAIN> --scenario unprotected
+
+# O localmente (con venv activo)
+PYTHONPATH=app/src python3 -m cli metrics patch-garak --domain <DOMAIN> --scenario unprotected
 ```
 
----
-
-### 4.2 Escenario A — Dominio 2: academic_institutional
-
-#### 4.2.1 Bajar stack y levantar con dominio 2
+### 4.9 Cambiar al siguiente dominio
 
 ```bash
-docker compose --env-file .env.regulatory_technical down
-docker compose --env-file .env.academic_institutional --profile lab up -d
-```
-
-#### 4.2.2 Verificar healthy
-
-```bash
-docker compose --env-file .env.academic_institutional ps
-```
-
-#### 4.2.3 Verificar que Ollama usa GPU
-
-```bash
-nvidia-smi
-# Debe mostrar ollama_core ocupando ~5-6 GB de VRAM
-
-docker exec ollama_core ollama ps
-# Debe mostrar: llama3:8b ... 100% GPU
-```
-
-#### 4.2.4 Ingestar corpus
-
-```bash
-docker compose --env-file .env.academic_institutional run --rm rag_api \
-  python3 -m cli ingest --source academic_institutional --reset
-```
-
-#### 4.2.5 Verificar ground truth
-
-```bash
-docker exec tesis_rag python3 -m cli ingest verify \
-  --collection academic_institutional
-```
-
-#### 4.2.5.1 Verificar umbrales calibrados para academic_institutional
-
-```bash
-docker exec tesis_rag python app/scripts/calibrate_c11.py --domain academic_institutional
-grep QUERY_COHERENCE_THRESHOLD .env.academic_institutional
-# Debe mostrar: QUERY_COHERENCE_THRESHOLD=1.1723
-
-docker exec tesis_rag python app/scripts/calibrate_c17.py \
-  --domain academic_institutional --target unprotected
-grep C17_GROUNDING_THRESHOLD .env.academic_institutional
-# Debe mostrar: C17_GROUNDING_THRESHOLD=0.0714
-
-mkdir -p artifacts/calibration
-docker cp tesis_rag:/root/proyecto_tesis/calibration_c11_academic_institutional.csv artifacts/calibration/
-docker cp tesis_rag:/root/proyecto_tesis/calibration_c17_academic_institutional.csv artifacts/calibration/
-```
-
-#### 4.2.6 Verificar salud del target
-
-```bash
-docker compose --env-file .env.academic_institutional --profile attacks run --rm \
-  garak_runner attack health --target unprotected
-```
-
-#### 4.2.7 Ejecutar ataques Garak
-
-```bash
-docker compose --env-file .env.academic_institutional --profile attacks up garak_runner
-```
-
-#### 4.2.8 Monitorear
-
-```bash
-docker compose --env-file .env.academic_institutional logs -f garak_runner
-```
-
-#### 4.2.9 Ejecutar prompts legítimos
-
-```bash
-docker exec tesis_rag python3 -m cli attack legitimate \
-  --target unprotected
-```
-
-#### 4.2.10 Parchear garak_passed en el CSV consolidado
-
-```bash
-docker exec tesis_rag python3 -m cli metrics patch-garak \
-  --domain academic_institutional --scenario unprotected
+docker compose --env-file .env.<DOMAIN_ANTERIOR> down
+# Repetir desde 4.1 con el siguiente dominio
 ```
 
 ---
 
 ## Paso 5 — Escenario B (con LLM Guard activo)
 
-Antes de iniciar, editar **ambos** env files y cambiar el target:
+> Mismo flujo que el Escenario A. Cambia `unprotected` → `protected` y se agrega la calibración.
 
-```bash
-# En .env.regulatory_technical:
-# GARAK_TARGET=unprotected  →  GARAK_TARGET=protected
-
-# En .env.academic_institutional:
-# GARAK_TARGET=unprotected  →  GARAK_TARGET=protected
-```
-
-Verificar que el cambio quedó bien:
+Antes de iniciar, verificar los env files:
 
 ```bash
 grep GARAK_TARGET .env.regulatory_technical
@@ -457,190 +311,248 @@ grep GARAK_TARGET .env.academic_institutional
 grep ENABLE_OUTPUT_GUARD .env.regulatory_technical
 grep ENABLE_OUTPUT_GUARD .env.academic_institutional
 # Ambos deben mostrar: ENABLE_OUTPUT_GUARD=1
+```
 
+### 5.1 Levantar stack
+
+```bash
+docker compose --env-file .env.<DOMAIN> --profile lab up -d
+docker compose --env-file .env.<DOMAIN> ps
+```
+
+### 5.2 Verificar GPU
+
+```bash
+nvidia-smi
+docker exec ollama_core ollama ps
+```
+
+### 5.3 Ingestar corpus y verificar ground truth
+
+```bash
+docker compose --env-file .env.<DOMAIN> run --rm rag_api \
+  python3 -m cli ingest --source <DOMAIN> --reset
+
+docker exec tesis_rag python3 -m cli ingest verify --collection <DOMAIN>
+```
+
+### 5.4 Calibrar umbrales para Escenario B
+
+```bash
+docker exec tesis_rag python app/scripts/calibrate_c11.py --domain <DOMAIN>
+grep QUERY_COHERENCE_THRESHOLD .env.<DOMAIN>
+
+docker exec tesis_rag python app/scripts/calibrate_c17.py \
+  --domain <DOMAIN> --target protected
+grep C17_GROUNDING_THRESHOLD .env.<DOMAIN>
+```
+
+### 5.5 Verificar controles activos
+
+```bash
+curl -s http://localhost:8000/health | python3 -m json.tool
+docker logs tesis_rag | grep "C9:"
+```
+
+### 5.6 Verificar salud del target
+
+```bash
+docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
+  garak_runner attack health --target protected
+```
+
+### 5.7 Ejecutar ataques Garak
+
+```bash
+docker compose --env-file .env.<DOMAIN> --profile attacks up garak_runner
+```
+
+### 5.8 Monitorear en tiempo real
+
+```bash
+docker compose --env-file .env.<DOMAIN> logs -f garak_runner
+```
+
+### 5.9 Ejecutar prompts legítimos
+
+```bash
+docker exec tesis_shield python3 -m cli attack legitimate --target protected
+```
+
+### 5.10 Parchear garak_passed
+
+```bash
+# Dentro del stack Docker
+docker compose --env-file .env.<DOMAIN> --profile lab run --rm garak_runner \
+  python -m tesis_lab.cli metrics patch-garak --domain <DOMAIN> --scenario protected
+
+# O localmente (con venv activo)
+PYTHONPATH=app/src python3 -m cli metrics patch-garak --domain <DOMAIN> --scenario protected
+```
+
+### 5.11 Cambiar al siguiente dominio
+
+```bash
+docker compose --env-file .env.<DOMAIN_ANTERIOR> down
+# Repetir desde 5.1 con el siguiente dominio
 ```
 
 ---
 
-### 5.1 Escenario B — Dominio 1: regulatory_technical
+## Paso 5.5 — Sincronizar artefactos en el notebook local
 
-#### 5.1.1 Levantar stack con dominio 1
-
-```bash
-docker compose --env-file .env.regulatory_technical down
-docker compose --env-file .env.regulatory_technical --profile lab up -d
-```
-
-#### 5.1.2 Verificar healthy
+> Ejecutar desde el notebook una vez completados los 4 runs en pc-u.
 
 ```bash
-docker compose --env-file .env.regulatory_technical ps
-curl http://localhost:8001/health
-```
-
-#### 5.1.3 Ingestar corpus
-
-```bash
-docker compose --env-file .env.regulatory_technical run --rm rag_api \
-  python3 -m cli ingest --source regulatory_technical --reset
-```
-
-#### 5.1.4 Verificar ground truth
-
-```bash
-docker exec tesis_rag python3 -m cli ingest verify \
-  --collection regulatory_technical
-```
-
-#### 5.1.5 Verificar salud del target
-
-```bash
-docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
-  garak_runner attack health --target protected
-```
-
-#### 5.1.6 Ejecutar ataques Garak
-
-```bash
-docker compose --env-file .env.regulatory_technical --profile attacks up garak_runner
-```
-
-#### 5.1.7 Monitorear
-
-```bash
-docker compose --env-file .env.regulatory_technical logs -f garak_runner
-```
-
-#### 5.1.8 Ejecutar prompts legítimos
-
-```bash
-docker exec tesis_shield python3 -m cli attack legitimate \
-  --target protected
-```
-
-#### 5.1.9 Parchear garak_passed en el CSV consolidado
-
-```bash
-docker exec tesis_rag python3 -m cli metrics patch-garak \
-  --domain regulatory_technical --scenario protected
-```
-
----
-
-### 5.2 Escenario B — Dominio 2: academic_institutional
-
-#### 5.2.1 Bajar stack y levantar con dominio 2
-
-```bash
-docker compose --env-file .env.regulatory_technical down
-docker compose --env-file .env.academic_institutional --profile lab up -d
-```
-
-#### 5.2.2 Verificar healthy:
-
-```bash
-docker compose --env-file .env.academic_institutional ps
-curl http://localhost:8001/health
-```
-
-#### 5.2.3 Ingestar corpus
-
-```bash
-docker compose --env-file .env.academic_institutional run --rm rag_api \
-  python3 -m cli ingest --source academic_institutional --reset
-```
-
-#### 5.2.4 Verificar ground truth
-
-```bash
-docker exec tesis_rag python3 -m cli ingest verify \
-  --collection academic_institutional
-```
-
-#### 5.2.5 Verificar salud del target
-
-```bash
-docker compose --env-file .env.academic_institutional --profile attacks run --rm \
-  garak_runner attack health --target protected
-```
-
-#### 5.2.6 Ejecutar ataques Garak
-
-```bash
-docker compose --env-file .env.academic_institutional --profile attacks up garak_runner
-```
-
-#### 5.2.7 Monitorear
-
-```bash
-docker compose --env-file .env.academic_institutional logs -f garak_runner
-```
-
-#### 5.2.8 Ejecutar prompts legítimos
-
-```bash
-docker exec tesis_shield python3 -m cli attack legitimate \
-  --target protected
-```
-
-#### 5.2.9 Parchear garak_passed en el CSV consolidado
-
-```bash
-docker exec tesis_rag python3 -m cli metrics patch-garak \
-  --domain academic_institutional --scenario protected
+rsync -avz --progress pc-u:~/framework-eval-cs-llm/artifacts/ ~/Desktop/framework-eval-cs-llm/artifacts/
 ```
 
 ---
 
 ## Paso 6 — Procesamiento de resultados
 
-> Solo después de completar los 4 runs (A×regulatory_technical, A×academic_institutional, B×regulatory_technical, B×academic_institutional).
+> Ejecutar en el notebook local una vez completados los 4 runs:
+> A×regulatory_technical, A×academic_institutional, B×regulatory_technical, B×academic_institutional.
 
-### 6.1 Calcular métricas (TFA, LAS, PCC, NCP)
-
-```bash
-docker exec tesis_rag python3 -m cli metrics compute
-```
-
-### 6.2 Ejecutar pruebas estadísticas
+### 6.1 Activar entorno virtual
 
 ```bash
-docker exec tesis_rag python3 -m cli metrics stats
+cd ~/Desktop/framework-eval-cs-llm
+
+# Primera vez: crear entorno e instalar dependencias
+python3 -m venv .venv
+pip install pandas scipy matplotlib
+
+# Activar (siempre)
+source .venv/bin/activate
 ```
 
-Los resultados quedan en:
-
-```
-artifacts/runs/<run_id>/metrics.json
-artifacts/runs/<run_id>/summary.md
-```
-
-### 6.3 Verificar integridad de los CSVs consolidados
+### 6.2 Métricas básicas (TFA y LAS)
 
 ```bash
-# Contar filas por dominio y escenario (esperado: ~18.375 por combinación)
-for f in ~/framework-eval-cs-llm/artifacts/consolidated_*.csv; do
+python3 app/src/eval/process_results.py --artifacts artifacts/
+```
+
+### 6.3 Análisis profundo (matriz de confusión, detectores, distribuciones)
+
+```bash
+python3 app/src/eval/process_results.py --artifacts artifacts/ --deep
+```
+
+### 6.4 Generar figuras
+
+```bash
+python3 app/src/eval/process_results.py --artifacts artifacts/ --deep --plots
+# Figuras guardadas en artifacts/figures/
+```
+
+### 6.5 Filtrar por dominio específico
+
+```bash
+python3 app/src/eval/process_results.py \
+  --artifacts artifacts/ \
+  --domains regulatory_technical \
+  --deep --plots
+```
+
+### 6.6 Verificar coherencia JSONL vs app.log
+
+```bash
+python3 app/src/eval/verify_coherence.py \
+  artifacts/runs/<RUN_DIR>
+```
+
+### 6.7 Verificar integridad de los CSVs consolidados
+
+```bash
+# Filas por archivo
+for f in artifacts/consolidated_*.csv; do
   echo "$(wc -l < $f) filas — $(basename $f)"
 done
+
+# Distribución de garak_passed
+python3 -c "
+import csv
+from collections import Counter
+for domain in ['regulatory_technical', 'academic_institutional']:
+    for scenario in ['unprotected', 'protected']:
+        path = f'artifacts/consolidated_{domain}_{scenario}.csv'
+        try:
+            with open(path) as f:
+                c = Counter(r['garak_passed'] for r in csv.DictReader(f)
+                            if r['prompt_type'] == 'adversarial')
+            print(f'{domain} {scenario}: {dict(c)}')
+        except FileNotFoundError:
+            print(f'{domain} {scenario}: not found')
+"
 ```
 
 ---
 
-## Paso 7 — Limpiar artefactos (reset completo)
+## Paso 7 — Limpieza de artefactos
 
-> Usar solo si se quiere empezar desde cero. Esto borra TODOS los resultados.
+> Secciones independientes. Ejecutar solo la que corresponda.
+
+### 7.1 Bajar servicios
 
 ```bash
-# Bajar todos los servicios
 docker compose --env-file .env.regulatory_technical down
 docker compose --env-file .env.academic_institutional down
+```
 
-# Borrar artefactos
+### 7.2 Limpiar solo resultados de un run específico
+
+```bash
+rm -rf ~/framework-eval-cs-llm/artifacts/runs/<RUN_DIR>
+```
+
+### 7.3 Limpiar todos los runs y CSVs (mantiene calibración)
+
+```bash
 rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
 rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
 rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
+rm -rf ~/framework-eval-cs-llm/artifacts/figures/*
 
-# Verificar que quedó vacío
+# Verificar
+find ~/framework-eval-cs-llm/artifacts -type f | sort
+```
+
+### 7.4 Limpiar ChromaDB (fuerza re-ingesta)
+
+```bash
+rm -rf ~/framework-eval-cs-llm/chroma_db/*
+rm -rf ~/framework-eval-cs-llm/chroma_cache/*
+# Requiere re-ingestar corpus en Paso 4.3 o 5.3
+```
+
+### 7.5 Reset total (borra TODO incluyendo modelo Ollama)
+
+> ⚠️ Requiere ejecutar bootstrap completo desde Paso 1.
+
+```bash
+# 1. Detener contenedores
+docker stop tesis_shield tesis_rag ollama_core 2>/dev/null || true
+docker rm   tesis_shield tesis_rag ollama_core 2>/dev/null || true
+
+# 2. Limpiar Docker completo
+docker system prune -a --volumes -f
+
+# 3. Eliminar artefactos locales
+sudo rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
+sudo rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
+sudo rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
+sudo rm -f  ~/framework-eval-cs-llm/artifacts/llm_guard.log
+sudo rm -rf ~/framework-eval-cs-llm/ollama_data/*
+sudo rm -rf ~/framework-eval-cs-llm/llm_guard_cache/*
+sudo rm -rf ~/framework-eval-cs-llm/chroma_cache/*
+sudo rm -rf ~/framework-eval-cs-llm/chroma_db/*
+sudo rm -rf ~/framework-eval-cs-llm/garak_runs/*
+
+# 4. Verificar
+docker ps -a
+docker images
+docker volume ls
 find ~/framework-eval-cs-llm/artifacts -type f | sort
 ```
 
@@ -651,16 +563,9 @@ find ~/framework-eval-cs-llm/artifacts -type f | sort
 ### Estado general del sistema
 
 ```bash
-# Ver todos los contenedores activos
 docker ps
-
-# Ver todos los contenedores (incluyendo detenidos)
 docker ps -a
-
-# Ver estado y health de los servicios del stack
-docker compose --env-file .env.regulatory_technical ps
-
-# Ver uso de recursos (CPU, RAM)
+docker compose --env-file .env.<DOMAIN> ps
 docker stats --no-stream
 ```
 
@@ -671,32 +576,24 @@ docker stats --no-stream
 **Servicio no llega a healthy:**
 
 ```bash
-# Ver logs del servicio específico
-docker compose --env-file .env.regulatory_technical logs rag_api
-docker compose --env-file .env.regulatory_technical logs shield_api
-
-# Ver los últimos 50 logs con timestamps
-docker logs tesis_rag --tail 50 --timestamps
+docker compose --env-file .env.<DOMAIN> logs rag_api
+docker compose --env-file .env.<DOMAIN> logs shield_api
+docker logs tesis_rag   --tail 50 --timestamps
 docker logs tesis_shield --tail 50 --timestamps
 
-# Reiniciar un servicio específico sin bajar todo el stack
-docker compose --env-file .env.regulatory_technical restart rag_api
-docker compose --env-file .env.regulatory_technical restart shield_api
+# Reiniciar sin bajar el stack
+docker compose --env-file .env.<DOMAIN> restart rag_api
+docker compose --env-file .env.<DOMAIN> restart shield_api
 ```
-
-
 
 **Verificar health manualmente:**
 
 ```bash
-# RAG API (Escenario A)
-curl http://localhost:8000/health
+curl http://localhost:8000/health   # RAG API
+curl http://localhost:8001/health   # Shield API
 
-# Shield API (Escenario B)
-curl http://localhost:8001/health
-
-# Desde dentro del contenedor (si curl externo falla)
-docker exec tesis_rag curl http://localhost:8000/health
+# Desde dentro del contenedor
+docker exec tesis_rag    curl http://localhost:8000/health
 docker exec tesis_shield curl http://localhost:8001/health
 ```
 
@@ -704,119 +601,110 @@ docker exec tesis_shield curl http://localhost:8001/health
 
 ### Problemas con Ollama
 
-**Verificar que el modelo está disponible:**
-
 ```bash
 docker exec ollama_core ollama list
 # Debe mostrar llama3:8b
+
+docker exec tesis_rag curl http://ollama_core:11434/api/tags
+# El hostname siempre es ollama_core, nunca 127.0.0.1
 ```
 
-**Verificar que Ollama responde:**
+**Verificar GPU:**
 
 ```bash
-docker exec tesis_rag curl http://ollama_core:11434/api/tags
+nvidia-smi
+docker exec ollama_core ollama ps
+# Debe mostrar: llama3:8b ... 100% GPU
+# Si muestra 0% GPU: verificar NVIDIA_VISIBLE_DEVICES=all en docker-compose.yml
 ```
-
-**El contenedor usa `ollama_core` como hostname, nunca `127.0.0.1`.**
 
 ---
 
 ### Problemas con ChromaDB
 
-**Verificar colección ingresada:**
-
 ```bash
-docker exec tesis_rag python3 -m cli ingest verify \
-  --collection regulatory_technical
+# Verificar colección ingresada
+docker exec tesis_rag python3 -m cli ingest verify --collection <DOMAIN>
 
-docker exec tesis_rag python3 -m cli ingest verify \
-  --collection academic_institutional
-```
-
-**Ver cuántos chunks hay en la colección:**
-
-```bash
-docker exec tesis_rag python3 -c "
-import chromadb
-client = chromadb.HttpClient(host='chromadb', port=8000)
-col = client.get_collection('regulatory_technical')
-print('chunks:', col.count())
-"
-```
-
-**Verificar que los chunks tienen metadata de sensibilidad (C8):**
-
-```bash
+# Contar chunks
 docker exec tesis_rag python3 -c "
 import chromadb
 client = chromadb.PersistentClient(path='/root/proyecto_tesis/chroma_db')
-col = client.get_collection('regulatory_technical')
-result = col.get(include=['metadatas'], limit=5)
-for m in result['metadatas']:
-    print(m.get('sensitivity', 'SIN SENSITIVITY'))
+col = client.get_collection('<DOMAIN>')
+print('chunks:', col.count())
 "
-# Todos deben mostrar: low, medium, o high
-# Si muestran SIN SENSITIVITY, re-ingestar con --reset
-```
 
-**Verificar distribución de sensibilidad en el corpus:**
-
-```bash
+# Verificar metadata de sensibilidad (C8)
 docker exec tesis_rag python3 -c "
 import chromadb
 from collections import Counter
 client = chromadb.PersistentClient(path='/root/proyecto_tesis/chroma_db')
-col = client.get_collection('regulatory_technical')
+col = client.get_collection('<DOMAIN>')
 result = col.get(include=['metadatas'])
 c = Counter(m.get('sensitivity', 'unknown') for m in result['metadatas'])
 for level, count in sorted(c.items()):
     print(f'{level}: {count} chunks ({count/sum(c.values())*100:.1f}%)')
 "
+# Si muestran SIN SENSITIVITY, re-ingestar con --reset
+```
+
+**RAG unhealthy — ChromaDB perdió referencia a la colección:**
+
+```bash
+docker restart tesis_rag
+# Esperar ~30 segundos y verificar
+
+docker compose --env-file .env.<DOMAIN> ps
+# Si sigue unhealthy, re-ingestar y reiniciar:
+docker compose --env-file .env.<DOMAIN> run --rm rag_api \
+  python3 -m cli ingest --source <DOMAIN> --reset
+docker restart tesis_rag
 ```
 
 ---
 
 ### Problemas con Garak
 
-**Ver qué dominio tiene activo el contenedor:**
+**Ver dominio activo en el contenedor:**
 
 ```bash
 docker exec tesis_rag env | grep DATASET_TAG
 docker exec tesis_rag env | grep GARAK_TARGET
+# El contenedor usa el dominio con que fue levantado.
+# Para cambiar de dominio: bajar y levantar con el env-file correcto.
 ```
 
-**El contenedor usa el dominio con que fue levantado, no el del `--env-file` del exec.**
-Si necesitas cambiar de dominio, bajar y volver a levantar el stack con el env-file correcto:
+**Reanudar un run interrumpido:**
 
 ```bash
-docker compose --env-file .env.regulatory_technical down
-docker compose --env-file .env.academic_institutional --profile lab up -d
-```
-
-**Reanudar un run interrumpido (por corte de luz u otro motivo):**
-
-```bash
-docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
+docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
   garak_runner attack continue-run \
-  /root/proyecto_tesis/artifacts/runs/<nombre_del_run_dir> \
+  /root/proyecto_tesis/artifacts/runs/<RUN_DIR> \
   --target unprotected
+# Los paths deben ser absolutos dentro del contenedor.
 ```
 
-> Los paths pasados a `continue-run` deben ser absolutos dentro del contenedor.
-> El directorio del run se llama algo como `20260511_151225_regulatory_technical_unprotected_garak`.
-
-**Reejecutar solo una probe específica:**
+**Reejecutar solo una probe:**
 
 ```bash
-docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
+docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
   garak_runner attack garak --target unprotected \
   --suite LLM01 --probe promptinject.HijackKillHumans
 ```
 
-**Ver los reportes HTML de Garak en tu máquina local:**
+**Ver reportes HTML en local:**
 
 ```bash
-scp "pc-u:~/framework-eval-cs-llm/artifacts/runs/<run_dir>/garak/*.report.html" ~/Desktop/
+scp "pc-u:~/framework-eval-cs-llm/artifacts/runs/<RUN_DIR>/garak/*.report.html" ~/Desktop/
+```
+
+---
+
+### Actualización de componentes
+
+```bash
+docker compose --env-file .env.<DOMAIN> --profile lab down
+docker compose --env-file .env.<DOMAIN> --profile lab up -d --build
 ```
 
 ---
@@ -824,156 +712,50 @@ scp "pc-u:~/framework-eval-cs-llm/artifacts/runs/<run_dir>/garak/*.report.html" 
 ### tmux — Sesión persistente en pc-u
 
 ```bash
-# Conectarse a pc-u
 ssh pc-u
+tmux new -s tesis          # crear sesión
+tmux attach -t tesis       # reconectarse
+tmux ls                    # ver sesiones activas
 
-# Crear sesión nueva
-tmux new -s tesis
-
-# Reconectarse a sesión existente después de desconexión
-tmux attach -t tesis
-
-# Ver sesiones activas
-tmux ls
-
-# Scroll dentro de tmux (modo copia)
+# Scroll dentro de tmux:
 # Ctrl+b luego [ (en teclado latinoamericano: Ctrl+b luego Alt+8)
-# Moverse con flechas o PgUp/PgDn
-# Salir del modo copia: q o Escape
-
-# El buffer de tmux tiene límite (~2000 líneas).
-# Si necesitas ver más, los datos están en los archivos de reporte, no en el buffer.
+# Moverse con flechas o PgUp/PgDn — salir con q o Escape
+# El buffer tiene límite (~2000 líneas); los datos reales están en los archivos de reporte.
 ```
 
 ---
 
 ### Verificar integridad de los CSVs
 
-**Ver esquema y primeras filas:**
-
 ```bash
+# Esquema y primeras filas
 python3 -c "
 import csv
-with open('/home/valentina/framework-eval-cs-llm/artifacts/consolidated_regulatory_technical_unprotected.csv') as f:
+with open('artifacts/consolidated_<DOMAIN>_unprotected.csv') as f:
     reader = csv.reader(f)
     for i, row in enumerate(reader):
-        if i < 3:
-            print(row)
+        if i < 3: print(row)
 "
-```
 
-**Contar filas por tipo de prompt:**
-
-```bash
+# Filas por tipo de prompt
 python3 -c "
 import csv
 from collections import Counter
-with open('/home/valentina/framework-eval-cs-llm/artifacts/consolidated_regulatory_technical_unprotected.csv') as f:
+with open('artifacts/consolidated_<DOMAIN>_unprotected.csv') as f:
     c = Counter(row['prompt_type'] for row in csv.DictReader(f))
 print(c)
 "
-```
 
-**Verificar que no hay runs mezclados (por fecha):**
-
-```bash
+# Bloqueos por control (Escenario B)
 python3 -c "
 import csv
 from collections import Counter
-with open('/home/valentina/framework-eval-cs-llm/artifacts/latency/latency_unprotected_direct.csv') as f:
-    c = Counter(row['ts_utc'][:10] for row in csv.DictReader(f) if row['method'] == 'POST')
-for date, count in sorted(c.items()):
-    print(f'{date}: {count} requests')
+with open('artifacts/consolidated_<DOMAIN>_protected.csv') as f:
+    c = Counter(row['block_reason'] for row in csv.DictReader(f)
+                if row['was_blocked'] == 'True')
+for reason, count in sorted(c.items(), key=lambda x: -x[1]):
+    print(f'{count:5d}  {reason}')
 "
-```
-
-> ⚠️ `artifacts/calibration/` contiene evidencia experimental de los umbrales.
-> No está incluido en los comandos de borrado abajo, pero verifica antes de ejecutar.
-
-### Resetear TODO
-```bash
-# 1. Detener y eliminar contenedores nombrados
-docker stop tesis_shield tesis_rag ollama_core
-docker rm tesis_shield tesis_rag ollama_core
-
-# 2. Limpiar todo Docker (contenedores, imágenes, volúmenes, redes y cache de build)
-docker system prune -a --volumes -f
-
-# 3. Eliminar artefactos y cachés locales
-sudo rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
-sudo rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
-sudo rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
-sudo rm -f  ~/framework-eval-cs-llm/artifacts/llm_guard.log
-sudo rm -f  ~/framework-eval-cs-llm/artifacts/verify_*.log
-sudo rm -rf ~/framework-eval-cs-llm/ollama_data/*
-sudo rm -rf ~/framework-eval-cs-llm/llm_guard_cache/*
-sudo rm -rf ~/framework-eval-cs-llm/chroma_cache/*
-sudo rm -rf ~/framework-eval-cs-llm/chroma_db/*
-sudo rm -rf ~/framework-eval-cs-llm/garak_runs/*
-
-# 4. Verificar que quedó limpio
-docker ps -a       # debe quedar vacío
-docker images      # debe quedar vacío
-docker volume ls   # debe quedar vacío
-find ~/framework-eval-cs-llm/artifacts -type f | sort  # debe quedar vacío
-
-# Después de esto ejecutar bootstrap completo desde Paso 1
-```
-
----
-
-### RAG unhealthy — ChromaDB perdió la referencia a la colección
-
-**Síntoma:** `tesis_rag` muestra `(unhealthy)` en `docker compose ps`.
-
-**Causa:** ChromaDB inicializa la referencia a la colección al arrancar el
-contenedor. Si la colección fue borrada (reset total) o el contenedor se
-reinició sin que la colección existiera, la referencia queda inválida aunque
-la colección se ingeste después.
-
-**Solución:**
-
-```bash
-# Paso 1 — Reiniciar el contenedor para que reinicialice la referencia
-docker restart tesis_rag
-
-# Esperar ~30 segundos y verificar
-docker compose --env-file .env.regulatory_technical ps
-```
-
-Si sigue unhealthy después del restart, la colección no existe aún:
-
-```bash
-# Paso 2 — Reingestar y luego reiniciar
-docker compose --env-file .env.regulatory_technical run --rm rag_api \
-  python3 -m cli ingest --source regulatory_technical --reset
-
-docker restart tesis_rag
-
-# Verificar
-docker compose --env-file .env.regulatory_technical ps
-# tesis_rag debe mostrar (healthy)
-```
-
-### Verificar que Ollama usa GPU
-
-```bash
-nvidia-smi
-# Debe mostrar ollama_core ocupando ~5-6 GB de VRAM
-
-docker exec ollama_core ollama ps
-# Debe mostrar: llama3:8b ... 100% GPU
-
-# Si muestra 0% GPU o CPU, el problema es runtime: nvidia faltante en docker-compose.yml
-# o NVIDIA_VISIBLE_DEVICES=all no está seteado (ojo: con S al final, no DEVICE sin S)
-```
-
----
-
-### Actualización de componente `rag.py`, `shield.py` o `docker-compose.yml`
-```bash
-docker compose --env-file .env.regulatory_technical --profile lab down
-docker compose --env-file .env.regulatory_technical --profile lab up -d --build
 ```
 
 ---
@@ -982,38 +764,21 @@ docker compose --env-file .env.regulatory_technical --profile lab up -d --build
 
 ```bash
 # Ver configuración efectiva del stack
-docker compose --env-file .env.regulatory_technical --profile attacks run --rm \
-  garak_runner where
+docker compose --env-file .env.<DOMAIN> --profile attacks run --rm garak_runner where
 
-# Ver imágenes disponibles
-docker images
-
-# Ver espacio en disco
+# Espacio en disco
 df -h
 du -sh ~/framework-eval-cs-llm/artifacts/
 
-# Ver logs de LLM Guard (bloqueos por scanner)
+# Logs de LLM Guard (bloqueos por scanner)
 docker logs tesis_shield | grep "scanner"
 
-# Instalar pandas si necesitas análisis local
-pip install pandas --break-system-packages
+# Logs de controles en tiempo real
+docker logs tesis_rag -f | grep -E "C9:|C11:|C12:|C17:"
 
-# Verificar bloqueos por control en el CSV consolidado
-python3 -c "
-import csv
-from collections import Counter
-with open('/home/valentina/framework-eval-cs-llm/artifacts/consolidated_regulatory_technical_protected.csv') as f:
-    c = Counter(row['block_reason'] for row in csv.DictReader(f) if row['was_blocked'] == 'True')
-for reason, count in sorted(c.items(), key=lambda x: -x[1]):
-    print(f'{count:5d}  {reason}')
-"
-
-# Ver logs de C9 (integridad del corpus)
-docker logs tesis_rag | grep "C9:"
-
-# Ver logs de C11, C12, C17 en tiempo real
-docker logs tesis_rag -f | grep -E "C11:|C12:|C17:"
-
-# Verificar registro de versiones del corpus (C62)
+# Registro de versiones del corpus (C62)
 cat ~/framework-eval-cs-llm/artifacts/corpus_version_registry.csv
+
+# Instalar dependencias para análisis local
+pip install pandas scipy matplotlib
 ```

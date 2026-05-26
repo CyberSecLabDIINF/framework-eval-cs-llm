@@ -100,13 +100,11 @@ SCENARIO_COLORS = {"A": "#4C72B0", "B": "#DD8452"}
 
 
 # ─────────────────────────────────────────────
-# Data loading
+# Private helpers — shared across functions
 # ─────────────────────────────────────────────
 
-def load_tfa_from_jsonl(garak_dir: Path) -> dict:
-    """Computes TFA per probe and suite from *.report.jsonl files."""
-    per_probe: dict[str, dict] = defaultdict(lambda: {"passed": 0, "total": 0})
-
+def _load_jsonl_eval_entries(garak_dir: Path):
+    """Yields (probe, detector, passed, total) for every eval entry in *.report.jsonl files."""
     for jsonl_file in sorted(garak_dir.glob("*.report.jsonl")):
         with jsonl_file.open("r", encoding="utf-8") as f:
             for line in f:
@@ -119,15 +117,59 @@ def load_tfa_from_jsonl(garak_dir: Path) -> dict:
                     continue
                 if obj.get("entry_type") != "eval":
                     continue
-                probe    = obj.get("probe", "unknown")
-                detector = obj.get("detector", "")
-                passed   = obj.get("passed", 0)
-                total    = obj.get("total", 0)
-                primary  = PRIMARY_DETECTOR.get(probe)
-                if primary is not None and detector != primary:
-                    continue
-                per_probe[probe]["passed"] += passed
-                per_probe[probe]["total"]  += total
+                yield (
+                    obj.get("probe", "unknown"),
+                    obj.get("detector", ""),
+                    obj.get("passed", 0),
+                    obj.get("total", 0),
+                )
+
+
+def _extract_suite(val) -> str:
+    """Parses 'LLM01|probe.name' into 'LLM01'. Returns 'UNKNOWN' if unparseable."""
+    if pd.isna(val):
+        return "UNKNOWN"
+    return str(val).split("|")[0] if "|" in str(val) else "UNKNOWN"
+
+
+def _confusion_counts(adv_df: pd.DataFrame, legit_df: pd.DataFrame) -> dict:
+    """Returns TP, FN, FP, TN counts from adversarial and legitimate DataFrames."""
+    return {
+        "TP": int(((adv_df["should_block"]  == 1) & (adv_df["was_blocked"]  == 1)).sum()),
+        "FN": int(((adv_df["should_block"]  == 1) & (adv_df["was_blocked"]  == 0)).sum()),
+        "FP": int(((legit_df["should_block"] == 0) & (legit_df["was_blocked"] == 1)).sum()),
+        "TN": int(((legit_df["should_block"] == 0) & (legit_df["was_blocked"] == 0)).sum()),
+    }
+
+
+def _load_consolidated_legit(artifacts_dir: Path, domain: str, scenario: str) -> pd.DataFrame:
+    """Loads consolidated CSV for a domain/scenario, legitimate rows only."""
+    path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
+    if not path.exists():
+        return pd.DataFrame()
+    df = pd.read_csv(path)
+    df = df[df["prompt_type"] == "legitimate"].copy()
+    if "response_has_confidential" in df.columns:
+        df["response_has_confidential"] = pd.to_numeric(
+            df["response_has_confidential"], errors="coerce"
+        ).fillna(0).astype(int)
+    return df
+
+
+# ─────────────────────────────────────────────
+# Data loading
+# ─────────────────────────────────────────────
+
+def load_tfa_from_jsonl(garak_dir: Path) -> dict:
+    """Computes TFA per probe and suite from *.report.jsonl files."""
+    per_probe: dict[str, dict] = defaultdict(lambda: {"passed": 0, "total": 0})
+
+    for probe, detector, passed, total in _load_jsonl_eval_entries(garak_dir):
+        primary = PRIMARY_DETECTOR.get(probe)
+        if primary is not None and detector != primary:
+            continue
+        per_probe[probe]["passed"] += passed
+        per_probe[probe]["total"]  += total
 
     for probe, v in per_probe.items():
         v["suite"] = PROBE_TO_SUITE.get(probe, "UNKNOWN")
@@ -454,26 +496,12 @@ def deep_analysis_by_detector(runs_dir: Path, domains: list):
         # Aggregate passed/total per (probe, detector)
         results: dict[tuple, dict] = defaultdict(lambda: {"passed": 0, "total": 0})
 
-        for jsonl_file in sorted((run_a / "garak").glob("*.report.jsonl")):
-            with jsonl_file.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if obj.get("entry_type") != "eval":
-                        continue
-                    probe    = obj.get("probe", "unknown")
-                    detector = obj.get("detector", "unknown")
-                    results[(probe, detector)]["passed"] += obj.get("passed", 0)
-                    results[(probe, detector)]["total"]  += obj.get("total", 0)
+        for probe, detector, passed, total in _load_jsonl_eval_entries(run_a / "garak"):
+            results[(probe, detector)]["passed"] += passed
+            results[(probe, detector)]["total"]  += total
 
         # Group by probe to detect multi-detector probes
-        from collections import defaultdict as dd
-        by_probe: dict[str, list] = dd(list)
+        by_probe: dict[str, list] = defaultdict(list)
         for (probe, detector), v in results.items():
             tfa = v["passed"] / v["total"] if v["total"] > 0 else None
             by_probe[probe].append({
@@ -539,12 +567,7 @@ def deep_analysis_confusion_a(artifacts_dir: Path, domains: list):
             print(f"  [WARN] No data for {domain}")
             continue
 
-        path = artifacts_dir / f"consolidated_{domain}_unprotected.csv"
-        df_full = pd.read_csv(path)
-        df_legit = df_full[df_full["prompt_type"] == "legitimate"].copy()
-        df_legit["response_has_confidential"] = pd.to_numeric(
-            df_legit["response_has_confidential"], errors="coerce"
-        ).fillna(0).astype(int)
+        df_legit = _load_consolidated_legit(artifacts_dir, domain, "unprotected")
 
         df_adv = df_a[df_a["garak_passed"].notna()].copy()
         df_adv["garak_passed"] = df_adv["garak_passed"].astype(int)
@@ -639,10 +662,8 @@ def deep_analysis_confusion(artifacts_dir: Path, domains: list):
         adv  = df_b[df_b["prompt_type"] == "adversarial"].copy()
         legit = df_b[df_b["prompt_type"] == "legitimate"].copy()
 
-        TP = int(((adv["should_block"]  == 1) & (adv["was_blocked"]  == 1)).sum())
-        FN = int(((adv["should_block"]  == 1) & (adv["was_blocked"]  == 0)).sum())
-        FP = int(((legit["should_block"] == 0) & (legit["was_blocked"] == 1)).sum())
-        TN = int(((legit["should_block"] == 0) & (legit["was_blocked"] == 0)).sum())
+        counts = _confusion_counts(adv, legit)
+        TP, FN, FP, TN = counts["TP"], counts["FN"], counts["FP"], counts["TN"]
 
         total     = TP + FN + FP + TN
         precision = TP / (TP + FP) if (TP + FP) > 0 else None
@@ -682,10 +703,8 @@ def deep_analysis_confusion(artifacts_dir: Path, domains: list):
         for subdim in sorted(df_b["subdimension"].dropna().unique()):
             sub_adv   = adv[adv["subdimension"] == subdim]
             sub_legit = legit[legit["subdimension"] == subdim]
-            tp = int(((sub_adv["should_block"]  == 1) & (sub_adv["was_blocked"]  == 1)).sum())
-            fn = int(((sub_adv["should_block"]  == 1) & (sub_adv["was_blocked"]  == 0)).sum())
-            fp = int(((sub_legit["should_block"] == 0) & (sub_legit["was_blocked"] == 1)).sum())
-            tn = int(((sub_legit["should_block"] == 0) & (sub_legit["was_blocked"] == 0)).sum())
+            sc = _confusion_counts(sub_adv, sub_legit)
+            tp, fn, fp, tn = sc["TP"], sc["FN"], sc["FP"], sc["TN"]
             rec  = tp / (tp + fn) if (tp + fn) > 0 else None
             prec = tp / (tp + fp) if (tp + fp) > 0 else None
             f1s  = (2 * prec * rec / (prec + rec)
@@ -735,13 +754,8 @@ def deep_analysis_las(lat_a: pd.DataFrame, lat_b: pd.DataFrame):
         print(f"  {f'p{p}':20s} {val_a:>12.1f} {b_str}")
 
     # ── By suite ────────────────────────────────────────────
-    def extract_suite(val):
-        if pd.isna(val):
-            return "UNKNOWN"
-        return str(val).split("|")[0] if "|" in str(val) else "UNKNOWN"
-
     lat_a = lat_a.copy()
-    lat_a["suite"] = lat_a["suite_probe"].apply(extract_suite)
+    lat_a["suite"] = lat_a["suite_probe"].apply(_extract_suite)
 
     print(f"\n  MEDIAN LATENCY BY SUITE — Scenario A (ms)")
     print(f"  {'Suite':8s} {'Description':28s} {'n':>6} {'Median':>8} {'Std':>8} {'p95':>8}")
@@ -756,7 +770,7 @@ def deep_analysis_las(lat_a: pd.DataFrame, lat_b: pd.DataFrame):
     # ── Overhead comparison by suite (A vs B) ───────────────
     if not lat_b.empty:
         lat_b = lat_b.copy()
-        lat_b["suite"] = lat_b["suite_probe"].apply(extract_suite)
+        lat_b["suite"] = lat_b["suite_probe"].apply(_extract_suite)
         print(f"\n  LAS OVERHEAD BY SUITE (Δmedian B - A, ms)")
         print(f"  {'Suite':8s} {'Med_A':>8} {'Med_B':>8} {'Δ':>8} {'Δ%':>8}")
         print(f"  {'-'*40}")
@@ -1091,54 +1105,52 @@ def plot_confidential_exposure(artifacts_dir: Path, domains: list, figures_dir: 
     plt.close(fig)
 
 
-def plot_las_boxplot(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Path):
+def plot_las_boxplot(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Path,
+                     by_domain: bool = False):
+    """Latency boxplot — global (by_domain=False) or one subplot per domain (by_domain=True)."""
     import matplotlib.pyplot as plt
     if lat_a.empty or lat_b.empty:
-        print("  [skip] LAS boxplot requires both scenarios.")
+        suffix = "domain boxplot" if by_domain else "boxplot"
+        print(f"  [skip] LAS {suffix} requires both scenarios.")
         return
     setup_style()
-    fig, ax = plt.subplots(figsize=(6, 5))
-    data   = [lat_a["latency_ms"].values, lat_b["latency_ms"].values]
-    labels = ["Scenario A\n(unprotected)", "Scenario B\n(LLM Guard)"]
-    colors = [SCENARIO_COLORS["A"], SCENARIO_COLORS["B"]]
-    bp = ax.boxplot(data, labels=labels, patch_artist=True,
-                    medianprops={"color": "black", "linewidth": 2},
-                    flierprops={"marker": ".", "markersize": 3, "alpha": 0.3})
-    for patch, color in zip(bp["boxes"], colors):
-        patch.set_facecolor(color)
-        patch.set_alpha(0.6)
-    ax.set_ylabel("Latency (ms)")
-    ax.set_title("Latency Distribution — Scenario A vs B")
-    _save(fig, figures_dir, "las_boxplot_global.png")
-    plt.close(fig)
 
-
-def plot_las_boxplot_by_domain(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Path):
-    import matplotlib.pyplot as plt
-    if lat_a.empty or lat_b.empty:
-        print("  [skip] LAS domain boxplot requires both scenarios.")
-        return
-    setup_style()
-    domains = sorted(set(lat_a["domain"].dropna()) | set(lat_b["domain"].dropna()))
-    n = len(domains)
-    fig, axes = plt.subplots(1, n, figsize=(6 * n, 5), sharey=True)
-    if n == 1:
-        axes = [axes]
-    for ax, domain in zip(axes, domains):
-        sub_a = lat_a[lat_a["domain"] == domain]["latency_ms"].values
-        sub_b = lat_b[lat_b["domain"] == domain]["latency_ms"].values
-        bp = ax.boxplot([sub_a, sub_b], labels=["Scenario A", "Scenario B"],
-                        patch_artist=True,
+    if by_domain:
+        domains = sorted(set(lat_a["domain"].dropna()) | set(lat_b["domain"].dropna()))
+        n = len(domains)
+        fig, axes = plt.subplots(1, n, figsize=(6 * n, 5), sharey=True)
+        if n == 1:
+            axes = [axes]
+        for ax, domain in zip(axes, domains):
+            sub_a = lat_a[lat_a["domain"] == domain]["latency_ms"].values
+            sub_b = lat_b[lat_b["domain"] == domain]["latency_ms"].values
+            bp = ax.boxplot([sub_a, sub_b], labels=["Scenario A", "Scenario B"],
+                            patch_artist=True,
+                            medianprops={"color": "black", "linewidth": 2},
+                            flierprops={"marker": ".", "markersize": 3, "alpha": 0.3})
+            for patch, color in zip(bp["boxes"], [SCENARIO_COLORS["A"], SCENARIO_COLORS["B"]]):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.6)
+            ax.set_title(domain.replace("_", " ").title(), fontsize=10)
+            ax.set_ylabel("Latency (ms)" if ax == axes[0] else "")
+        fig.suptitle("Latency Distribution per Domain", fontweight="bold")
+        fig.tight_layout()
+        _save(fig, figures_dir, "las_boxplot_by_domain.png")
+    else:
+        fig, ax = plt.subplots(figsize=(6, 5))
+        data   = [lat_a["latency_ms"].values, lat_b["latency_ms"].values]
+        labels = ["Scenario A\n(unprotected)", "Scenario B\n(LLM Guard)"]
+        colors = [SCENARIO_COLORS["A"], SCENARIO_COLORS["B"]]
+        bp = ax.boxplot(data, labels=labels, patch_artist=True,
                         medianprops={"color": "black", "linewidth": 2},
                         flierprops={"marker": ".", "markersize": 3, "alpha": 0.3})
-        for patch, color in zip(bp["boxes"], [SCENARIO_COLORS["A"], SCENARIO_COLORS["B"]]):
+        for patch, color in zip(bp["boxes"], colors):
             patch.set_facecolor(color)
             patch.set_alpha(0.6)
-        ax.set_title(domain.replace("_", " ").title(), fontsize=10)
-        ax.set_ylabel("Latency (ms)" if ax == axes[0] else "")
-    fig.suptitle("Latency Distribution per Domain", fontweight="bold")
-    fig.tight_layout()
-    _save(fig, figures_dir, "las_boxplot_by_domain.png")
+        ax.set_ylabel("Latency (ms)")
+        ax.set_title("Latency Distribution — Scenario A vs B")
+        _save(fig, figures_dir, "las_boxplot_global.png")
+
     plt.close(fig)
 
 def plot_latency_histogram(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Path):
@@ -1208,13 +1220,8 @@ def plot_las_by_suite(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Pat
         return
     setup_style()
 
-    def extract_suite(val):
-        if pd.isna(val):
-            return "UNKNOWN"
-        return str(val).split("|")[0] if "|" in str(val) else "UNKNOWN"
-
     lat_a = lat_a.copy()
-    lat_a["suite"] = lat_a["suite_probe"].apply(extract_suite)
+    lat_a["suite"] = lat_a["suite_probe"].apply(_extract_suite)
     suites_present = [s for s in VECTOR_MAP if s in lat_a["suite"].values]
     if not suites_present:
         print("  [skip] No suite information found in latency CSV.")
@@ -1227,7 +1234,7 @@ def plot_las_by_suite(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Pat
         labels.append(suite)
         if not lat_b.empty:
             lat_b_copy = lat_b.copy()
-            lat_b_copy["suite"] = lat_b_copy["suite_probe"].apply(extract_suite)
+            lat_b_copy["suite"] = lat_b_copy["suite_probe"].apply(_extract_suite)
             sub_b = lat_b_copy[lat_b_copy["suite"] == suite]["latency_ms"]
             meds_b.append(sub_b.median() if not sub_b.empty else None)
         else:
@@ -1264,13 +1271,8 @@ def plot_latency_distribution_by_suite(lat_a: pd.DataFrame, figures_dir: Path):
         return
     setup_style()
 
-    def extract_suite(val):
-        if pd.isna(val):
-            return "UNKNOWN"
-        return str(val).split("|")[0] if "|" in str(val) else "UNKNOWN"
-
     lat_a = lat_a.copy()
-    lat_a["suite"] = lat_a["suite_probe"].apply(extract_suite)
+    lat_a["suite"] = lat_a["suite_probe"].apply(_extract_suite)
     suites = [s for s in VECTOR_MAP if s in lat_a["suite"].values]
     data   = [lat_a[lat_a["suite"] == s]["latency_ms"].values for s in suites]
 
@@ -1305,10 +1307,8 @@ def plot_confusion_matrix(artifacts_dir: Path, domains: list, figures_dir: Path)
             continue
         adv   = df_b[df_b["prompt_type"] == "adversarial"]
         legit = df_b[df_b["prompt_type"] == "legitimate"]
-        TP = int(((adv["should_block"]  == 1) & (adv["was_blocked"]  == 1)).sum())
-        FN = int(((adv["should_block"]  == 1) & (adv["was_blocked"]  == 0)).sum())
-        FP = int(((legit["should_block"] == 0) & (legit["was_blocked"] == 1)).sum())
-        TN = int(((legit["should_block"] == 0) & (legit["was_blocked"] == 0)).sum())
+        counts = _confusion_counts(adv, legit)
+        TP, FN, FP, TN = counts["TP"], counts["FN"], counts["FP"], counts["TN"]
         valid_domains.append(domain)
         matrices.append(np.array([[TP, FN], [FP, TN]]))
 
@@ -1393,22 +1393,9 @@ def plot_detector_heatmap(runs_dir: Path, domains: list, figures_dir: Path):
         if not run_a:
             continue
         results: dict[tuple, dict] = defaultdict(lambda: {"passed": 0, "total": 0})
-        for jsonl_file in sorted((run_a / "garak").glob("*.report.jsonl")):
-            with jsonl_file.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if obj.get("entry_type") != "eval":
-                        continue
-                    probe    = obj.get("probe", "unknown")
-                    detector = obj.get("detector", "unknown")
-                    results[(probe, detector)]["passed"] += obj.get("passed", 0)
-                    results[(probe, detector)]["total"]  += obj.get("total", 0)
+        for probe, detector, passed, total in _load_jsonl_eval_entries(run_a / "garak"):
+            results[(probe, detector)]["passed"] += passed
+            results[(probe, detector)]["total"]  += total
 
         domain_data[domain] = {
             k: v["passed"] / v["total"] if v["total"] > 0 else 0
@@ -1482,10 +1469,7 @@ def plot_confusion_matrix_scenario_a(artifacts_dir: Path, domains: list, figures
             print(f"  [skip] confusion matrix A: no data for {domain}")
             continue
 
-        # Load full CSV including legitimate rows
-        path = artifacts_dir / f"consolidated_{domain}_unprotected.csv"
-        df_full = pd.read_csv(path)
-        df_legit = df_full[df_full["prompt_type"] == "legitimate"].copy()
+        df_legit = _load_consolidated_legit(artifacts_dir, domain, "unprotected")
 
         # TP / FN from garak_passed
         df_adv_valid = df_a_adv[df_a_adv["garak_passed"].notna()].copy()
@@ -1494,9 +1478,6 @@ def plot_confusion_matrix_scenario_a(artifacts_dir: Path, domains: list, figures
         FN = int((df_adv_valid["garak_passed"] == 0).sum())
 
         # TN: legitimate prompts that did not expose confidential data
-        df_legit["response_has_confidential"] = pd.to_numeric(
-            df_legit["response_has_confidential"], errors="coerce"
-        ).fillna(0).astype(int)
         TN = int((df_legit["response_has_confidential"] == 0).sum())
         # Legitimate that leaked confidential → also a failure, not FP
         legit_leaked = int((df_legit["response_has_confidential"] == 1).sum())
@@ -1619,7 +1600,7 @@ def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
     plot_pvalue_by_suite(tfa_by_domain, figures_dir)
     plot_confidential_exposure(artifacts_dir, domains, figures_dir)
     plot_las_boxplot(lat_a, lat_b, figures_dir)
-    plot_las_boxplot_by_domain(lat_a, lat_b, figures_dir)
+    plot_las_boxplot(lat_a, lat_b, figures_dir, by_domain=True)
     plot_latency_histogram(lat_a, lat_b, figures_dir)
     plot_las_by_suite(lat_a, lat_b, figures_dir)
     plot_latency_distribution_by_suite(lat_a, figures_dir)

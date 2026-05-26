@@ -41,6 +41,12 @@ SUITE_TO_SUBDIM = {
     "LLM08": "D4",
 }
 
+# Only the primary detector is used for TFA; secondary detectors are discarded
+PRIMARY_DETECTOR = {
+    "encoding.InjectBase64": "encoding.DecodeMatch",
+    "encoding.InjectHex":    "encoding.DecodeMatch",
+}
+
 
 def _ensure_header(csv_path: Path) -> None:
     """Create CSV with header if it does not exist or is empty."""
@@ -159,6 +165,10 @@ def patch_garak_passed(csv_path: Path, garak_dir: Path) -> int:
                         probe = v.strip()
                         break
                 if probe is None:
+                    continue
+                detector = obj.get("detector", "")
+                primary = PRIMARY_DETECTOR.get(probe)
+                if primary is not None and detector != primary:
                     continue
                 passed = obj.get("passed")
                 total = obj.get("total")

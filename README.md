@@ -337,31 +337,66 @@ docker exec tesis_shield python3 -m cli attack legitimate \
 
 ## Paso 5 — Procesamiento de resultados
 
-Una vez completados los cuatro runs (A×domain1, A×domain2, B×domain1, B×domain2), ejecuta el procesamiento manual.
+Una vez completados los cuatro runs (A×domain1, A×domain2, B×domain1, B×domain2), sincroniza los artefactos al notebook y procesa localmente.
 
-### 5.1 Cruzar resultados de Garak con el CSV consolidado
+### 5.0 Sincronizar artefactos desde pc-u (si aplica)
 
 ```bash
-docker exec tesis_rag python3 -m cli metrics patch-garak
+rsync -avz --progress pc-u:~/framework-eval-cs-llm/artifacts/ ~/Desktop/framework-eval-cs-llm/artifacts/
 ```
 
-### 5.2 Calcular métricas (TFA, LAS, PCC, NCP)
+### 5.1 Configurar entorno virtual local
 
 ```bash
-docker exec tesis_rag python3 -m cli metrics compute
+cd ~/Desktop/framework-eval-cs-llm
+
+# Solo la primera vez
+python3 -m venv .venv && source .venv/bin/activate && pip install pandas scipy matplotlib
+
+# Las siguientes veces
+source .venv/bin/activate
 ```
 
-### 5.3 Ejecutar pruebas estadísticas
+### 5.2 Parchear garak_passed (por dominio y escenario)
 
 ```bash
-docker exec tesis_rag python3 -m cli metrics stats
+# Escenario A
+PYTHONPATH=app/src python3 -m cli metrics patch-garak --domain <domain> --scenario unprotected
+
+# Escenario B
+PYTHONPATH=app/src python3 -m cli metrics patch-garak --domain <domain> --scenario protected
+```
+
+### 5.3 Calcular métricas básicas (TFA y LAS)
+
+```bash
+python3 app/src/eval/process_results.py --artifacts artifacts/
+```
+
+### 5.4 Análisis profundo (matrices de confusión, detectores, distribuciones)
+
+```bash
+python3 app/src/eval/process_results.py --artifacts artifacts/ --deep
+```
+
+### 5.5 Generar figuras
+
+```bash
+python3 app/src/eval/process_results.py --artifacts artifacts/ --deep --plots
+# Figuras guardadas en artifacts/figures/
+```
+
+### 5.6 Filtrar por dominio específico
+
+```bash
+python3 app/src/eval/process_results.py --artifacts artifacts/ --domains <domain> --deep --plots
 ```
 
 Los resultados quedan en:
 
 ```
-artifacts/runs/<run_id>/metrics.json
-artifacts/runs/<run_id>/summary.md
+artifacts/figures/
+artifacts/consolidated_<domain>_<scenario>.csv
 ```
 
 ---

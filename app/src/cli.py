@@ -851,6 +851,38 @@ def patch_garak(
     updated = patch_garak_passed(csv_path, garak_dir)
     typer.echo(f"✅ patch-garak complete — {updated} rows updated.")
 
+
+@metrics_app.command("process")
+def process_results_cmd(
+    artifacts: Path = typer.Option(
+        Path("artifacts"), "--artifacts", "-a",
+        help="Path to artifacts/ directory"
+    ),
+    domains: Optional[List[str]] = typer.Option(
+        None, "--domains", "-d",
+        help="Domains to analyze (default: auto-discover)"
+    ),
+    deep: bool = typer.Option(False, "--deep", help="Run deep analysis"),
+    plots: bool = typer.Option(False, "--plots", help="Generate and save figures"),
+):
+    """
+    Process experiment results: compute TFA, LAS, deep analysis, and figures.
+    Reads from artifacts/ directory. Can run inside Docker or locally.
+    """
+    import subprocess, sys
+    cmd = [sys.executable, "-m", "eval.process_results",
+           "--artifacts", str(artifacts)]
+    if domains:
+        cmd += ["--domains"] + list(domains)
+    if deep:
+        cmd.append("--deep")
+    if plots:
+        cmd.append("--plots")
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        raise typer.Exit(code=result.returncode)
+
+
 def main():
     app()
 

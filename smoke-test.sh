@@ -287,13 +287,54 @@ else
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
+log_step "PASO 7b — Prompts legítimos (Escenario B)"
+# ────────────────────────────────────────────────────────────────────────────
+
+log_info "Ejecutando prompts legítimos Escenario B (1 repetición)..."
+LEGIT_B_RC=0
+docker exec tesis_shield python3 -m cli attack legitimate \
+    --target protected --repetitions 1 2>&1 | tail -5 || LEGIT_B_RC=$?
+
+if [[ $LEGIT_B_RC -eq 0 ]]; then
+    log_ok "Prompts legítimos Escenario B ejecutados"
+else
+    log_err "Error en prompts legítimos Escenario B (rc=$LEGIT_B_RC)"
+fi
+
+# Verificar CSV consolidado protegido
+CSV_B_PATH="artifacts/consolidated_${DOMAIN}_protected.csv"
+if [[ -f "$CSV_B_PATH" ]]; then
+    ROW_B_COUNT=$(python3 -c "
+import csv
+with open('${CSV_B_PATH}') as f:
+    print(sum(1 for _ in csv.DictReader(f)))
+" 2>/dev/null || echo "0")
+    log_ok "CSV consolidado (B): $ROW_B_COUNT filas ($CSV_B_PATH)"
+else
+    log_err "CSV no encontrado: $CSV_B_PATH"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+log_step "PASO 7c — Patch garak_passed (Escenario B)"
+# ────────────────────────────────────────────────────────────────────────────
+
+PATCH_B_RC=0
+docker exec tesis_rag python3 -m cli metrics patch-garak \
+    --domain "$DOMAIN" --scenario protected 2>&1 | tail -3 || PATCH_B_RC=$?
+
+if [[ $PATCH_B_RC -eq 0 ]]; then
+    log_ok "patch-garak Escenario B completado"
+else
+    log_err "Error en patch-garak Escenario B (rc=$PATCH_B_RC)"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
 log_step "PASO 8 — Limpieza de artefactos del smoke test"
 # ────────────────────────────────────────────────────────────────────────────
 
 read -rp "  ¿Limpiar artefactos del smoke test? (s/N): " CLEAN
 if [[ "${CLEAN,,}" == "s" ]]; then
-    find artifacts/runs -maxdepth 1 -type d -newer "$ENV_FILE" \
-        -exec rm -rf {} + 2>/dev/null || true
+    rm -rf artifacts/runs/*
     rm -f "artifacts/consolidated_${DOMAIN}_unprotected.csv" 2>/dev/null || true
     rm -f "artifacts/consolidated_${DOMAIN}_protected.csv" 2>/dev/null || true
     rm -f artifacts/latency/latency_*.csv 2>/dev/null || true
