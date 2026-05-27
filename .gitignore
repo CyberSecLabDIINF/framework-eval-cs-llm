@@ -19,3 +19,4 @@ reportes/
 *.log
 llm_guard_cache/
 venv/
+garak_runs/
