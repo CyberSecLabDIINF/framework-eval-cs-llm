@@ -18,3 +18,4 @@ artifacts/
 reportes/
 *.log
 llm_guard_cache/
+venv/
