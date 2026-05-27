@@ -16,7 +16,6 @@
 | `SENSITIVITY_LEVEL` | `high` (ambos dominios) | Permite recuperar fragmentos de cualquier nivel de sensibilidad durante el experimento. |
 | `QUERY_COHERENCE_THRESHOLD` | 1.35 (regulatory) / 1.1723 (academic) | Calibrado con 70 queries legítimas vs 35 incoherentes por dominio. FP: 3 (4.3%) y 2 (2.9%). |
 | `C17_GROUNDING_THRESHOLD` | 0.0556 (regulatory) / 0.0714 (academic) | Calibrado como p5 del grounding ratio en 70 respuestas legítimas. |
-| `DOMAIN_DISTANCE_THRESHOLD` | TBD (regulatory) / TBD (academic) | Calibrado como umbral de distancia semántica para validación de relevancia de dominio en ChromaDB. |
 | Detector primario (encoding probes) | `encoding.DecodeMatch` | Más estricto que `DecodeApprox`. Se descarta `DecodeApprox` para evitar doble conteo en TFA. Total correcto: 6400 intentos por probe, no 12800. |
 
 ---
@@ -128,10 +127,6 @@ docker exec tesis_rag python3 -m cli ingest verify --collection <DOMAIN>
 ### 3.3 Calibrar umbrales (solo primera vez por dominio)
 
 ```bash
-# C4 — domain relevance threshold
-docker exec tesis_rag python app/scripts/calibrate_c4.py --domain <DOMAIN>
-grep DOMAIN_DISTANCE_THRESHOLD .env.<DOMAIN>
-
 # C11 — coherencia semántica de queries
 docker exec tesis_rag python app/scripts/calibrate_c11.py --domain <DOMAIN>
 grep QUERY_COHERENCE_THRESHOLD .env.<DOMAIN>
@@ -139,8 +134,6 @@ grep QUERY_COHERENCE_THRESHOLD .env.<DOMAIN>
 # C17 — grounding de respuestas
 docker exec tesis_rag python app/scripts/calibrate_c17.py \
   --domain <DOMAIN> --target unprotected
-# Calibration requests are written to artifacts/calibration/
-# and do not affect the experiment CSV.
 grep C17_GROUNDING_THRESHOLD .env.<DOMAIN>
 ```
 
@@ -153,7 +146,7 @@ docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
   --target unprotected \
   --suite LLM07 \
   --probe goodside.Tag \
-  --smoke-test
+  --repetitions 1
 
 # Escenario B
 docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
@@ -161,7 +154,7 @@ docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
   --target protected \
   --suite LLM07 \
   --probe goodside.Tag \
-  --smoke-test
+  --repetitions 1
 ```
 
 ### 3.5 Verificar artefactos generados
@@ -178,11 +171,11 @@ cat ~/framework-eval-cs-llm/artifacts/runs/*/logs/app.log
 
 ```bash
 # Escenario A
-docker exec -e RUN_KIND=smoke_test tesis_rag python3 -m cli attack legitimate \
+docker exec tesis_rag python3 -m cli attack legitimate \
   --target unprotected --repetitions 1
 
 # Escenario B
-docker exec -e RUN_KIND=smoke_test tesis_shield python3 -m cli attack legitimate \
+docker exec tesis_shield python3 -m cli attack legitimate \
   --target protected --repetitions 1
 ```
 
@@ -205,12 +198,18 @@ else:
 ### 3.8 Parchear garak_passed
 
 ```bash
-# Dentro del stack Docker
-docker compose --env-file .env.<DOMAIN> --profile lab run --rm garak_runner \
-  python -m tesis_lab.cli metrics patch-garak --domain <DOMAIN> --scenario unprotected
+python3 -c "
+import sys
+from pathlib import Path
+sys.path.insert(0, 'app/src')
+from eval.consolidator import patch_garak_passed
 
-# O localmente (con venv activo)
-PYTHONPATH=app/src python3 -m cli metrics patch-garak --domain <DOMAIN> --scenario unprotected
+n = patch_garak_passed(
+    csv_path=Path('artifacts/consolidated_<DOMAIN>_unprotected.csv'),
+    garak_dir=Path('artifacts/runs/<RUN_DIR>/garak')
+)
+print(f'Filas parcheadas: {n}')
+"
 ```
 
 ### 3.9 Limpiar artefactos del smoke test
@@ -219,7 +218,7 @@ PYTHONPATH=app/src python3 -m cli metrics patch-garak --domain <DOMAIN> --scenar
 docker compose --env-file .env.<DOMAIN> down
 
 rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
-rm -rf ~/framework-eval-cs-llm/artifacts/smoke_test/
+rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
 rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
 
 echo "✅ Smoke test OK. Artefactos eliminados. Listo para el experimento real."
@@ -258,63 +257,50 @@ docker compose --env-file .env.<DOMAIN> run --rm rag_api \
 docker exec tesis_rag python3 -m cli ingest verify --collection <DOMAIN>
 ```
 
-### 4.4 Calibrar umbrales
-
-```bash
-# C4 — domain relevance threshold
-docker exec tesis_rag python app/scripts/calibrate_c4.py --domain <DOMAIN>
-grep DOMAIN_DISTANCE_THRESHOLD .env.<DOMAIN>
-
-# C11 — coherencia semántica de queries
-docker exec tesis_rag python app/scripts/calibrate_c11.py --domain <DOMAIN>
-grep QUERY_COHERENCE_THRESHOLD .env.<DOMAIN>
-
-# C17 — grounding de respuestas
-docker exec tesis_rag python app/scripts/calibrate_c17.py \
-  --domain <DOMAIN> --target unprotected
-# Calibration requests are written to artifacts/calibration/
-# and do not affect the experiment CSV.
-grep C17_GROUNDING_THRESHOLD .env.<DOMAIN>
-```
-
-### 4.5 Verificar salud del target
+### 4.4 Verificar salud del target
 
 ```bash
 docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
   garak_runner attack health --target unprotected
 ```
 
-### 4.6 Ejecutar ataques Garak
+### 4.5 Ejecutar ataques Garak
 
 ```bash
 docker compose --env-file .env.<DOMAIN> --profile attacks up garak_runner
 ```
 
-### 4.7 Monitorear en tiempo real
+### 4.6 Monitorear en tiempo real
 
 ```bash
 # En otra terminal (tmux attach -t tesis)
 docker compose --env-file .env.<DOMAIN> logs -f garak_runner
 ```
 
-### 4.8 Ejecutar prompts legítimos
+### 4.7 Ejecutar prompts legítimos
 
 ```bash
 docker exec tesis_rag python3 -m cli attack legitimate --target unprotected
 ```
 
-### 4.9 Parchear garak_passed
+### 4.8 Parchear garak_passed
 
 ```bash
-# Dentro del stack Docker
-docker compose --env-file .env.<DOMAIN> --profile lab run --rm garak_runner \
-  python -m tesis_lab.cli metrics patch-garak --domain <DOMAIN> --scenario unprotected
+python3 -c "
+import sys
+from pathlib import Path
+sys.path.insert(0, 'app/src')
+from eval.consolidator import patch_garak_passed
 
-# O localmente (con venv activo)
-PYTHONPATH=app/src python3 -m cli metrics patch-garak --domain <DOMAIN> --scenario unprotected
+n = patch_garak_passed(
+    csv_path=Path('artifacts/consolidated_<DOMAIN>_unprotected.csv'),
+    garak_dir=Path('artifacts/runs/<RUN_DIR>/garak')
+)
+print(f'Filas parcheadas: {n}')
+"
 ```
 
-### 4.10 Cambiar al siguiente dominio
+### 4.9 Cambiar al siguiente dominio
 
 ```bash
 docker compose --env-file .env.<DOMAIN_ANTERIOR> down
@@ -333,6 +319,10 @@ Antes de iniciar, verificar los env files:
 grep GARAK_TARGET .env.regulatory_technical
 grep GARAK_TARGET .env.academic_institutional
 # Ambos deben mostrar: GARAK_TARGET=protected
+
+grep ENABLE_OUTPUT_GUARD .env.regulatory_technical
+grep ENABLE_OUTPUT_GUARD .env.academic_institutional
+# Ambos deben mostrar: ENABLE_OUTPUT_GUARD=1
 ```
 
 ### 5.1 Levantar stack
@@ -361,17 +351,11 @@ docker exec tesis_rag python3 -m cli ingest verify --collection <DOMAIN>
 ### 5.4 Calibrar umbrales para Escenario B
 
 ```bash
-# C4 — domain relevance threshold
-docker exec tesis_rag python app/scripts/calibrate_c4.py --domain <DOMAIN>
-grep DOMAIN_DISTANCE_THRESHOLD .env.<DOMAIN>
-
 docker exec tesis_rag python app/scripts/calibrate_c11.py --domain <DOMAIN>
 grep QUERY_COHERENCE_THRESHOLD .env.<DOMAIN>
 
 docker exec tesis_rag python app/scripts/calibrate_c17.py \
   --domain <DOMAIN> --target protected
-# Calibration requests are written to artifacts/calibration/
-# and do not affect the experiment CSV.
 grep C17_GROUNDING_THRESHOLD .env.<DOMAIN>
 ```
 
@@ -410,12 +394,18 @@ docker exec tesis_shield python3 -m cli attack legitimate --target protected
 ### 5.10 Parchear garak_passed
 
 ```bash
-# Dentro del stack Docker
-docker compose --env-file .env.<DOMAIN> --profile lab run --rm garak_runner \
-  python -m tesis_lab.cli metrics patch-garak --domain <DOMAIN> --scenario protected
+python3 -c "
+import sys
+from pathlib import Path
+sys.path.insert(0, 'app/src')
+from eval.consolidator import patch_garak_passed
 
-# O localmente (con venv activo)
-PYTHONPATH=app/src python3 -m cli metrics patch-garak --domain <DOMAIN> --scenario protected
+n = patch_garak_passed(
+    csv_path=Path('artifacts/consolidated_<DOMAIN>_protected.csv'),
+    garak_dir=Path('artifacts/runs/<RUN_DIR>/garak')
+)
+print(f'Filas parcheadas: {n}')
+"
 ```
 
 ### 5.11 Cambiar al siguiente dominio
@@ -423,16 +413,6 @@ PYTHONPATH=app/src python3 -m cli metrics patch-garak --domain <DOMAIN> --scenar
 ```bash
 docker compose --env-file .env.<DOMAIN_ANTERIOR> down
 # Repetir desde 5.1 con el siguiente dominio
-```
-
----
-
-## Paso 5.5 — Sincronizar artefactos en el notebook local
-
-> Ejecutar desde el notebook una vez completados los 4 runs en pc-u.
-
-```bash
-rsync -avz --progress pc-u:~/framework-eval-cs-llm/artifacts/ ~/Desktop/framework-eval-cs-llm/artifacts/
 ```
 
 ---
@@ -445,13 +425,7 @@ rsync -avz --progress pc-u:~/framework-eval-cs-llm/artifacts/ ~/Desktop/framewor
 ### 6.1 Activar entorno virtual
 
 ```bash
-cd ~/Desktop/framework-eval-cs-llm
-
-# Primera vez: crear entorno e instalar dependencias
-python3 -m venv .venv
-pip install pandas scipy matplotlib
-
-# Activar (siempre)
+cd ~/framework-eval-cs-llm
 source .venv/bin/activate
 ```
 
@@ -541,12 +515,6 @@ rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
 rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
 rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
 rm -rf ~/framework-eval-cs-llm/artifacts/figures/*
-
-# Los datos del smoke test viven en artifacts/smoke_test/ y se limpian por separado:
-rm -rf ~/framework-eval-cs-llm/artifacts/smoke_test/
-
-# Los datos de calibración viven en artifacts/calibration/ y se limpian por separado:
-rm -rf ~/framework-eval-cs-llm/artifacts/calibration/
 
 # Verificar
 find ~/framework-eval-cs-llm/artifacts -type f | sort
