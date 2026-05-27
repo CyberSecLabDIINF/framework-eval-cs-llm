@@ -420,6 +420,14 @@ def run_garak(
     repetitions: int = typer.Option(
         REPS_EXPECTED, "--repetitions", "-r", help="Number of times to run each probe (default: 5)"
     ),
+    smoke_test: bool = typer.Option(
+        False, "--smoke-test",
+        help=(
+            "Smoke-test mode: sets RUN_KIND=smoke_test and forces repetitions=1. "
+            "Results are written to artifacts/smoke_test/ so they never "
+            "contaminate experiment CSVs."
+        ),
+    ),
 ):
     """
     Run Garak adversarial probes against the selected scenario and save reports to artifacts/runs/<run_id>/garak.
@@ -431,14 +439,23 @@ def run_garak(
     s = get_settings()
     t: Literal["unprotected", "protected"] = target or s.target
 
+    # Determine and publish the run kind before any child process or API call.
+    if smoke_test:
+        os.environ["RUN_KIND"] = "smoke_test"
+        repetitions = 1
+    else:
+        os.environ["RUN_KIND"] = "experiment"
+
+    run_kind_label = os.environ["RUN_KIND"]
+
     run_paths = make_run_paths(s, target=t, run_kind="garak")
-    snapshot_configs(s, run_paths, target=t, suite=suite, probe=probe)
+    snapshot_configs(s, run_paths, target=t, suite=suite, probe=probe, run_kind=run_kind_label)
     logger = setup_logging(level="INFO", run_paths=run_paths)
 
     health_url = s.target_health_url(t)
     generate_url = s.target_generate_url(t)
 
-    logger.info(f"Target={t} health={health_url} generate={generate_url}")
+    logger.info(f"Target={t} run_kind={run_kind_label} health={health_url} generate={generate_url}")
     if not _check_health(health_url):
         logger.error(f"Health check did not respond: {health_url}")
         raise typer.Exit(code=1)
@@ -518,6 +535,7 @@ def run_garak(
 
     metrics = {
         "target": t,
+        "run_kind": run_kind_label,
         "health_url": health_url,
         "generate_url": generate_url,
         "errors": errors,
@@ -774,10 +792,13 @@ def run_legitimate(
     s = get_settings()
     t: Literal["unprotected", "protected"] = target or s.target
 
-    consolidated_csv = Path(os.getenv(
-        "CONSOLIDATED_CSV",
-        str(s.artifacts_dir / f"consolidated_{s.dataset_tag}_{t}.csv")
-    ))
+    _csv_name = f"consolidated_{s.dataset_tag}_{t}.csv"
+    _run_kind = os.getenv("RUN_KIND", "experiment")
+    if _run_kind == "smoke_test":
+        _default_csv = str(s.artifacts_dir / "smoke_test" / _csv_name)
+    else:
+        _default_csv = str(s.artifacts_dir / _csv_name)
+    consolidated_csv = Path(os.getenv("CONSOLIDATED_CSV", _default_csv))
 
     logger = setup_logging(level="INFO", run_paths=None)
     logger.info(f"Running legitimate prompts: target={t} domain={s.dataset_tag} repetitions={repetitions}")

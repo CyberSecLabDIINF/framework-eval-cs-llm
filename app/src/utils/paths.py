@@ -136,12 +136,19 @@ def snapshot_configs(
     target: Optional[Literal["unprotected", "protected"]] = None,
     suite: Optional[str] = None,
     probe: Optional[str] = None,
+    run_kind: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Copy key config files into the run directory for reproducibility
     and write run_meta.json with run metadata.
     Secrets (e.g. .env) are intentionally excluded.
+
+    Args:
+        run_kind: Classification of the run — ``"experiment"`` for real
+            experiment runs, ``"smoke_test"`` for smoke/sanity checks.
+            Recorded in run_meta.json and used downstream to determine
+            which CSV the consolidated results are written to.
     """
     dataset_tag = getattr(settings, "dataset_tag", "default")
     to_copy = [
@@ -160,7 +167,7 @@ def snapshot_configs(
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "dataset_tag": getattr(settings, "dataset_tag", "default"),
         "target": target or getattr(settings, "target", None),
-        "run_kind": extra.get("analysis") if extra else None,
+        "run_kind": run_kind,
         "suite_filter": suite,
         "probe_filter": probe,
         "rag_url": settings.rag_url,

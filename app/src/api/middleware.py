@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -78,6 +79,7 @@ class LatencyCSVLogger(BaseHTTPMiddleware):
         ]
         if self.include_lengths:
             header += ["prompt_len", "response_len"]
+        header += ["run_id"]
 
         with self.csv_path.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -132,6 +134,8 @@ class LatencyCSVLogger(BaseHTTPMiddleware):
                 response_len = getattr(request.state, "response_len", 0)
 
 
+            run_id = os.getenv("RUN_ID", "")
+
             row = [
                 self._utc_now_iso(),
                 self.scenario,
@@ -145,6 +149,7 @@ class LatencyCSVLogger(BaseHTTPMiddleware):
             ]
             if self.include_lengths:
                 row += [prompt_len, response_len]
+            row += [run_id]
 
             with self.csv_path.open("a", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)

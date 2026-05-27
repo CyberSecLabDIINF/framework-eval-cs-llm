@@ -197,13 +197,30 @@ def load_tfa_from_jsonl(garak_dir: Path) -> dict:
     }
 
 
-def load_consolidated(artifacts_dir: Path, domain: str, scenario: str) -> pd.DataFrame:
-    """Loads consolidated CSV for a domain/scenario, adversarial rows only."""
+def load_consolidated(
+    artifacts_dir: Path,
+    domain: str,
+    scenario: str,
+    run_id: str | None = None,
+) -> pd.DataFrame:
+    """Loads consolidated CSV for a domain/scenario, adversarial rows only.
+
+    Args:
+        artifacts_dir: Root artifacts directory.
+        domain: Corpus domain name (e.g. ``regulatory_technical``).
+        scenario: Scenario tag (``unprotected`` or ``protected``).
+        run_id: Optional run identifier. When provided, only rows whose
+            ``run_id`` column matches this value are returned.  Rows that
+            pre-date the ``run_id`` column (and therefore have an empty
+            value) are excluded when a filter is supplied.
+    """
     path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
     if not path.exists():
         return pd.DataFrame()
     df = pd.read_csv(path)
     df = df[df["prompt_type"] == "adversarial"].copy()
+    if run_id is not None and "run_id" in df.columns:
+        df = df[df["run_id"] == run_id].copy()
     for col in ["was_blocked", "should_block", "response_has_confidential"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)

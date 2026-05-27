@@ -47,10 +47,22 @@ app.add_middleware(RequestIdMiddleware)
 SCENARIO = os.getenv("SCENARIO", "protected")
 DATASET_TAG = os.getenv("DATASET_TAG", s.dataset_tag)
 
-CONSOLIDATED_CSV = Path(os.getenv(
-    "CONSOLIDATED_CSV",
-    str(s.artifacts_dir / f"consolidated_{DATASET_TAG}_{SCENARIO}.csv")
-))
+def _resolve_consolidated_csv() -> Path:
+    """Return the consolidated CSV path, honouring RUN_KIND isolation.
+
+    - ``RUN_KIND=smoke_test``  → ``artifacts/smoke_test/consolidated_<tag>_<scenario>.csv``
+    - ``RUN_KIND=experiment`` (or unset) → ``artifacts/consolidated_<tag>_<scenario>.csv``
+
+    The ``CONSOLIDATED_CSV`` env var can still override the default path for
+    experiment runs (backward-compatible with existing tooling).
+    """
+    _csv_name = f"consolidated_{DATASET_TAG}_{SCENARIO}.csv"
+    _run_kind = os.getenv("RUN_KIND", "experiment")
+    if _run_kind == "smoke_test":
+        return s.artifacts_dir / "smoke_test" / _csv_name
+    return Path(os.getenv("CONSOLIDATED_CSV", str(s.artifacts_dir / _csv_name)))
+
+CONSOLIDATED_CSV = _resolve_consolidated_csv()
 LATENCY_CSV = str(s.latency_dir / "latency_protected.csv")
 app.add_middleware(LatencyCSVLogger, 
     scenario=SCENARIO, 

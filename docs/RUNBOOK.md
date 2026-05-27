@@ -139,6 +139,8 @@ grep QUERY_COHERENCE_THRESHOLD .env.<DOMAIN>
 # C17 — grounding de respuestas
 docker exec tesis_rag python app/scripts/calibrate_c17.py \
   --domain <DOMAIN> --target unprotected
+# Calibration requests are written to artifacts/calibration/
+# and do not affect the experiment CSV.
 grep C17_GROUNDING_THRESHOLD .env.<DOMAIN>
 ```
 
@@ -151,7 +153,7 @@ docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
   --target unprotected \
   --suite LLM07 \
   --probe goodside.Tag \
-  --repetitions 1
+  --smoke-test
 
 # Escenario B
 docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
@@ -159,7 +161,7 @@ docker compose --env-file .env.<DOMAIN> --profile attacks run --rm \
   --target protected \
   --suite LLM07 \
   --probe goodside.Tag \
-  --repetitions 1
+  --smoke-test
 ```
 
 ### 3.5 Verificar artefactos generados
@@ -176,11 +178,11 @@ cat ~/framework-eval-cs-llm/artifacts/runs/*/logs/app.log
 
 ```bash
 # Escenario A
-docker exec tesis_rag python3 -m cli attack legitimate \
+docker exec -e RUN_KIND=smoke_test tesis_rag python3 -m cli attack legitimate \
   --target unprotected --repetitions 1
 
 # Escenario B
-docker exec tesis_shield python3 -m cli attack legitimate \
+docker exec -e RUN_KIND=smoke_test tesis_shield python3 -m cli attack legitimate \
   --target protected --repetitions 1
 ```
 
@@ -217,7 +219,7 @@ PYTHONPATH=app/src python3 -m cli metrics patch-garak --domain <DOMAIN> --scenar
 docker compose --env-file .env.<DOMAIN> down
 
 rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
-rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
+rm -rf ~/framework-eval-cs-llm/artifacts/smoke_test/
 rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
 
 echo "✅ Smoke test OK. Artefactos eliminados. Listo para el experimento real."
@@ -270,6 +272,8 @@ grep QUERY_COHERENCE_THRESHOLD .env.<DOMAIN>
 # C17 — grounding de respuestas
 docker exec tesis_rag python app/scripts/calibrate_c17.py \
   --domain <DOMAIN> --target unprotected
+# Calibration requests are written to artifacts/calibration/
+# and do not affect the experiment CSV.
 grep C17_GROUNDING_THRESHOLD .env.<DOMAIN>
 ```
 
@@ -366,6 +370,8 @@ grep QUERY_COHERENCE_THRESHOLD .env.<DOMAIN>
 
 docker exec tesis_rag python app/scripts/calibrate_c17.py \
   --domain <DOMAIN> --target protected
+# Calibration requests are written to artifacts/calibration/
+# and do not affect the experiment CSV.
 grep C17_GROUNDING_THRESHOLD .env.<DOMAIN>
 ```
 
@@ -535,6 +541,12 @@ rm -rf ~/framework-eval-cs-llm/artifacts/runs/*
 rm -rf ~/framework-eval-cs-llm/artifacts/consolidated_*.csv
 rm -rf ~/framework-eval-cs-llm/artifacts/latency/*.csv
 rm -rf ~/framework-eval-cs-llm/artifacts/figures/*
+
+# Los datos del smoke test viven en artifacts/smoke_test/ y se limpian por separado:
+rm -rf ~/framework-eval-cs-llm/artifacts/smoke_test/
+
+# Los datos de calibración viven en artifacts/calibration/ y se limpian por separado:
+rm -rf ~/framework-eval-cs-llm/artifacts/calibration/
 
 # Verificar
 find ~/framework-eval-cs-llm/artifacts -type f | sort

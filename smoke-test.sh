@@ -209,7 +209,7 @@ docker compose --env-file "$ENV_FILE" --profile attacks run --rm \
     --target unprotected \
     --suite LLM07 \
     --probe goodside.Tag \
-    --repetitions 1 2>&1 | tail -10 || PROBE_RC=$?
+    --smoke-test 2>&1 | tail -10 || PROBE_RC=$?
 
 if [[ $PROBE_RC -eq 0 ]]; then
     log_ok "Probe ejecutado sin errores (rc=0)"
@@ -231,7 +231,7 @@ log_step "PASO 5 — Prompts legítimos (Escenario A)"
 
 log_info "Ejecutando prompts legítimos (1 repetición)..."
 LEGIT_RC=0
-docker exec tesis_rag python3 -m cli attack legitimate \
+docker exec -e RUN_KIND=smoke_test tesis_rag python3 -m cli attack legitimate \
     --target unprotected --repetitions 1 2>&1 | tail -5 || LEGIT_RC=$?
 
 if [[ $LEGIT_RC -eq 0 ]]; then
@@ -240,8 +240,8 @@ else
     log_err "Error en prompts legítimos (rc=$LEGIT_RC)"
 fi
 
-# Verificar CSV consolidado
-CSV_PATH="artifacts/consolidated_${DOMAIN}_unprotected.csv"
+# Verificar CSV consolidado (smoke_test/ subdir)
+CSV_PATH="artifacts/smoke_test/consolidated_${DOMAIN}_unprotected.csv"
 if [[ -f "$CSV_PATH" ]]; then
     ROW_COUNT=$(python3 -c "
 import csv
@@ -278,7 +278,7 @@ docker compose --env-file "$ENV_FILE" --profile attacks run --rm \
     --target protected \
     --suite LLM07 \
     --probe goodside.Tag \
-    --repetitions 1 2>&1 | tail -10 || PROBE_B_RC=$?
+    --smoke-test 2>&1 | tail -10 || PROBE_B_RC=$?
 
 if [[ $PROBE_B_RC -eq 0 ]]; then
     log_ok "Probe B ejecutado sin errores"
@@ -292,7 +292,7 @@ log_step "PASO 7b — Prompts legítimos (Escenario B)"
 
 log_info "Ejecutando prompts legítimos Escenario B (1 repetición)..."
 LEGIT_B_RC=0
-docker exec tesis_shield python3 -m cli attack legitimate \
+docker exec -e RUN_KIND=smoke_test tesis_shield python3 -m cli attack legitimate \
     --target protected --repetitions 1 2>&1 | tail -5 || LEGIT_B_RC=$?
 
 if [[ $LEGIT_B_RC -eq 0 ]]; then
@@ -301,8 +301,8 @@ else
     log_err "Error en prompts legítimos Escenario B (rc=$LEGIT_B_RC)"
 fi
 
-# Verificar CSV consolidado protegido
-CSV_B_PATH="artifacts/consolidated_${DOMAIN}_protected.csv"
+# Verificar CSV consolidado protegido (smoke_test/ subdir)
+CSV_B_PATH="artifacts/smoke_test/consolidated_${DOMAIN}_protected.csv"
 if [[ -f "$CSV_B_PATH" ]]; then
     ROW_B_COUNT=$(python3 -c "
 import csv
@@ -335,8 +335,7 @@ log_step "PASO 8 — Limpieza de artefactos del smoke test"
 read -rp "  ¿Limpiar artefactos del smoke test? (s/N): " CLEAN
 if [[ "${CLEAN,,}" == "s" ]]; then
     rm -rf artifacts/runs/*
-    rm -f "artifacts/consolidated_${DOMAIN}_unprotected.csv" 2>/dev/null || true
-    rm -f "artifacts/consolidated_${DOMAIN}_protected.csv" 2>/dev/null || true
+    rm -rf artifacts/smoke_test 2>/dev/null || true
     rm -f artifacts/latency/latency_*.csv 2>/dev/null || true
     log_fix "Artefactos del smoke test eliminados"
 else

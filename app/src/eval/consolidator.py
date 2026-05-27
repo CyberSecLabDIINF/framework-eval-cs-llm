@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -31,6 +32,7 @@ COLUMNS = [
     "output_scanner_score",
     "garak_passed",
     "response_has_confidential",
+    "run_id",
 ]
 
 # Mapping suite → subdimension
@@ -103,6 +105,8 @@ def log_request(
     if should_block is None:
         should_block = 1 if prompt_type == "adversarial" else 0
 
+    run_id = os.getenv("RUN_ID", "")
+
     row = {
         "timestamp": _utc_now(),
         "scenario": scenario,
@@ -123,6 +127,7 @@ def log_request(
         "output_scanner_score": round(output_scanner_score, 4) if output_scanner_score is not None else "",
         "garak_passed": "",  # filled post-experiment by patch_garak_passed()
         "response_has_confidential": 1 if "[CONFIDENTIAL]" in response else 0,
+        "run_id": run_id,
     }
 
     _ensure_header(csv_path)
