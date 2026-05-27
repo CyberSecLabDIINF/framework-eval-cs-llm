@@ -21,7 +21,6 @@ class RunPaths:
     logs_dir: Path
     config_used_dir: Path
     garak_dir: Path
-    latency_dir: Path
     summary_md: Path
     metrics_json: Path
 
@@ -46,14 +45,25 @@ def make_run_paths(
     run_id: Optional[str] = None,
     run_kind: Optional[str] = None,
 ) -> RunPaths:
-    """
-    Create the standard directory structure for a new run and return its paths.
+    """Create the standard directory layout for a new run and return its paths.
+
+    Subdirectories ``logs/``, ``config_used/``, and ``garak/`` are created
+    immediately under the run directory.
 
     Run directory naming convention:
-      - garak:   <ts>_<dataset>_<target>_garak
-      - latency: <ts>_<dataset>_latency
-      - compare: <ts>_<dataset>_compare
-      - (fallback) <ts>_<dataset>_<target>
+      - ``garak``   → ``<ts>_<dataset>_<target>_garak``
+      - ``latency`` → ``<ts>_<dataset>_latency``
+      - ``compare`` → ``<ts>_<dataset>_compare``
+      - (fallback)  → ``<ts>_<dataset>_<target>``
+
+    Args:
+        settings: Application settings instance.
+        target: Evaluation scenario (``"unprotected"`` or ``"protected"``).
+        run_id: Explicit run identifier; a UTC timestamp is generated when omitted.
+        run_kind: Run type label used for directory naming (e.g. ``"garak"``).
+
+    Returns:
+        A :class:`RunPaths` instance with all sub-paths populated.
     """
     tag = _sanitize_tag(getattr(settings, "dataset_tag", "default"))
 
@@ -70,12 +80,11 @@ def make_run_paths(
     logs_dir = run_dir / "logs"
     config_used_dir = run_dir / "config_used"
     garak_dir = run_dir / "garak"
-    latency_dir = run_dir / "latency"
 
     summary_md = run_dir / "summary.md"
     metrics_json = run_dir / "metrics.json"
 
-    for d in (run_dir, logs_dir, config_used_dir, garak_dir, latency_dir):
+    for d in (run_dir, logs_dir, config_used_dir, garak_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     return RunPaths(
@@ -83,7 +92,6 @@ def make_run_paths(
         logs_dir=logs_dir,
         config_used_dir=config_used_dir,
         garak_dir=garak_dir,
-        latency_dir=latency_dir,
         summary_md=summary_md,
         metrics_json=metrics_json,
     )
@@ -96,12 +104,11 @@ def run_paths_from_existing(run_dir: Path) -> RunPaths:
     logs_dir = run_dir / "logs"
     config_used_dir = run_dir / "config_used"
     garak_dir = run_dir / "garak"
-    latency_dir = run_dir / "latency"
 
     summary_md = run_dir / "summary.md"
     metrics_json = run_dir / "metrics.json"
 
-    for d in (run_dir, logs_dir, config_used_dir, garak_dir, latency_dir):
+    for d in (run_dir, logs_dir, config_used_dir, garak_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     return RunPaths(
@@ -109,7 +116,6 @@ def run_paths_from_existing(run_dir: Path) -> RunPaths:
         logs_dir=logs_dir,
         config_used_dir=config_used_dir,
         garak_dir=garak_dir,
-        latency_dir=latency_dir,
         summary_md=summary_md,
         metrics_json=metrics_json,
     )
@@ -139,16 +145,22 @@ def snapshot_configs(
     run_kind: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """
-    Copy key config files into the run directory for reproducibility
-    and write run_meta.json with run metadata.
-    Secrets (e.g. .env) are intentionally excluded.
+    """Copy key config files into the run directory and write ``run_meta.json``.
+
+    Provides reproducibility: every run captures the exact config that was
+    active at execution time. Secrets (e.g. ``.env``) are intentionally
+    excluded.
 
     Args:
-        run_kind: Classification of the run — ``"experiment"`` for real
-            experiment runs, ``"smoke_test"`` for smoke/sanity checks.
-            Recorded in run_meta.json and used downstream to determine
-            which CSV the consolidated results are written to.
+        settings: Application settings instance.
+        run_paths: Paths for the current run (destination for copied files).
+        target: Evaluation scenario written to ``run_meta.json``.
+        suite: OWASP suite filter applied during this run, if any.
+        probe: Specific probe filter applied during this run, if any.
+        run_kind: Run classification — ``"experiment"`` or ``"smoke_test"``.
+            Recorded in ``run_meta.json`` and used downstream to route
+            consolidated results to the correct CSV.
+        extra: Additional key/value pairs merged into ``run_meta.json``.
     """
     dataset_tag = getattr(settings, "dataset_tag", "default")
     to_copy = [

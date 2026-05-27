@@ -36,6 +36,15 @@ app.add_typer(analyze_app, name="analyze")
 app.add_typer(metrics_app, name="metrics")
 
 def _check_health(url: str, timeout_s: int = 2) -> bool:
+    """Return True if a GET request to ``url`` responds with a 2xx/3xx/4xx status code.
+
+    Treats any HTTP response (including 4xx) as "up"; only network errors and
+    5xx responses count as failure so the check is not tripped by auth pages.
+
+    Args:
+        url: Health-check URL to probe.
+        timeout_s: Socket timeout in seconds.
+    """
     import urllib.request
 
     try:
@@ -51,6 +60,19 @@ def _load_owasp_suites(path: Path) -> dict:
 
 
 def _run_subprocess(cmd: List[str], cwd: Optional[Path] = None, logger=None) -> int:
+    """Run a subprocess, streaming its stdout line-by-line, and return its exit code.
+
+    stderr is merged into stdout so all output is captured in a single stream.
+
+    Args:
+        cmd: Command and argument list passed to :class:`subprocess.Popen`.
+        cwd: Working directory for the subprocess; defaults to the current directory.
+        logger: When provided, each output line is forwarded to ``logger.info``
+            prefixed with ``[garak]``; otherwise lines are printed to stdout.
+
+    Returns:
+        The subprocess exit code.
+    """
     proc = subprocess.Popen(
         cmd,
         cwd=str(cwd) if cwd else None,
@@ -449,6 +471,7 @@ def run_garak(
     run_kind_label = os.environ["RUN_KIND"]
 
     run_paths = make_run_paths(s, target=t, run_kind="garak")
+    os.environ["RUN_ID"] = run_paths.run_dir.name
     snapshot_configs(s, run_paths, target=t, suite=suite, probe=probe, run_kind=run_kind_label)
     logger = setup_logging(level="INFO", run_paths=run_paths)
 
@@ -791,6 +814,9 @@ def run_legitimate(
 
     s = get_settings()
     t: Literal["unprotected", "protected"] = target or s.target
+
+    _legitimate_run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S") + f"_{s.dataset_tag}_{t}_legitimate"
+    os.environ["RUN_ID"] = _legitimate_run_id
 
     _csv_name = f"consolidated_{s.dataset_tag}_{t}.csv"
     _run_kind = os.getenv("RUN_KIND", "experiment")

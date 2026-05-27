@@ -192,6 +192,8 @@ def _build_corpus_hashes() -> dict:
 CORPUS_HASHES: dict = _build_corpus_hashes()
 
 class Query(BaseModel):
+    """Request body for the ``/generate`` endpoint."""
+
     prompt: str
 
 def retrieve_context(query: str, k: int = 3) -> tuple:
@@ -390,6 +392,22 @@ def _blocked_response(
     block_reason: str,
     log: bool = True,
 ) -> dict:
+    """Build a blocked-response dict and optionally log it to the consolidated CSV.
+
+    Args:
+        request: The incoming FastAPI request (used to set ``response_len``).
+        query: The original query containing the prompt text.
+        start: ``time.perf_counter()`` value at request start, for latency calculation.
+        garak_tag: Value of the ``X-Garak-Tag`` header.
+        prompt_type: ``"adversarial"`` or ``"legitimate"``.
+        message: Human-readable block message returned to the caller.
+        block_reason: Short code identifying the control that triggered the block.
+        log: When False, skips writing to the consolidated CSV (used to avoid
+            double-logging requests forwarded through Shield).
+
+    Returns:
+        A ``{"response": message}`` dict ready to be returned by the endpoint.
+    """
     latency_ms = (time.perf_counter() - start) * 1000.0
     request.state.response_len = len(message.encode("utf-8"))
     if log:
@@ -410,6 +428,17 @@ def _blocked_response(
 
 @app.post("/generate")
 async def generate(query: Query, request: Request):
+    """Answer a user query using RAG and apply defence controls when running as protected.
+
+    When ``IS_PROTECTED`` is True, the following controls gate the pipeline:
+    C32 (system-prompt integrity), C4 (domain validation), C11 (coherence),
+    C12 (reconnaissance detection), C9 (corpus integrity), C17 (response
+    grounding). Requests forwarded by Shield (``x-forwarded-by: shield``) are
+    excluded from consolidated-CSV logging to prevent double-counting.
+
+    Returns:
+        A JSON object ``{"response": <text>}``, blocked responses included.
+    """
     start = time.perf_counter()
 
     garak_tag = request.headers.get("X-Garak-Tag", "")
@@ -503,6 +532,7 @@ Question:
 
 @app.get("/health")
 def health():
+    """Return service status and active configuration parameters."""
     return {
         "status": "ok",
         "scenario": SCENARIO,

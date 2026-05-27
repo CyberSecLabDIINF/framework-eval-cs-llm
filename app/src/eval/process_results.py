@@ -246,6 +246,7 @@ def load_latency(latency_dir: Path, filename: str) -> pd.DataFrame:
 
 
 def find_run_dir(runs_dir: Path, domain: str, scenario: str) -> Path | None:
+    """Return the most recent run directory matching ``domain`` and ``scenario``, or None."""
     keyword = f"{domain}_{scenario}"
     matches = [d for d in runs_dir.iterdir() if d.is_dir() and keyword in d.name]
     return sorted(matches)[-1] if matches else None
@@ -276,6 +277,17 @@ def discover_domains(runs_dir: Path) -> list:
 # ─────────────────────────────────────────────
 
 def print_tfa(tfa_a: dict, tfa_b: dict, domain: str):
+    """Print a formatted TFA report for one domain, comparing Scenario A and B.
+
+    Outputs global totals, per-suite table with Fisher exact p-values, and a
+    per-probe detail table.  When ``tfa_b`` is empty or None, Scenario B
+    columns are omitted.
+
+    Args:
+        tfa_a: TFA dict for Scenario A as returned by :func:`load_tfa_from_jsonl`.
+        tfa_b: TFA dict for Scenario B, or an empty dict when unavailable.
+        domain: Domain label used in the section header.
+    """
     print(f"\n{'='*70}")
     print(f"  TFA — {domain.upper()}")
     print(f"{'='*70}")
@@ -353,6 +365,15 @@ def print_tfa(tfa_a: dict, tfa_b: dict, domain: str):
 # ─────────────────────────────────────────────
 
 def compute_las(lat_a: pd.DataFrame, lat_b: pd.DataFrame):
+    """Print the Latency Added by Shield (LAS) summary comparing Scenario A and B.
+
+    Computes median latency per scenario, the Δmedian (LAS), a Mann-Whitney U
+    test, and a per-domain breakdown.
+
+    Args:
+        lat_a: Latency DataFrame for Scenario A (unprotected).
+        lat_b: Latency DataFrame for Scenario B (protected / LLM Guard).
+    """
     if lat_a.empty or lat_b.empty:
         print("  [WARN] Insufficient latency data.")
         return
@@ -816,6 +837,7 @@ def deep_analysis_las(lat_a: pd.DataFrame, lat_b: pd.DataFrame):
 # ─────────────────────────────────────────────
 
 def setup_style():
+    """Apply the shared matplotlib style for all experiment figures."""
     import matplotlib.pyplot as plt
     plt.rcParams.update({
         "figure.dpi":        150,
@@ -832,6 +854,7 @@ def setup_style():
 
 
 def _save(fig, figures_dir: Path, filename: str):
+    """Save a matplotlib figure to ``figures_dir/filename`` and print the path."""
     figures_dir.mkdir(parents=True, exist_ok=True)
     path = figures_dir / filename
     fig.savefig(path, bbox_inches="tight")
@@ -839,6 +862,14 @@ def _save(fig, figures_dir: Path, filename: str):
 
 
 def plot_tfa_by_probe(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
+    """Bar chart of TFA per probe, coloured by OWASP suite, with optional Scenario B overlay.
+
+    Args:
+        tfa_a: TFA dict for Scenario A.
+        tfa_b: TFA dict for Scenario B, or an empty dict when unavailable.
+        domain: Domain name used in the figure title and output filename.
+        figures_dir: Directory where the PNG is saved.
+    """
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
     import numpy as np
@@ -882,6 +913,14 @@ def plot_tfa_by_probe(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
 
 
 def plot_tfa_by_suite(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
+    """Bar chart of TFA per OWASP suite with optional Scenario B overlay.
+
+    Args:
+        tfa_a: TFA dict for Scenario A.
+        tfa_b: TFA dict for Scenario B, or an empty dict when unavailable.
+        domain: Domain name used in the figure title and output filename.
+        figures_dir: Directory where the PNG is saved.
+    """
     import matplotlib.pyplot as plt
     import numpy as np
     setup_style()
@@ -916,6 +955,12 @@ def plot_tfa_by_suite(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
 
 
 def plot_tfa_domains_combined(tfa_by_domain: dict, figures_dir: Path):
+    """Side-by-side per-suite TFA bar chart for all domains in a single figure.
+
+    Args:
+        tfa_by_domain: Mapping of ``{domain: {"A": tfa_dict, "B": tfa_dict}}``.
+        figures_dir: Directory where the PNG is saved.
+    """
     import matplotlib.pyplot as plt
     import numpy as np
     setup_style()
@@ -996,6 +1041,14 @@ def plot_tfa_heatmap(tfa_by_domain: dict, figures_dir: Path):
     plt.close(fig)
 
 def plot_delta_tfa(tfa_by_domain: dict, figures_dir: Path):
+    """Bar chart of ΔTFA per probe (Scenario B − Scenario A) for each domain.
+
+    Skipped automatically when no Scenario B data is available.
+
+    Args:
+        tfa_by_domain: Mapping of ``{domain: {"A": tfa_dict, "B": tfa_dict}}``.
+        figures_dir: Directory where the PNG is saved.
+    """
     import matplotlib.pyplot as plt
     import numpy as np
     has_b = any(tfa_by_domain[d]["B"] for d in tfa_by_domain)
@@ -1230,6 +1283,13 @@ def plot_latency_histogram(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir
     plt.close(fig)
 
 def plot_las_by_suite(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Path):
+    """Bar chart of median latency per OWASP suite with optional Scenario B overlay.
+
+    Args:
+        lat_a: Latency DataFrame for Scenario A.
+        lat_b: Latency DataFrame for Scenario B (may be empty).
+        figures_dir: Directory where the PNG is saved.
+    """
     import matplotlib.pyplot as plt
     import numpy as np
     if lat_a.empty:

@@ -15,13 +15,21 @@ def setup_logging(
     run_paths: Optional[RunPaths] = None,
     filename: str = "app.log",
 ) -> logging.Logger:
-    """
-    Configure a logger writing to stdout and, when run_paths is provided, to a per-run log file.
+    """Configure a logger that writes to stdout and optionally to a per-run file.
 
-    Usage::
+    Idempotent: clears existing handlers on the named logger before adding new
+    ones, so repeated calls (e.g. from tests) do not produce duplicate output.
 
-        logger = setup_logging(level="DEBUG", run_paths=run_paths)
-        logger.info("starting run")
+    Args:
+        name: Logger name; shared across the application so callers can
+            retrieve the same instance with ``logging.getLogger(name)``.
+        level: Logging level string (e.g. ``"INFO"``, ``"DEBUG"``).
+        run_paths: When provided, a ``FileHandler`` writing to
+            ``run_paths.logs_dir / filename`` is added alongside stdout.
+        filename: Log file name used when ``run_paths`` is supplied.
+
+    Returns:
+        The configured :class:`logging.Logger` instance.
     """
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))

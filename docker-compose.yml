@@ -23,8 +23,6 @@ services:
       - ARTIFACTS_DIR=/root/proyecto_tesis/artifacts
       - CONFIG_DIR=/root/proyecto_tesis/app/config
       - RUNS_DIR=/root/proyecto_tesis/artifacts/runs
-      - REPORTS_DIR=/root/proyecto_tesis/artifacts/reports
-      - LATENCY_DIR=/root/proyecto_tesis/artifacts/latency
       - GARAK_RUNS_DIR=/root/.local/share/garak/garak_runs
       - DATASET_TAG=${DATASET_TAG}
       - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/global/owasp_suites.json
@@ -34,7 +32,6 @@ services:
       - CHROMA_PATH=/root/proyecto_tesis/chroma_db
       - SHIELD_BASE_URL=http://shield_api:8001
       - RAG_BASE_URL=http://rag_api:8000
-      - LATENCY_CSV=/root/proyecto_tesis/artifacts/latency/latency_unprotected.csv
       - LATENCY_CSV_DIRECT=/root/proyecto_tesis/artifacts/latency/latency_unprotected_direct.csv
       - LATENCY_CSV_VIA_SHIELD=/root/proyecto_tesis/artifacts/latency/latency_unprotected_via_shield.csv
       - CONSOLIDATED_CSV=/root/proyecto_tesis/artifacts/consolidated_${DATASET_TAG}_unprotected.csv
@@ -48,7 +45,7 @@ services:
       - ./chroma_cache:/root/.cache/chroma
       - ./app/src:/root/proyecto_tesis/app/src
       - ./app/scripts:/root/proyecto_tesis/app/scripts
-    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/reports /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn api.rag:app --host 0.0.0.0 --port 8000"]
+    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn api.rag:app --host 0.0.0.0 --port 8000"]
     depends_on:
       - ollama_core
     healthcheck:
@@ -73,8 +70,6 @@ services:
       - ARTIFACTS_DIR=/root/proyecto_tesis/artifacts
       - CONFIG_DIR=/root/proyecto_tesis/app/config
       - RUNS_DIR=/root/proyecto_tesis/artifacts/runs
-      - REPORTS_DIR=/root/proyecto_tesis/artifacts/reports
-      - LATENCY_DIR=/root/proyecto_tesis/artifacts/latency
       - GARAK_RUNS_DIR=/root/.local/share/garak/garak_runs
       - DATASET_TAG=${DATASET_TAG}
       - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/global/owasp_suites.json
@@ -84,7 +79,6 @@ services:
       - OLLAMA_HOST=http://ollama_core:11434
       - CHROMA_PATH=/root/proyecto_tesis/chroma_db
       - SHIELD_BASE_URL=http://shield_api:8001
-      - LATENCY_CSV=/root/proyecto_tesis/artifacts/latency/latency_protected.csv
       - CONSOLIDATED_CSV=/root/proyecto_tesis/artifacts/consolidated_${DATASET_TAG}_protected.csv
       - LLM_GUARD_CONFIG_PATH=/root/proyecto_tesis/app/config/global/llm_guard_config.yaml
       - LLM_GUARD_LOG_FILE=/root/proyecto_tesis/artifacts/llm_guard.log
@@ -104,7 +98,7 @@ services:
       timeout: 5s
       retries: 12
 
-    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/reports /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn api.shield:app --host 0.0.0.0 --port 8001"]
+    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn api.shield:app --host 0.0.0.0 --port 8001"]
 
     depends_on:
       - ollama_core
@@ -126,7 +120,6 @@ services:
       - APP_DIR=/root/proyecto_tesis/app
       - ARTIFACTS_DIR=/root/proyecto_tesis/artifacts
       - RUNS_DIR=/root/proyecto_tesis/artifacts/runs
-      - REPORTS_DIR=/root/proyecto_tesis/artifacts/reports
       - PYTHONPATH=/root/proyecto_tesis/app/src
       - OLLAMA_HOST=http://ollama_core:11434
       - RAG_BASE_URL=http://rag_api:8000
@@ -134,8 +127,7 @@ services:
       - GARAK_RUNS_DIR=/root/.local/share/garak/garak_runs
       - GARAK_REST_BASE_PATH=/root/proyecto_tesis/app/config/global/garak_rest_base.json
       - DATA_DIR=/root/proyecto_tesis/data
-      - CONFIG_DIR=/root/proyecto_tesis/app/config     
-      - LATENCY_DIR=/root/proyecto_tesis/artifacts/latency
+      - CONFIG_DIR=/root/proyecto_tesis/app/config
       - DATASET_TAG=${DATASET_TAG}
       - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/global/owasp_suites.json
 

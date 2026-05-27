@@ -8,7 +8,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 def _default_project_root() -> Path:
-    """Logical project root inside the container; maps to /root/proyecto_tesis."""
+    """Return the default project root path used inside Docker containers."""
     return Path("/root/proyecto_tesis")
 
 
@@ -78,8 +78,7 @@ class Settings(BaseSettings):
 
     # --- Artifact subdirectories ---
     runs_dir: Path = Field(default=None, description="Root directory for all run outputs")
-    latency_dir: Path = Field(default=None, description="CSV latency logs directory (legacy)")
-    reports_dir: Path = Field(default=None, description="Aggregated reports directory (legacy)")
+    latency_dir: Path = Field(default=None, description="CSV latency logs directory")
 
     # --- Garak REST security header ---
     rest_api_key_env: str = Field(
@@ -128,19 +127,19 @@ class Settings(BaseSettings):
         self.rag_health_url = f"{self.rag_url}/health"
         self.shield_health_url = f"{self.shield_url}/health"
 
-        if self.reports_dir is None:
-            self.reports_dir = self.artifacts_dir / "reports"
-
         if self.latency_dir is None:
             self.latency_dir = self.artifacts_dir / "latency"
 
     def get_rag_config_path(self, dataset_tag: str) -> Path:
+        """Return the path to ``rag.json`` for the given domain tag."""
         return self.config_dir / "domains" / dataset_tag / "rag.json"
 
     def get_legitimate_prompts_path(self, dataset_tag: str) -> Path:
+        """Return the path to ``legitimate_prompts.json`` for the given domain tag."""
         return self.config_dir / "domains" / dataset_tag / "legitimate_prompts.json"
 
     def get_verification_queries_path(self, dataset_tag: str) -> Path:
+        """Return the path to ``verification_queries.json`` for the given domain tag."""
         return self.config_dir / "domains" / dataset_tag / "verification_queries.json"
 
     def target_generate_url(self, target: Optional[Literal["unprotected", "protected"]] = None) -> str:
@@ -158,7 +157,6 @@ class Settings(BaseSettings):
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.reports_dir.mkdir(parents=True, exist_ok=True)
         self.latency_dir.mkdir(parents=True, exist_ok=True)
 
 

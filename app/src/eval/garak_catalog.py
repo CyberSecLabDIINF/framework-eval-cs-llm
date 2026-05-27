@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Literal, Any
+from typing import Dict, List, Optional
 
 from settings import get_settings
 
@@ -51,13 +50,3 @@ def list_probes(
     if prefix:
         probes = [p for p in probes if p.startswith(prefix)]
     return probes
-
-
-def as_dict(path: Optional[Path] = None) -> Dict[str, List[str]]:
-    """Return the full suite catalog as a dict."""
-    return load_suites(path)
-
-
-def validate_probe(suite: str, probe: str, path: Optional[Path] = None) -> bool:
-    """Return True if the probe exists within the given suite."""
-    return probe in set(list_probes(suite, path=path))

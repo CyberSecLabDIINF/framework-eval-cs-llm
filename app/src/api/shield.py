@@ -81,6 +81,7 @@ UPSTREAM_TIMEOUT_S = float(os.getenv("UPSTREAM_TIMEOUT_S", "120"))
 _LLM_GUARD_CONFIG_PATH = s.config_dir / "global" / "llm_guard_config.yaml"
 
 def _load_llm_guard_config() -> dict:
+    """Load scanner thresholds from ``llm_guard_config.yaml``, or return ``{}`` if absent."""
     if _LLM_GUARD_CONFIG_PATH.exists():
         with _LLM_GUARD_CONFIG_PATH.open("r", encoding="utf-8") as f:
             return yaml.safe_load(f)
@@ -91,6 +92,8 @@ _input_cfg = _cfg.get("input_scanners", {})
 _output_cfg = _cfg.get("output_scanners", {})
 
 class Query(BaseModel):
+    """Request body for the Shield ``/generate`` endpoint."""
+
     prompt: str
 
 _CONTROL_TOKEN_RE = re.compile(r"<\|[a-zA-Z0-9_]+\|>")
@@ -116,11 +119,19 @@ def _sanitize_control_chars(text: str) -> str:
     return text.strip()
 
 def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optional[float]]:
-    """
-    Validate and sanitize the input prompt.
-    Returns (sanitized_prompt, None) if allowed.
-    Returns (None, scanner_name) if blocked.
-    Controls: C1 (TokenLimit), C2/C3 (PromptInjection)
+    """Validate and sanitize the input prompt using LLM Guard input scanners.
+
+    Applies controls in order: C2 (control-character sanitization), C1
+    (TokenLimit), and C3 (PromptInjection).  Scanners are skipped when
+    ``ENABLE_LLM_GUARD`` is False.
+
+    Args:
+        user_prompt: Raw user-supplied prompt string.
+
+    Returns:
+        A 3-tuple ``(sanitized_prompt, scanner_name, score)``:
+          - On pass: ``(sanitized_text, None, last_score)``
+          - On block: ``(None, blocking_scanner_name, score)``
     """
     p = user_prompt.strip()
     if not ENABLE_LLM_GUARD:
@@ -190,7 +201,7 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
 
     scanners = []
 
-    # C20 — semantic scanner (score continuo, análisis de sensibilidad)
+    # C20 — semantic scanner (continuous score, participates in sensitivity analysis)
     if sens_cfg.get("enabled", True):
         scanners.append(
             Sensitive(
@@ -200,7 +211,7 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
             )
         )
  
-    # C19 — deterministic regex scanner (binario, sin score)
+    # C19 — deterministic regex scanner (binary match, no continuous score)
     if HAS_OUTPUT_REGEX and rx_cfg.get("enabled", True):
         scanners.append(
             OutputRegex(
@@ -256,12 +267,27 @@ def _extract_forward_headers(req: Request) -> Dict[str, str]:
 
 @app.post("/generate")
 async def generate(query: Query, request: Request):
+    """Proxy a prompt through LLM Guard, then forward to the upstream RAG.
+
+    Pipeline:
+      1. ``guard_input`` — C1/C2/C3 input scanning.
+      2. Forward sanitized prompt to RAG with ``x-forwarded-by: shield`` header.
+      3. ``guard_output`` — C19/C20 output scanning.
+
+    All outcomes (blocked or passed) are logged to the consolidated CSV.
+
+    Returns:
+        A JSON object ``{"response": <text>}``; blocked responses contain the
+        scanner's block message.
+
+    Raises:
+        HTTPException: 502 if the upstream RAG is unreachable or returns an error.
+    """
     start = time.perf_counter()
 
     garak_tag = request.headers.get("X-Garak-Tag", "")
     prompt_type = "adversarial" if garak_tag else "legitimate"
 
-    # Input guard
     safe_prompt, input_scanner, input_score = guard_input(query.prompt)
     if safe_prompt is None:
         latency_ms = (time.perf_counter() - start) * 1000.0
@@ -285,7 +311,6 @@ async def generate(query: Query, request: Request):
         )
         return {"response": out}
 
-    # Forward to RAG
     payload = {"prompt": safe_prompt}
     headers = _extract_forward_headers(request)
 
@@ -304,7 +329,6 @@ async def generate(query: Query, request: Request):
     data = resp.json()
     out = str(data.get("response", ""))
 
-    # Output guard
     out_guarded, output_scanner, output_score = guard_output(query.prompt, out)
     latency_ms = (time.perf_counter() - start) * 1000.0
 
@@ -334,6 +358,7 @@ async def generate(query: Query, request: Request):
 
 @app.get("/health")
 async def health():
+    """Return Shield service status and upstream RAG reachability."""
     upstream_ok = False
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:

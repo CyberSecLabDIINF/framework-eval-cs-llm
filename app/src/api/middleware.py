@@ -24,6 +24,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         self.header_name = header_name
 
     async def dispatch(self, request: Request, call_next):
+        """Attach a request ID to state and echo it in the response header."""
         rid = request.headers.get(self.header_name) or str(uuid.uuid4())
         request.state.request_id = rid
 
@@ -51,6 +52,17 @@ class LatencyCSVLogger(BaseHTTPMiddleware):
         only_if_header: Optional[tuple[str, str]] = None,
         skip_if_header: Optional[tuple[str, str]] = None,
     ):
+        """
+        Args:
+            app: The ASGI application to wrap.
+            scenario: Scenario label written to the ``scenario`` column (e.g. ``unprotected``).
+            domain: Dataset tag written to the ``domain`` column.
+            csv_path: Path to the output CSV file.
+            tag_header: Request header carrying the Garak probe tag.
+            include_lengths: When True, appends ``prompt_len`` and ``response_len`` columns.
+            only_if_header: ``(header, value)`` pair — only log requests that carry this header.
+            skip_if_header: ``(header, value)`` pair — skip requests that carry this header.
+        """
         super().__init__(app)
         self.scenario = scenario
         self.domain = domain
@@ -64,6 +76,7 @@ class LatencyCSVLogger(BaseHTTPMiddleware):
         self._ensure_header()
 
     def _ensure_header(self) -> None:
+        """Write the CSV header row if the file does not yet exist or is empty."""
         if self.csv_path.exists() and self.csv_path.stat().st_size > 0:
             return
         header = [
@@ -87,13 +100,16 @@ class LatencyCSVLogger(BaseHTTPMiddleware):
 
     @staticmethod
     def _utc_now_iso() -> str:
+        """Return the current UTC time as a millisecond-precision ISO-8601 string."""
         return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
-    @staticmethod
-    def _safe_len(value: Optional[str]) -> int:
-        return len(value) if value else 0
-
     async def dispatch(self, request: Request, call_next):
+        """Measure round-trip latency and append one row to the CSV file.
+
+        Respects ``only_if_header`` and ``skip_if_header`` filters so multiple
+        middleware instances can be stacked to track different routing paths
+        (e.g. direct vs Shield-proxied requests) without double-counting.
+        """
         start = time.perf_counter()
 
         # Route requests to the appropriate scenario bucket based on header filters.

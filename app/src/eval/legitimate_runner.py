@@ -26,14 +26,21 @@ def run_legitimate_prompts(
     to the consolidated CSV.
 
     Args:
-        target: 'unprotected' or 'protected'
-        dataset_tag: domain tag (e.g. 'regulatory_technical')
-        consolidated_csv: path to the consolidated results CSV
-        repetitions: number of times each prompt is executed
-        timeout_s: request timeout in seconds
+        target: Evaluation scenario — ``"unprotected"`` or ``"protected"``.
+        dataset_tag: Domain tag (e.g. ``"regulatory_technical"``).
+        consolidated_csv: Path to the consolidated results CSV.
+        repetitions: Number of times each prompt is executed.
+        timeout_s: Per-request HTTP timeout in seconds.
+        logger: Optional logger instance; a default logger is used when ``None``.
 
     Returns:
-        dict with execution summary
+        A dict summarising the run with keys ``target``, ``domain``,
+        ``prompts``, ``repetitions``, ``total_requests``, ``blocked``,
+        ``errors``, and ``false_positive_rate``.
+
+    Raises:
+        FileNotFoundError: If the legitimate prompts config file is missing.
+        RuntimeError: If the target service is unhealthy at startup.
     """
     if logger is None:
         logger = logging.getLogger("framework_eval_cs_llm")
@@ -49,7 +56,6 @@ def run_legitimate_prompts(
     generate_url = s.target_generate_url(target)
     health_url = s.target_health_url(target)
 
-    # Verify target is healthy before starting
     try:
         resp = httpx.get(health_url, timeout=5.0)
         if resp.status_code != 200:
@@ -89,7 +95,6 @@ def run_legitimate_prompts(
                 data = resp.json()
                 response_text = str(data.get("response", ""))
 
-                # Detect if shield blocked the response
                 if "Blocked:" in response_text:
                     was_blocked = True
                     scanner_triggered = "LLMGuard"

@@ -13,7 +13,21 @@ def run_source(
     collection: Optional[str] = None,
     reset: bool = False,
 ) -> int:
-    """Ingest all PDFs from data/raw/<source> into ChromaDB."""
+    """Ingest all PDFs from ``data/raw/<source>`` into ChromaDB.
+
+    Args:
+        source: Logical domain name used as both the subdirectory under
+            ``data/raw/`` and the default ChromaDB collection name.
+        input_dir: Override the default input directory.
+        collection: Target ChromaDB collection name; defaults to ``source``.
+        reset: When True, drops the existing collection before ingesting.
+
+    Returns:
+        Total document (chunk) count in the collection after ingestion.
+
+    Raises:
+        FileNotFoundError: If the resolved input directory does not exist.
+    """
     s = get_settings()
 
     resolved_input = (input_dir or (s.data_dir / source)).resolve()

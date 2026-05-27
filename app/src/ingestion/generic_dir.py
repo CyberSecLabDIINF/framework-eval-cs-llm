@@ -26,6 +26,7 @@ def _sha1_text(s: str) -> str:
 
 
 def _sha1_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    """Return the SHA-1 hex digest of a file, reading it in chunks."""
     h = hashlib.sha1()
     with path.open("rb") as f:
         while True:
@@ -37,6 +38,7 @@ def _sha1_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
 
 
 def iter_pdfs(data_path: Path, pattern: str = "*.pdf") -> List[Path]:
+    """Return a sorted list of PDF paths matching ``pattern`` under ``data_path``."""
     return sorted(data_path.glob(pattern))
 
 
@@ -75,15 +77,27 @@ def ingest_dir_pdfs(
     batch_size: int = 64,
     reset_collection: bool = False,
 ) -> int:
-    """
-    Ingest PDFs from a directory into a ChromaDB collection.
+    """Ingest all PDFs from a directory into a ChromaDB collection.
 
-    - source: logical domain name (e.g. 'regulatory_technical', 'academic_institutional')
-    - data_path: input directory (e.g. data/raw/<source>)
-    - chroma_path: ChromaDB persistence directory
-    - collection_name: target collection name (defaults to source)
-    - reset_collection: drop the existing collection before ingesting
-    Returns the final document count in the collection.
+    Chunks each PDF with a recursive character splitter, computes stable
+    content-addressed IDs, and upserts all chunks in batches.
+
+    Args:
+        source: Logical domain name (e.g. ``"regulatory_technical"``).
+        data_path: Input directory containing the source PDFs.
+        chroma_path: ChromaDB persistence directory path.
+        collection_name: Target collection name; defaults to ``source``.
+        glob_pattern: Glob pattern used to discover PDF files.
+        chunk_size: Maximum token count per text chunk.
+        chunk_overlap: Token overlap between consecutive chunks.
+        batch_size: Number of chunks per ChromaDB upsert call.
+        reset_collection: When True, drops the existing collection before ingesting.
+
+    Returns:
+        Total document (chunk) count in the collection after ingestion.
+
+    Raises:
+        FileNotFoundError: If ``data_path`` does not exist or contains no PDFs.
     """
     if not data_path.exists():
         raise FileNotFoundError(f"Data directory not found: {data_path}")
@@ -154,7 +168,6 @@ def _safe_upsert(collection, ids: List[str], docs: List[str], metas: List[dict])
     Upsert documents tolerating ChromaDB API differences across versions.
     Uses collection.upsert() when available; falls back to add() skipping existing IDs.
     """
-    # Deduplicate IDs within the batch before upserting.
     seen = set()
     ids2, docs2, metas2 = [], [], []
     for j, (i, d, m) in enumerate(zip(ids, docs, metas)):
