@@ -35,7 +35,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import pandas as pd
-from scipy.stats import fisher_exact, mannwhitneyu
+from scipy.stats import fisher_exact, mannwhitneyu, spearmanr
 
 
 # ─────────────────────────────────────────────
@@ -830,6 +830,771 @@ def deep_analysis_las(lat_a: pd.DataFrame, lat_b: pd.DataFrame):
         p99_b = lat_b["latency_ms"].quantile(0.99)
         outliers_b = lat_b[lat_b["latency_ms"] > p99_b]
         print(f"  OUTLIERS (> p99 = {p99_b:.1f} ms) — Scenario B: {len(outliers_b)} requests")
+
+
+# ─────────────────────────────────────────────
+# Segmented statistical analysis
+# ─────────────────────────────────────────────
+
+def segmented_analysis(artifacts_dir: Path, domains: list, pcc_values: dict | None = None):
+    """Segmented statistical analysis across all domain × scenario × prompt_type combinations.
+
+    Loads every ``consolidated_<domain>_<scenario>.csv`` file and runs five
+    analytical blocks, printing formatted tables to stdout and exporting CSVs to
+    ``artifacts/segmented/``:
+
+    1. Segment overview — row counts, blocking rate, TFA_csv (mean garak_passed),
+       and latency median for each (domain × scenario × prompt_type) cell.
+    2. Adversarial TFA per probe and per OWASP suite, derived from the
+       ``garak_passed`` column in the consolidated CSV (not from JSONL files).
+    3. Adversarial distributions — ``garak_passed`` (0 / 1 / NaN) and
+       ``was_blocked`` breakdown per segment; ``scanner_triggered`` breakdown for
+       Scenario B.
+    4. Legitimate FPR and latency distribution (median, IQR, p95, p99).
+    5. Cross-scenario statistical tests — LAS (Mann-Whitney U), TFA (Fisher's
+       exact), and, when ``pcc_values`` is supplied, Spearman ρ between PCC and
+       aggregate TFA per (domain × subdimension) pair.
+
+    Parameters
+    ----------
+    artifacts_dir : Path
+        Root artifacts directory containing ``consolidated_*.csv`` files and the
+        ``segmented/`` output sub-directory.
+    domains : list
+        Ordered list of corpus domain names (e.g. ``["regulatory_technical",
+        "academic_institutional"]``).  Only domains present in ``artifacts_dir``
+        produce non-empty output.
+    pcc_values : dict or None, optional
+        Manually verified PCC (Porcentaje de Controles Cumplidos) values, keyed
+        as ``{domain: {subdimension: float}}``.  PCC cannot be derived from the
+        CSV data — it requires out-of-band control verification.  Pass ``None``
+        (default) to skip the Spearman block; a warning is printed in that case.
+
+    Notes
+    -----
+    **LAS — Mann-Whitney U:**
+        Preferred over a two-sample t-test because request latency distributions
+        are right-skewed and heavy-tailed (Ollama inference times have a long
+        tail from context-length variation and GPU scheduling jitter).  The
+        Mann-Whitney U test makes no normality or equal-variance assumption.
+        ``alternative="less"`` tests H₁: latency_A < latency_B, i.e. the shield
+        adds overhead.
+
+    **TFA — Fisher's exact test:**
+        Preferred over the chi-square test because contingency-table cells (probe
+        × scenario) often contain small expected frequencies when the number of
+        Garak repetitions is limited (< 30 per probe per domain).  Fisher's exact
+        test is exact regardless of sample size and is more conservative with
+        sparse data.  ``alternative="less"`` tests H₁: TFA_A < TFA_B.
+
+    **PCC–TFA — Spearman ρ:**
+        Preferred over Pearson because PCC is an ordinal ratio with a bounded
+        range (0–100) and no normality guarantee, while TFA is a bounded
+        proportion; there is no prior reason to assume a linear relationship.
+        Spearman measures rank-order association, which is the meaningful
+        quantity for an exploratory comparison across only four subdimensions.
+
+    Outputs
+    -------
+    - artifacts/segmented/01_segment_overview.csv : counts, blocking rate,
+      mean garak_passed, latency median per (domain × scenario × prompt_type).
+    - artifacts/segmented/02_tfa_per_probe.csv : TFA per probe per segment.
+    - artifacts/segmented/03_tfa_per_suite.csv : TFA per OWASP suite per segment.
+    - artifacts/segmented/04_garak_passed_dist.csv : gp=0/1/NaN counts.
+    - artifacts/segmented/05_was_blocked_dist.csv : blocked/not-blocked counts.
+    - artifacts/segmented/06_scanner_breakdown.csv : scanner_triggered value counts
+      (Scenario B adversarial).
+    - artifacts/segmented/07_fpr_legitimate.csv : FPR per domain × scenario.
+    - artifacts/segmented/08_latency_legitimate.csv : legitimate latency stats.
+    - artifacts/segmented/09_las_mannwhitney.csv : Mann-Whitney U results per domain.
+    - artifacts/segmented/10_fisher_tfa_ab.csv : Fisher exact results per suite and
+      per domain.
+    - artifacts/segmented/11_spearman_pcc_tfa.csv : Spearman ρ results; written
+      only when ``pcc_values`` is provided and has ≥ 3 (domain, subdimension) pairs.
+    """
+    SCENARIOS    = ["unprotected", "protected"]
+    SCEN_LABEL   = {"unprotected": "A", "protected": "B"}
+    PROMPT_TYPES = ["adversarial", "legitimate"]
+
+    segmented_dir = artifacts_dir / "segmented"
+    segmented_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Load all CSVs into all_data[domain][scenario][prompt_type] ──────────
+    all_data: dict = {}
+    for domain in domains:
+        all_data[domain] = {}
+        for scenario in SCENARIOS:
+            path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
+            if not path.exists():
+                all_data[domain][scenario] = {pt: pd.DataFrame() for pt in PROMPT_TYPES}
+                continue
+            df_raw = pd.read_csv(path)
+            for col in ("was_blocked", "should_block", "response_has_confidential"):
+                if col in df_raw.columns:
+                    df_raw[col] = pd.to_numeric(df_raw[col], errors="coerce").fillna(0).astype(int)
+            for col in ("garak_passed", "latency_ms", "input_scanner_score", "output_scanner_score"):
+                if col in df_raw.columns:
+                    df_raw[col] = pd.to_numeric(df_raw[col], errors="coerce")
+            if "suite" in df_raw.columns:
+                df_raw["suite"] = df_raw["suite"].apply(_extract_suite)
+            all_data[domain][scenario] = {
+                pt: df_raw[df_raw["prompt_type"] == pt].copy()
+                for pt in PROMPT_TYPES
+            }
+
+    print(f"\n{'='*70}")
+    print(f"  SEGMENTED ANALYSIS — domain × scenario × prompt_type")
+    print(f"{'='*70}")
+
+    # ── 1. Segment overview: counts and proportions ──────────────────────────
+    seg_rows = []
+    for domain in domains:
+        for scenario in SCENARIOS:
+            for pt in PROMPT_TYPES:
+                df = all_data[domain][scenario][pt]
+                n  = len(df)
+                row: dict = {
+                    "domain": domain, "scenario": scenario,
+                    "scenario_label": SCEN_LABEL[scenario], "prompt_type": pt,
+                    "n_rows": n,
+                }
+                if n > 0:
+                    if "was_blocked" in df.columns:
+                        nb = int(df["was_blocked"].sum())
+                        row["n_blocked"]   = nb
+                        row["pct_blocked"] = round(nb / n, 4)
+                    if pt == "adversarial" and "garak_passed" in df.columns:
+                        valid = df["garak_passed"].dropna()
+                        if len(valid):
+                            row["garak_passed_mean"] = round(float(valid.mean()), 4)
+                            row["garak_passed_n"]    = len(valid)
+                    if "latency_ms" in df.columns:
+                        lat = df["latency_ms"].dropna()
+                        if len(lat):
+                            row["latency_median"] = round(float(lat.median()), 2)
+                            row["latency_iqr"]    = round(float(lat.quantile(0.75) - lat.quantile(0.25)), 2)
+                            row["latency_p95"]    = round(float(lat.quantile(0.95)), 2)
+                seg_rows.append(row)
+
+    seg_df = pd.DataFrame(seg_rows)
+    hdr = f"  {'Domain':30s} {'Scen':5s} {'Type':12s} {'n':>7} {'%blocked':>9} {'TFA_csv':>9} {'lat_p50':>9}"
+    print(f"\n  SEGMENT OVERVIEW")
+    print(hdr)
+    print(f"  {'-'*76}")
+    for _, r in seg_df.iterrows():
+        pct_b = (f"{r['pct_blocked']*100:.1f}%"
+                 if pd.notna(r.get("pct_blocked")) else "N/A")
+        gp    = (f"{r['garak_passed_mean']:.4f}"
+                 if pd.notna(r.get("garak_passed_mean")) else "N/A")
+        lat   = (f"{r['latency_median']:.1f}"
+                 if pd.notna(r.get("latency_median")) else "N/A")
+        print(f"  {r['domain']:30s} {r['scenario_label']:5s} {r['prompt_type']:12s} "
+              f"{r['n_rows']:>7} {pct_b:>9} {gp:>9} {lat:>9}")
+    seg_df.to_csv(segmented_dir / "01_segment_overview.csv", index=False)
+    print(f"\n  [saved] {segmented_dir / '01_segment_overview.csv'}")
+
+    # ── 2. Adversarial: TFA per probe ────────────────────────────────────────
+    print(f"\n  {'='*68}")
+    print(f"  ADVERSARIAL — TFA PER PROBE (garak_passed from consolidated CSV)")
+    print(f"  {'='*68}")
+    probe_rows = []
+    for domain in domains:
+        for scenario in SCENARIOS:
+            df = all_data[domain][scenario]["adversarial"]
+            if df.empty or "garak_passed" not in df.columns or "probe" not in df.columns:
+                continue
+            dv = df[df["garak_passed"].notna()].copy()
+            dv["garak_passed"] = dv["garak_passed"].astype(int)
+            for probe in sorted(dv["probe"].dropna().unique()):
+                sub   = dv[dv["probe"] == probe]
+                n     = len(sub)
+                passed = int(sub["garak_passed"].sum())
+                tfa   = round(passed / n, 4) if n else None
+                suite = sub["suite"].iloc[0] if "suite" in sub.columns and len(sub) else PROBE_TO_SUITE.get(probe, "UNKNOWN")
+                probe_rows.append({
+                    "domain": domain, "scenario": scenario,
+                    "scenario_label": SCEN_LABEL[scenario],
+                    "probe": probe, "probe_short": PROBE_SHORT.get(probe, probe),
+                    "suite": suite, "n": n, "passed": passed,
+                    "failed": n - passed, "TFA": tfa,
+                })
+    if probe_rows:
+        probe_df = pd.DataFrame(probe_rows)
+        print(f"\n  {'Domain':30s} {'Scen':5s} {'Probe':20s} {'Suite':6s} {'n':>5} {'pass':>7} {'TFA':>8}")
+        print(f"  {'-'*82}")
+        for _, r in probe_df.iterrows():
+            tfa_s = f"{r['TFA']:.4f}" if pd.notna(r["TFA"]) else "N/A"
+            print(f"  {r['domain']:30s} {r['scenario_label']:5s} {r['probe_short']:20s} "
+                  f"{r['suite']:6s} {r['n']:>5} {r['passed']:>7} {tfa_s:>8}")
+        probe_df.to_csv(segmented_dir / "02_tfa_per_probe.csv", index=False)
+        print(f"\n  [saved] {segmented_dir / '02_tfa_per_probe.csv'}")
+
+    # ── 3. Adversarial: TFA per suite ────────────────────────────────────────
+    print(f"\n  ADVERSARIAL — TFA PER SUITE")
+    suite_rows = []
+    for domain in domains:
+        for scenario in SCENARIOS:
+            df = all_data[domain][scenario]["adversarial"]
+            if df.empty or "garak_passed" not in df.columns:
+                continue
+            dv = df[df["garak_passed"].notna()].copy()
+            dv["garak_passed"] = dv["garak_passed"].astype(int)
+            suite_col = "suite" if "suite" in dv.columns else None
+            if suite_col is None:
+                continue
+            for suite in sorted(dv[suite_col].dropna().unique()):
+                sub   = dv[dv[suite_col] == suite]
+                n     = len(sub)
+                passed = int(sub["garak_passed"].sum())
+                tfa   = round(passed / n, 4) if n else None
+                suite_rows.append({
+                    "domain": domain, "scenario": scenario,
+                    "scenario_label": SCEN_LABEL[scenario],
+                    "suite": suite, "n": n, "passed": passed,
+                    "failed": n - passed, "TFA": tfa,
+                })
+    if suite_rows:
+        suite_df = pd.DataFrame(suite_rows)
+        print(f"\n  {'Domain':30s} {'Scen':5s} {'Suite':6s} {'n':>5} {'pass':>7} {'TFA':>8}")
+        print(f"  {'-'*62}")
+        for _, r in suite_df.iterrows():
+            tfa_s = f"{r['TFA']:.4f}" if pd.notna(r["TFA"]) else "N/A"
+            print(f"  {r['domain']:30s} {r['scenario_label']:5s} {r['suite']:6s} "
+                  f"{r['n']:>5} {r['passed']:>7} {tfa_s:>8}")
+        suite_df.to_csv(segmented_dir / "03_tfa_per_suite.csv", index=False)
+        print(f"\n  [saved] {segmented_dir / '03_tfa_per_suite.csv'}")
+
+    # ── 4. garak_passed distribution ─────────────────────────────────────────
+    print(f"\n  ADVERSARIAL — GARAK_PASSED DISTRIBUTION")
+    gp_rows = []
+    print(f"\n  {'Domain':30s} {'Scen':5s} {'total':>7} {'gp=0':>9} {'gp=1':>9} {'gp=NaN':>8}")
+    print(f"  {'-'*72}")
+    for domain in domains:
+        for scenario in SCENARIOS:
+            df = all_data[domain][scenario]["adversarial"]
+            if df.empty or "garak_passed" not in df.columns:
+                continue
+            total = len(df)
+            n_nan = int(df["garak_passed"].isna().sum())
+            dv    = df["garak_passed"].dropna().astype(int)
+            n0    = int((dv == 0).sum())
+            n1    = int((dv == 1).sum())
+            print(f"  {domain:30s} {SCEN_LABEL[scenario]:5s} {total:>7} "
+                  f"{n0:>5}({n0/total*100:.0f}%) {n1:>5}({n1/total*100:.0f}%) {n_nan:>8}")
+            gp_rows.append({"domain": domain, "scenario": scenario, "total": total,
+                            "gp_0": n0, "gp_1": n1, "gp_nan": n_nan})
+    if gp_rows:
+        pd.DataFrame(gp_rows).to_csv(segmented_dir / "04_garak_passed_dist.csv", index=False)
+        print(f"\n  [saved] {segmented_dir / '04_garak_passed_dist.csv'}")
+
+    # ── 5. was_blocked distribution ──────────────────────────────────────────
+    print(f"\n  ADVERSARIAL — WAS_BLOCKED DISTRIBUTION")
+    wb_rows = []
+    print(f"\n  {'Domain':30s} {'Scen':5s} {'total':>7} {'blocked':>9} {'not_blk':>9} {'%blk':>7}")
+    print(f"  {'-'*68}")
+    for domain in domains:
+        for scenario in SCENARIOS:
+            df = all_data[domain][scenario]["adversarial"]
+            if df.empty or "was_blocked" not in df.columns:
+                continue
+            total = len(df)
+            nb    = int(df["was_blocked"].sum())
+            pct   = nb / total * 100 if total else 0
+            print(f"  {domain:30s} {SCEN_LABEL[scenario]:5s} {total:>7} "
+                  f"{nb:>9} {total-nb:>9} {pct:>7.2f}%")
+            wb_rows.append({"domain": domain, "scenario": scenario, "total": total,
+                            "blocked": nb, "not_blocked": total - nb,
+                            "pct_blocked": round(pct / 100, 4)})
+    if wb_rows:
+        pd.DataFrame(wb_rows).to_csv(segmented_dir / "05_was_blocked_dist.csv", index=False)
+        print(f"\n  [saved] {segmented_dir / '05_was_blocked_dist.csv'}")
+
+    # ── 6. scanner_triggered breakdown (Scenario B, adversarial) ─────────────
+    print(f"\n  ADVERSARIAL — SCANNER_TRIGGERED BREAKDOWN (Scenario B)")
+    scanner_rows = []
+    for domain in domains:
+        df = all_data[domain]["protected"]["adversarial"]
+        if df.empty or "scanner_triggered" not in df.columns:
+            continue
+        total = len(df)
+        print(f"\n    {domain.upper()}")
+        print(f"    {'Scanner':40s} {'count':>7} {'%':>8}")
+        print(f"    {'-'*58}")
+        vc = df["scanner_triggered"].fillna("(none)").value_counts()
+        for scanner, cnt in vc.items():
+            pct = cnt / total * 100
+            print(f"    {str(scanner):40s} {cnt:>7} {pct:>8.2f}%")
+            scanner_rows.append({"domain": domain, "scanner": scanner,
+                                 "count": int(cnt), "pct": round(pct / 100, 4)})
+    if scanner_rows:
+        pd.DataFrame(scanner_rows).to_csv(segmented_dir / "06_scanner_breakdown.csv", index=False)
+        print(f"\n  [saved] {segmented_dir / '06_scanner_breakdown.csv'}")
+
+    # ── 7. Legitimate: FPR ───────────────────────────────────────────────────
+    print(f"\n  {'='*68}")
+    print(f"  LEGITIMATE — FALSE POSITIVE RATE (blocked / total)")
+    print(f"  {'='*68}")
+    fpr_rows = []
+    print(f"\n  {'Domain':30s} {'Scen':5s} {'total':>7} {'blocked':>9} {'FPR':>9}")
+    print(f"  {'-'*62}")
+    for domain in domains:
+        for scenario in SCENARIOS:
+            df = all_data[domain][scenario]["legitimate"]
+            if df.empty:
+                continue
+            n  = len(df)
+            nb = int(df["was_blocked"].sum()) if "was_blocked" in df.columns else 0
+            fpr = round(nb / n, 4) if n else 0.0
+            print(f"  {domain:30s} {SCEN_LABEL[scenario]:5s} {n:>7} {nb:>9} {fpr:>9.4f}")
+            fpr_rows.append({"domain": domain, "scenario": scenario,
+                             "scenario_label": SCEN_LABEL[scenario],
+                             "total_legit": n, "blocked_legit": nb, "FPR": fpr})
+    if fpr_rows:
+        pd.DataFrame(fpr_rows).to_csv(segmented_dir / "07_fpr_legitimate.csv", index=False)
+        print(f"\n  [saved] {segmented_dir / '07_fpr_legitimate.csv'}")
+
+    # ── 8. Legitimate: latency distribution ──────────────────────────────────
+    print(f"\n  LEGITIMATE — LATENCY DISTRIBUTION (ms)")
+    lat_legit_rows = []
+    print(f"\n  {'Domain':30s} {'Scen':5s} {'n':>6} {'median':>8} {'IQR':>8} {'p95':>8} {'p99':>8}")
+    print(f"  {'-'*72}")
+    for domain in domains:
+        for scenario in SCENARIOS:
+            df = all_data[domain][scenario]["legitimate"]
+            if df.empty or "latency_ms" not in df.columns:
+                continue
+            lat = df["latency_ms"].dropna()
+            if lat.empty:
+                continue
+            med = lat.median()
+            iqr = lat.quantile(0.75) - lat.quantile(0.25)
+            p95 = lat.quantile(0.95)
+            p99 = lat.quantile(0.99)
+            print(f"  {domain:30s} {SCEN_LABEL[scenario]:5s} {len(lat):>6} "
+                  f"{med:>8.1f} {iqr:>8.1f} {p95:>8.1f} {p99:>8.1f}")
+            lat_legit_rows.append({"domain": domain, "scenario": scenario,
+                                   "n": len(lat), "median_ms": round(float(med), 2),
+                                   "iqr_ms": round(float(iqr), 2),
+                                   "p95_ms": round(float(p95), 2),
+                                   "p99_ms": round(float(p99), 2)})
+    if lat_legit_rows:
+        pd.DataFrame(lat_legit_rows).to_csv(segmented_dir / "08_latency_legitimate.csv", index=False)
+        print(f"\n  [saved] {segmented_dir / '08_latency_legitimate.csv'}")
+
+    # ── 9. LAS: Mann-Whitney U (A vs B per domain) ───────────────────────────
+    print(f"\n  {'='*68}")
+    print(f"  LAS — MANN-WHITNEY U  (H₁: latency_A < latency_B, α=0.05)")
+    print(f"  Non-parametric; both prompt types pooled per scenario.")
+    print(f"  {'='*68}")
+    mw_rows = []
+    print(f"\n  {'Domain':30s} {'n_A':>7} {'n_B':>7} {'med_A':>8} {'med_B':>8} "
+          f"{'IQR_A':>8} {'IQR_B':>8} {'U':>10} {'p':>9} {'sig':>5}")
+    print(f"  {'-'*105}")
+    for domain in domains:
+        lat_by_scen: dict[str, pd.Series] = {}
+        for scenario in SCENARIOS:
+            frames = [all_data[domain][scenario][pt] for pt in PROMPT_TYPES
+                      if not all_data[domain][scenario][pt].empty]
+            if not frames:
+                lat_by_scen[scenario] = pd.Series(dtype=float)
+                continue
+            combined = pd.concat(frames, ignore_index=True)
+            lat_by_scen[scenario] = (combined["latency_ms"].dropna()
+                                     if "latency_ms" in combined.columns
+                                     else pd.Series(dtype=float))
+        a_lat = lat_by_scen.get("unprotected", pd.Series(dtype=float))
+        b_lat = lat_by_scen.get("protected",   pd.Series(dtype=float))
+        if a_lat.empty or b_lat.empty:
+            print(f"  {domain:30s}  [insufficient latency data]")
+            continue
+        med_a = a_lat.median()
+        med_b = b_lat.median()
+        iqr_a = a_lat.quantile(0.75) - a_lat.quantile(0.25)
+        iqr_b = b_lat.quantile(0.75) - b_lat.quantile(0.25)
+        u_stat, p_val = mannwhitneyu(a_lat.values, b_lat.values, alternative="less")
+        sig = "✅" if p_val < 0.05 else "—"
+        print(f"  {domain:30s} {len(a_lat):>7} {len(b_lat):>7} {med_a:>8.1f} {med_b:>8.1f} "
+              f"{iqr_a:>8.1f} {iqr_b:>8.1f} {u_stat:>10.1f} {p_val:>9.4f} {sig:>5}")
+        mw_rows.append({"domain": domain, "n_A": len(a_lat), "n_B": len(b_lat),
+                        "median_A": round(float(med_a), 2), "median_B": round(float(med_b), 2),
+                        "IQR_A": round(float(iqr_a), 2), "IQR_B": round(float(iqr_b), 2),
+                        "delta_median": round(float(med_b - med_a), 2),
+                        "U_stat": round(float(u_stat), 2), "p_value": round(float(p_val), 6),
+                        "significant_005": p_val < 0.05})
+    if mw_rows:
+        pd.DataFrame(mw_rows).to_csv(segmented_dir / "09_las_mannwhitney.csv", index=False)
+        print(f"\n  [saved] {segmented_dir / '09_las_mannwhitney.csv'}")
+
+    # ── 10. TFA: Fisher's exact test (A vs B) per suite and per domain ────────
+    print(f"\n  {'='*68}")
+    print(f"  TFA — FISHER'S EXACT TEST  (H₁: TFA_A < TFA_B, alternative='less')")
+    print(f"  {'='*68}")
+    fisher_rows = []
+
+    def _fisher_row(domain, level, group, n_a, pass_a, n_b, pass_b):
+        """Compute Fisher exact and return a result dict."""
+        fail_a = n_a - pass_a
+        fail_b = n_b - pass_b
+        tfa_a  = round(pass_a / n_a, 4) if n_a else None
+        tfa_b  = round(pass_b / n_b, 4) if n_b else None
+        p_val  = None
+        sig    = False
+        if tfa_a is not None and tfa_b is not None:
+            _, p_val = fisher_exact([[pass_a, fail_a], [pass_b, fail_b]], alternative="less")
+            sig = bool(p_val < 0.05)
+        delta = round(tfa_b - tfa_a, 4) if (tfa_a is not None and tfa_b is not None) else None
+        return {"domain": domain, "level": level, "group": group,
+                "n_A": n_a, "passed_A": pass_a, "TFA_A": tfa_a,
+                "n_B": n_b, "passed_B": pass_b, "TFA_B": tfa_b,
+                "delta_TFA": delta, "p_value_fisher": p_val, "significant_005": sig}
+
+    # Per suite
+    print(f"\n  BY SUITE")
+    print(f"  {'Domain':30s} {'Suite':6s} {'n_A':>5} {'p_A':>6} {'n_B':>5} {'p_B':>6} "
+          f"{'TFA_A':>7} {'TFA_B':>7} {'ΔTFA':>7} {'p':>9} {'sig':>5}")
+    print(f"  {'-'*100}")
+    for domain in domains:
+        da = all_data[domain]["unprotected"]["adversarial"]
+        db = all_data[domain]["protected"]["adversarial"]
+        if da.empty or "garak_passed" not in da.columns or "suite" not in da.columns:
+            continue
+        dav = da[da["garak_passed"].notna()].copy()
+        dav["garak_passed"] = dav["garak_passed"].astype(int)
+        suites = sorted(dav["suite"].dropna().unique())
+        for suite in suites:
+            sub_a = dav[dav["suite"] == suite]
+            n_a   = len(sub_a)
+            pa    = int(sub_a["garak_passed"].sum())
+            n_b   = pb = 0
+            if not db.empty and "garak_passed" in db.columns and "suite" in db.columns:
+                dbv = db[db["garak_passed"].notna()].copy()
+                dbv["garak_passed"] = dbv["garak_passed"].astype(int)
+                sub_b = dbv[dbv["suite"] == suite]
+                n_b = len(sub_b)
+                pb  = int(sub_b["garak_passed"].sum())
+            row = _fisher_row(domain, "suite", suite, n_a, pa, n_b, pb)
+            fisher_rows.append(row)
+            tfa_a_s = f"{row['TFA_A']:.4f}" if row["TFA_A"] is not None else "N/A"
+            tfa_b_s = f"{row['TFA_B']:.4f}" if row["TFA_B"] is not None else "N/A"
+            delta_s = f"{row['delta_TFA']:+.4f}" if row["delta_TFA"] is not None else "N/A"
+            p_s     = f"{row['p_value_fisher']:.4f}" if row["p_value_fisher"] is not None else "N/A"
+            sig_s   = "✅" if row["significant_005"] else "—"
+            print(f"  {domain:30s} {suite:6s} {n_a:>5} {pa:>6} {n_b:>5} {pb:>6} "
+                  f"{tfa_a_s:>7} {tfa_b_s:>7} {delta_s:>7} {p_s:>9} {sig_s:>5}")
+
+    # Per domain (global)
+    print(f"\n  BY DOMAIN (global aggregate)")
+    print(f"  {'Domain':30s} {'n_A':>7} {'p_A':>7} {'n_B':>7} {'p_B':>7} "
+          f"{'TFA_A':>7} {'TFA_B':>7} {'ΔTFA':>7} {'p':>9} {'sig':>5}")
+    print(f"  {'-'*95}")
+    for domain in domains:
+        da = all_data[domain]["unprotected"]["adversarial"]
+        db = all_data[domain]["protected"]["adversarial"]
+        if da.empty or "garak_passed" not in da.columns:
+            continue
+        dav = da[da["garak_passed"].notna()].copy()
+        dav["garak_passed"] = dav["garak_passed"].astype(int)
+        n_a = len(dav)
+        pa  = int(dav["garak_passed"].sum())
+        n_b = pb = 0
+        if not db.empty and "garak_passed" in db.columns:
+            dbv = db[db["garak_passed"].notna()].copy()
+            dbv["garak_passed"] = dbv["garak_passed"].astype(int)
+            n_b = len(dbv)
+            pb  = int(dbv["garak_passed"].sum())
+        row = _fisher_row(domain, "domain", domain, n_a, pa, n_b, pb)
+        fisher_rows.append(row)
+        tfa_a_s = f"{row['TFA_A']:.4f}" if row["TFA_A"] is not None else "N/A"
+        tfa_b_s = f"{row['TFA_B']:.4f}" if row["TFA_B"] is not None else "N/A"
+        delta_s = f"{row['delta_TFA']:+.4f}" if row["delta_TFA"] is not None else "N/A"
+        p_s     = f"{row['p_value_fisher']:.4f}" if row["p_value_fisher"] is not None else "N/A"
+        sig_s   = "✅" if row["significant_005"] else "—"
+        print(f"  {domain:30s} {n_a:>7} {pa:>7} {n_b:>7} {pb:>7} "
+              f"{tfa_a_s:>7} {tfa_b_s:>7} {delta_s:>7} {p_s:>9} {sig_s:>5}")
+
+    if fisher_rows:
+        pd.DataFrame(fisher_rows).to_csv(segmented_dir / "10_fisher_tfa_ab.csv", index=False)
+        print(f"\n  [saved] {segmented_dir / '10_fisher_tfa_ab.csv'}")
+
+    # ── 11. Spearman: PCC (external input) vs aggregate TFA ──────────────────
+    print(f"\n  {'='*68}")
+    print(f"  SPEARMAN — PCC (Porcentaje de Controles Cumplidos) vs aggregate TFA")
+    print(f"  PCC = C_verificados / C_aplicables × 100  (manually verified per subdim).")
+    print(f"  TFA = garak_passed aggregate per (domain × subdimension).  Exploratory.")
+    print(f"  {'='*68}")
+
+    if pcc_values is None:
+        print(f"\n  [WARN] PCC values not provided — Spearman NCP skipped.")
+        print(f"  Supply pcc_values dict to segmented_analysis() after manual control verification.")
+        print(f"  Expected format: {{domain: {{subdimension: pcc_float}}}}")
+    else:
+        spearman_rows: list[dict] = []
+        for domain in domains:
+            if domain not in pcc_values:
+                print(f"\n  [WARN] No PCC entry for domain '{domain}' — skipping.")
+                continue
+            domain_pcc = pcc_values[domain]
+            for scenario in SCENARIOS:
+                df = all_data[domain][scenario]["adversarial"]
+                if df.empty or "garak_passed" not in df.columns or "subdimension" not in df.columns:
+                    continue
+                dv = df[df["garak_passed"].notna()].copy()
+                dv["garak_passed"] = dv["garak_passed"].astype(int)
+
+                subdims   = sorted(dv["subdimension"].dropna().unique())
+                pcc_vals: list[float] = []
+                tfa_vals: list[float] = []
+
+                print(f"\n  Domain: {domain.upper()}  Scenario {SCEN_LABEL[scenario]}")
+                print(f"  {'Subdim':8s} {'PCC (input)':>12} {'TFA_agg':>10} {'n_att':>8}")
+                print(f"  {'-'*42}")
+                for subdim in subdims:
+                    sub   = dv[dv["subdimension"] == subdim]
+                    n_att = len(sub)
+                    if n_att == 0:
+                        continue
+                    agg_tfa = round(float(sub["garak_passed"].sum()) / n_att, 4)
+                    pcc     = domain_pcc.get(subdim)
+                    pcc_s   = f"{pcc:.4f}" if pcc is not None else "not provided"
+                    print(f"  {subdim:8s} {pcc_s:>12} {agg_tfa:>10.4f} {n_att:>8}")
+                    if pcc is not None:
+                        pcc_vals.append(pcc)
+                        tfa_vals.append(agg_tfa)
+                        spearman_rows.append({
+                            "domain": domain, "scenario": scenario,
+                            "scenario_label": SCEN_LABEL[scenario],
+                            "subdimension": subdim, "n_attempts": n_att,
+                            "PCC": pcc, "TFA": agg_tfa,
+                        })
+
+                if len(pcc_vals) >= 3:
+                    rho, p_rho = spearmanr(pcc_vals, tfa_vals)
+                    print(f"\n  → Spearman ρ={rho:.4f}  p={p_rho:.4f}  "
+                          f"(n={len(pcc_vals)} subdims)")
+                elif pcc_vals:
+                    print(f"\n  → Spearman skipped: only {len(pcc_vals)} subdim(s) — need ≥ 3")
+
+        if len(spearman_rows) >= 3:
+            sp_df  = pd.DataFrame(spearman_rows)
+            rho_g, p_g = spearmanr(sp_df["PCC"].values, sp_df["TFA"].values)
+            print(f"\n  GLOBAL Spearman (all domains × subdims × scenarios pooled):")
+            print(f"  ρ = {rho_g:.4f}  p = {p_g:.4f}  (n = {len(sp_df)} pairs)")
+            sp_df.to_csv(segmented_dir / "11_spearman_pcc_tfa.csv", index=False)
+            print(f"\n  [saved] {segmented_dir / '11_spearman_pcc_tfa.csv'}")
+        elif spearman_rows:
+            print(f"\n  [WARN] Spearman requires ≥ 3 (domain, subdim) pairs with PCC; "
+                  f"only {len(spearman_rows)} found.")
+
+    print(f"\n{'='*70}")
+    print(f"  Segmented analysis complete. Outputs → {segmented_dir.resolve()}")
+    print(f"{'='*70}")
+
+
+# ─────────────────────────────────────────────
+# Latency: adversarial vs legitimate comparison
+# ─────────────────────────────────────────────
+
+def latency_adv_vs_legit(artifacts_dir: Path, domains: list):
+    """Compare latency distributions between adversarial and legitimate prompts.
+
+    For each (domain × scenario) combination, reports prompt-type counts and
+    proportions, descriptive latency statistics, and a Mann-Whitney U test
+    comparing the latency distributions of adversarial versus legitimate prompts.
+    Results are printed as formatted tables and exported to a single wide-format
+    CSV with one row per (domain × scenario).
+
+    Parameters
+    ----------
+    artifacts_dir : Path
+        Root artifacts directory containing ``consolidated_<domain>_<scenario>.csv``
+        files.
+    domains : list
+        Ordered list of corpus domain names to analyse.
+
+    Notes
+    -----
+    **Primary measure — median:**
+        Request latency in LLM inference pipelines is asymmetric and heavy-tailed
+        (long tail from variable prompt length and GPU scheduling).  The median is
+        resistant to extreme outliers and is the standard summary statistic for
+        such distributions.  The mean is reported alongside it purely as a
+        secondary reference; it should not be used for significance testing or
+        cross-condition comparison.
+
+    **Statistical test — Mann-Whitney U (two-sided):**
+        The two-sided alternative is used because there is no directional prior:
+        adversarial prompts may be longer (injection payloads) or shorter (simple
+        direct attacks) than the control legitimate prompts, so both directions
+        of difference are scientifically interesting.  Mann-Whitney U is preferred
+        over Welch's t-test because it does not assume normality and is more
+        powerful under the heavy-tailed latency distributions observed here.
+
+    Outputs
+    -------
+    - artifacts/segmented/12_latency_adv_vs_legit.csv : wide-format table with
+      one row per (domain × scenario); columns include per-type n, median, mean,
+      IQR, p95, p99, and Mann-Whitney U statistic, p-value, and significance flag.
+    """
+    SCENARIOS  = ["unprotected", "protected"]
+    SCEN_LABEL = {"unprotected": "A", "protected": "B"}
+    PROMPT_TYPES = ["adversarial", "legitimate"]
+
+    segmented_dir = artifacts_dir / "segmented"
+    segmented_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n{'='*70}")
+    print(f"  LATENCY: ADVERSARIAL vs LEGITIMATE PROMPTS")
+    print(f"{'='*70}")
+
+    # ── 1. Counts and proportions ──────────────────────────────────────────────
+    print(f"\n  COUNTS AND PROPORTIONS (per domain × scenario)")
+    print(f"\n  {'Domain':30s} {'Scen':5s} {'adv_n':>8} {'legit_n':>8} "
+          f"{'total':>8} {'%adv':>8} {'%legit':>8}")
+    print(f"  {'-'*78}")
+    count_rows: list[dict] = []
+    for domain in domains:
+        for scenario in SCENARIOS:
+            path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
+            if not path.exists():
+                continue
+            df = pd.read_csv(path, usecols=lambda c: c == "prompt_type")
+            n_adv   = int((df["prompt_type"] == "adversarial").sum())
+            n_legit = int((df["prompt_type"] == "legitimate").sum())
+            total   = n_adv + n_legit
+            pct_adv   = n_adv   / total if total else 0.0
+            pct_legit = n_legit / total if total else 0.0
+            print(f"  {domain:30s} {SCEN_LABEL[scenario]:5s} {n_adv:>8} {n_legit:>8} "
+                  f"{total:>8} {pct_adv*100:>7.1f}% {pct_legit*100:>7.1f}%")
+            count_rows.append({"domain": domain, "scenario": scenario,
+                               "n_adversarial": n_adv, "n_legitimate": n_legit, "total": total,
+                               "pct_adversarial": round(pct_adv, 4),
+                               "pct_legitimate": round(pct_legit, 4)})
+
+    if count_rows:
+        all_adv   = sum(r["n_adversarial"] for r in count_rows)
+        all_legit = sum(r["n_legitimate"]  for r in count_rows)
+        all_total = all_adv + all_legit
+        print(f"  {'-'*78}")
+        print(f"  {'TOTAL (all domains × scenarios)':30s} {'':5s} {all_adv:>8} {all_legit:>8} "
+              f"{all_total:>8} {all_adv/all_total*100:>7.1f}% {all_legit/all_total*100:>7.1f}%")
+
+    # ── 2. Latency statistics per prompt_type × domain × scenario ─────────────
+    print(f"\n  LATENCY STATISTICS PER PROMPT TYPE (ms)")
+    print(f"  Median is the primary measure. Mean is shown for reference only —")
+    print(f"  it is non-representative due to asymmetric, heavy-tailed distribution.")
+    print(f"\n  {'Domain':30s} {'Scen':5s} {'Type':12s} {'n':>6} "
+          f"{'median':>8} {'mean*':>8} {'IQR':>8} {'p95':>8} {'p99':>8}")
+    sep = f"  {'-'*90}"
+    print(sep)
+
+    stat_rows: list[dict] = []
+    for domain in domains:
+        for scenario in SCENARIOS:
+            path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
+            if not path.exists():
+                continue
+            df_raw = pd.read_csv(path)
+            if "latency_ms" not in df_raw.columns or "prompt_type" not in df_raw.columns:
+                continue
+            df_raw["latency_ms"] = pd.to_numeric(df_raw["latency_ms"], errors="coerce")
+            for pt in PROMPT_TYPES:
+                lat = df_raw[df_raw["prompt_type"] == pt]["latency_ms"].dropna()
+                if lat.empty:
+                    continue
+                med  = float(lat.median())
+                mean = float(lat.mean())
+                iqr  = float(lat.quantile(0.75) - lat.quantile(0.25))
+                p95  = float(lat.quantile(0.95))
+                p99  = float(lat.quantile(0.99))
+                print(f"  {domain:30s} {SCEN_LABEL[scenario]:5s} {pt:12s} {len(lat):>6} "
+                      f"{med:>8.1f} {mean:>8.1f} {iqr:>8.1f} {p95:>8.1f} {p99:>8.1f}")
+                stat_rows.append({
+                    "domain": domain, "scenario": scenario,
+                    "scenario_label": SCEN_LABEL[scenario], "prompt_type": pt,
+                    "n": len(lat), "median_ms": round(med, 2), "mean_ms": round(mean, 2),
+                    "iqr_ms": round(iqr, 2), "p95_ms": round(p95, 2), "p99_ms": round(p99, 2),
+                })
+        print(sep)
+
+    # ── 3. Mann-Whitney U: adversarial vs legitimate per domain × scenario ─────
+    print(f"\n  MANN-WHITNEY U — adversarial vs legitimate latency (two-sided, α=0.05)")
+    print(f"\n  {'Domain':30s} {'Scen':5s} {'n_adv':>7} {'n_legit':>8} "
+          f"{'med_adv':>9} {'med_leg':>9} {'Δmed':>8} {'U':>10} {'p':>9} {'sig':>5}")
+    print(f"  {'-'*102}")
+
+    mw_rows: list[dict] = []
+    for domain in domains:
+        for scenario in SCENARIOS:
+            path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
+            if not path.exists():
+                continue
+            df_raw = pd.read_csv(path)
+            if "latency_ms" not in df_raw.columns or "prompt_type" not in df_raw.columns:
+                continue
+            df_raw["latency_ms"] = pd.to_numeric(df_raw["latency_ms"], errors="coerce")
+            lat_adv   = df_raw[df_raw["prompt_type"] == "adversarial"]["latency_ms"].dropna()
+            lat_legit = df_raw[df_raw["prompt_type"] == "legitimate"]["latency_ms"].dropna()
+            if lat_adv.empty or lat_legit.empty:
+                print(f"  {domain:30s} {SCEN_LABEL[scenario]:5s}  [insufficient data]")
+                continue
+            med_adv   = float(lat_adv.median())
+            med_legit = float(lat_legit.median())
+            delta     = round(med_adv - med_legit, 2)
+            u_stat, p_val = mannwhitneyu(lat_adv.values, lat_legit.values, alternative="two-sided")
+            sig = "✅" if p_val < 0.05 else "—"
+            print(f"  {domain:30s} {SCEN_LABEL[scenario]:5s} {len(lat_adv):>7} {len(lat_legit):>8} "
+                  f"{med_adv:>9.1f} {med_legit:>9.1f} {delta:>+8.1f} "
+                  f"{u_stat:>10.1f} {p_val:>9.4f} {sig:>5}")
+            mw_rows.append({
+                "domain": domain, "scenario": scenario,
+                "scenario_label": SCEN_LABEL[scenario],
+                "n_adversarial": len(lat_adv), "n_legitimate": len(lat_legit),
+                "median_adversarial_ms": round(med_adv, 2),
+                "median_legitimate_ms": round(med_legit, 2),
+                "delta_median_adv_minus_legit_ms": delta,
+                "U_stat": round(float(u_stat), 2),
+                "p_value_mw": round(float(p_val), 6),
+                "significant_005": p_val < 0.05,
+            })
+
+    if not stat_rows:
+        print(f"\n  [WARN] No latency data found in consolidated CSVs.")
+        return
+
+    # ── Export ─────────────────────────────────────────────────────────────────
+    # Build a wide-format CSV: one row per (domain × scenario) with stats for
+    # both prompt types side by side, plus Mann-Whitney results.
+    export_rows: list[dict] = []
+    for domain in domains:
+        for scenario in SCENARIOS:
+            adv_stats   = next((r for r in stat_rows
+                                if r["domain"] == domain and r["scenario"] == scenario
+                                and r["prompt_type"] == "adversarial"), None)
+            legit_stats = next((r for r in stat_rows
+                                if r["domain"] == domain and r["scenario"] == scenario
+                                and r["prompt_type"] == "legitimate"), None)
+            mw = next((r for r in mw_rows
+                       if r["domain"] == domain and r["scenario"] == scenario), None)
+            if adv_stats is None and legit_stats is None:
+                continue
+            row: dict = {"domain": domain, "scenario": scenario,
+                         "scenario_label": SCEN_LABEL[scenario]}
+            for prefix, stats in (("adv", adv_stats), ("legit", legit_stats)):
+                for col in ("n", "median_ms", "mean_ms", "iqr_ms", "p95_ms", "p99_ms"):
+                    row[f"{prefix}_{col}"] = stats[col] if stats else None
+            if mw:
+                row["delta_median_adv_minus_legit_ms"] = mw["delta_median_adv_minus_legit_ms"]
+                row["U_stat"]          = mw["U_stat"]
+                row["p_value_mw"]      = mw["p_value_mw"]
+                row["significant_005"] = mw["significant_005"]
+            export_rows.append(row)
+
+    if export_rows:
+        out = segmented_dir / "12_latency_adv_vs_legit.csv"
+        pd.DataFrame(export_rows).to_csv(out, index=False)
+        print(f"\n  [saved] {out}")
+
+    print(f"\n{'='*70}")
 
 
 # ─────────────────────────────────────────────
@@ -1690,6 +2455,654 @@ def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
 
 
 # ─────────────────────────────────────────────
+# Segmented figures (new)
+# ─────────────────────────────────────────────
+
+def plot_latency_adv_vs_legit_boxplot(artifacts_dir: Path, domains: list, figures_dir: Path):
+    """Side-by-side boxplots comparing adversarial and legitimate latency per scenario.
+
+    Produces one subplot per domain.  Within each subplot, four boxes are arranged
+    at fixed x-positions grouped by scenario, with a visual gap separating Scenario A
+    from Scenario B:
+
+        [Scen A / Adv.] [Scen A / Legit.]  |  [Scen B / Adv.] [Scen B / Legit.]
+
+    Missing scenario data (e.g. Scenario B not yet collected) causes the
+    corresponding boxes to be omitted silently without breaking the figure.
+
+    Parameters
+    ----------
+    artifacts_dir : Path
+        Root artifacts directory containing ``consolidated_<domain>_<scenario>.csv``
+        files.
+    domains : list
+        Ordered list of domain names; one subplot is created per domain.
+    figures_dir : Path
+        Directory where the output PNG is saved.
+
+    Notes
+    -----
+    **Log scale on the y-axis:**
+        LLM inference latency spans two to three orders of magnitude (tens of ms
+        for cached token generation up to several seconds for long contexts).  A
+        linear scale compresses the bulk of the distribution into a narrow band
+        at the bottom and makes the median almost invisible.  A log scale gives
+        equal visual weight to each order of magnitude and preserves the shape of
+        the IQR and whiskers for both fast and slow requests.
+
+    Outputs
+    -------
+    - artifacts/figures/latency_adv_vs_legit_boxplot.png : boxplot figure, dpi=150.
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+    setup_style()
+
+    SCENARIOS  = ["unprotected", "protected"]
+    SCEN_LABEL = {"unprotected": "A", "protected": "B"}
+    PT_COLORS  = {"adversarial": "#C44E52", "legitimate": "#4C72B0"}
+    # Fixed positions: gap between the two scenario groups
+    ALL_POS    = [1.0, 2.0, 3.5, 4.5]
+    ALL_LABS   = ["Scen A\nAdv.", "Scen A\nLegit.", "Scen B\nAdv.", "Scen B\nLegit."]
+
+    n = len(domains)
+    if n == 0:
+        print("  [skip] latency_adv_vs_legit_boxplot: no domains.")
+        return
+
+    fig, axes = plt.subplots(1, n, figsize=(7 * n, 6))
+    if n == 1:
+        axes = [axes]
+
+    for ax, domain in zip(axes, domains):
+        box_data, used_pos, used_labs, colors = [], [], [], []
+        for idx, (scenario, pt) in enumerate(
+            [(s, p) for s in SCENARIOS for p in ("adversarial", "legitimate")]
+        ):
+            path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
+            if path.exists():
+                df  = pd.read_csv(path)
+                if "latency_ms" in df.columns and "prompt_type" in df.columns:
+                    lat = (pd.to_numeric(df[df["prompt_type"] == pt]["latency_ms"],
+                                         errors="coerce").dropna())
+                    if not lat.empty:
+                        box_data.append(lat.values)
+                        used_pos.append(ALL_POS[idx])
+                        used_labs.append(ALL_LABS[idx])
+                        colors.append(PT_COLORS[pt])
+
+        if not box_data:
+            ax.set_title(f"{domain.replace('_', ' ').title()}\n[no data]")
+            continue
+
+        bp = ax.boxplot(
+            box_data, positions=used_pos, patch_artist=True, widths=0.55,
+            medianprops={"color": "black", "linewidth": 2},
+            flierprops={"marker": ".", "markersize": 2, "alpha": 0.25},
+            whiskerprops={"linewidth": 1.2}, capprops={"linewidth": 1.2},
+        )
+        for patch, color in zip(bp["boxes"], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.65)
+
+        ax.set_yscale("log")
+        ax.set_xticks(used_pos)
+        ax.set_xticklabels(used_labs, fontsize=8.5)
+        ax.set_ylabel("Latency (ms, log scale)")
+        ax.set_title(domain.replace("_", " ").title(), fontsize=11)
+
+        # Scenario separator (only when both scenario groups are present)
+        if any(p >= 3.0 for p in used_pos) and any(p < 3.0 for p in used_pos):
+            ax.axvline(2.75, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
+
+        patches = [
+            mpatches.Patch(facecolor=PT_COLORS["adversarial"], alpha=0.7, label="Adversarial"),
+            mpatches.Patch(facecolor=PT_COLORS["legitimate"],  alpha=0.7, label="Legitimate"),
+        ]
+        ax.legend(handles=patches, fontsize=8, loc="upper right")
+
+    fig.suptitle(
+        "Latency Distribution: Adversarial vs Legitimate Prompts (log scale)",
+        fontweight="bold", fontsize=11,
+    )
+    fig.tight_layout()
+    _save(fig, figures_dir, "latency_adv_vs_legit_boxplot.png")
+    plt.close(fig)
+
+
+def plot_latency_adv_vs_legit_kde(artifacts_dir: Path, domains: list, figures_dir: Path):
+    """Overlaid KDE curves comparing adversarial and legitimate latency distributions.
+
+    Produces a grid of subplots (rows = domains, columns = scenarios).  Within each
+    cell, two KDE curves are overlaid — one per prompt type — together with dashed
+    vertical lines at each distribution's median.  Subplots for which no data is
+    available are hidden automatically.
+
+    Parameters
+    ----------
+    artifacts_dir : Path
+        Root artifacts directory containing ``consolidated_<domain>_<scenario>.csv``
+        files.
+    domains : list
+        Ordered list of domain names; one row of subplots is created per domain.
+    figures_dir : Path
+        Directory where the output PNG is saved.
+
+    Notes
+    -----
+    **KDE vs histogram:**
+        Kernel Density Estimation produces a smooth, continuous density estimate
+        that is easier to compare across groups than histogram bin counts, which
+        are sensitive to bin width and alignment.  Pandas ``Series.plot.kde()``
+        uses a Gaussian kernel with Scott's rule for bandwidth selection, which
+        is appropriate for unimodal distributions.  The x-axis is clipped to zero
+        (no negative latency); the right tail is left unconstrained to show
+        heavy-tail behaviour.
+
+    **Median lines:**
+        Because the KDE may show a mode that differs from the median (right-skewed
+        data), explicit median lines are drawn to anchor the visual comparison at
+        the statistically preferred central-tendency measure.
+
+    Outputs
+    -------
+    - artifacts/figures/latency_adv_vs_legit_kde.png : KDE grid figure, dpi=150.
+    """
+    import matplotlib.pyplot as plt
+    setup_style()
+
+    SCENARIOS  = ["unprotected", "protected"]
+    SCEN_LABEL = {"unprotected": "A", "protected": "B"}
+    PT_COLORS  = {"adversarial": "#C44E52", "legitimate": "#4C72B0"}
+
+    n_dom  = len(domains)
+    n_scen = len(SCENARIOS)
+    fig, axes = plt.subplots(n_dom, n_scen, figsize=(7 * n_scen, 5 * n_dom), squeeze=False)
+
+    any_data = False
+    for i, domain in enumerate(domains):
+        for j, scenario in enumerate(SCENARIOS):
+            ax   = axes[i][j]
+            path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
+            if not path.exists():
+                ax.set_visible(False)
+                continue
+            df = pd.read_csv(path)
+            if "latency_ms" not in df.columns or "prompt_type" not in df.columns:
+                ax.set_visible(False)
+                continue
+            df["latency_ms"] = pd.to_numeric(df["latency_ms"], errors="coerce")
+            plotted = False
+            for pt in ("adversarial", "legitimate"):
+                lat = df[df["prompt_type"] == pt]["latency_ms"].dropna()
+                if lat.empty:
+                    continue
+                lat.plot.kde(ax=ax, color=PT_COLORS[pt], linewidth=2,
+                             label=pt.capitalize())
+                ax.axvline(lat.median(), color=PT_COLORS[pt], linewidth=1.2,
+                           linestyle="--", alpha=0.7,
+                           label=f"{pt[:3]}. median = {lat.median():.0f} ms")
+                plotted   = True
+                any_data  = True
+            if plotted:
+                ax.set_xlim(left=0)
+                ax.set_xlabel("Latency (ms)")
+                ax.set_ylabel("Density")
+                ax.set_title(
+                    f"{domain.replace('_', ' ').title()} — Scenario {SCEN_LABEL[scenario]}"
+                )
+                ax.legend(fontsize=8)
+            else:
+                ax.set_visible(False)
+
+    if not any_data:
+        print("  [skip] latency_adv_vs_legit_kde: no data.")
+        plt.close(fig)
+        return
+
+    fig.suptitle("Latency KDE: Adversarial vs Legitimate Prompts",
+                 fontweight="bold", fontsize=12)
+    fig.tight_layout()
+    _save(fig, figures_dir, "latency_adv_vs_legit_kde.png")
+    plt.close(fig)
+
+
+def plot_fpr_by_domain_scenario(artifacts_dir: Path, domains: list, figures_dir: Path):
+    """Grouped bar chart of False Positive Rate (FPR) per domain and scenario.
+
+    FPR is defined as the proportion of legitimate prompts incorrectly blocked by
+    the security layer:
+
+        FPR = legitimate_blocked / total_legitimate
+
+    Scenario A (unprotected) has no active blocking mechanism, so its FPR is
+    structurally zero by design; the bar is included to make the contrast with
+    Scenario B explicit.  Each bar is annotated with its exact four-decimal FPR
+    value to facilitate direct comparison across domains.
+
+    Parameters
+    ----------
+    artifacts_dir : Path
+        Root artifacts directory containing ``consolidated_<domain>_<scenario>.csv``
+        files.  Only rows with ``prompt_type == "legitimate"`` are used.
+    domains : list
+        Ordered list of domain names; one group of bars per domain.
+    figures_dir : Path
+        Directory where the output PNG is saved.
+
+    Notes
+    -----
+    FPR measures the cost of the security layer for legitimate users.  A high FPR
+    means the guard incorrectly rejects valid queries, degrading the system's
+    utility.  There is an inherent precision–recall trade-off: tightening scanner
+    thresholds to reduce TFA false negatives typically increases FPR.
+
+    Outputs
+    -------
+    - artifacts/figures/fpr_by_domain_scenario.png : grouped bar chart, dpi=150.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    setup_style()
+
+    SCENARIOS   = ["unprotected", "protected"]
+    SCEN_LABELS = {"unprotected": "A (unprotected)", "protected": "B (LLM Guard)"}
+    SCEN_COLORS = {"unprotected": "#4C72B0", "protected": "#DD8452"}
+
+    fpr_data: dict[str, dict[str, float | None]] = {}
+    for domain in domains:
+        fpr_data[domain] = {}
+        for scenario in SCENARIOS:
+            path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
+            if not path.exists():
+                fpr_data[domain][scenario] = None
+                continue
+            df    = pd.read_csv(path)
+            legit = (df[df["prompt_type"] == "legitimate"].copy()
+                     if "prompt_type" in df.columns else pd.DataFrame())
+            if legit.empty or "was_blocked" not in legit.columns:
+                fpr_data[domain][scenario] = None
+                continue
+            n  = len(legit)
+            nb = int(pd.to_numeric(legit["was_blocked"], errors="coerce").fillna(0).sum())
+            fpr_data[domain][scenario] = nb / n if n > 0 else 0.0
+
+    x     = np.arange(len(domains))
+    width = 0.35
+    fig, ax = plt.subplots(figsize=(max(6, 3 * len(domains)), 5))
+
+    for i, scenario in enumerate(SCENARIOS):
+        vals = [fpr_data[d].get(scenario) or 0.0 for d in domains]
+        orig = [fpr_data[d].get(scenario)         for d in domains]
+        offset = (i - 0.5) * width
+        bars = ax.bar(x + offset, vals, width,
+                      label=SCEN_LABELS[scenario],
+                      color=SCEN_COLORS[scenario], alpha=0.85, edgecolor="white")
+        for bar, val, o in zip(bars, vals, orig):
+            label = f"{val:.4f}" if o is not None else "N/A"
+            ax.text(bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.001,
+                    label, ha="center", va="bottom", fontsize=9, fontweight="bold")
+
+    all_vals = [fpr_data[d].get(s) or 0.0 for d in domains for s in SCENARIOS]
+    ax.set_ylim(0, max(all_vals) * 1.35 + 0.01)
+    ax.set_xticks(x)
+    ax.set_xticklabels([d.replace("_", " ").title() for d in domains], fontsize=10)
+    ax.set_ylabel("False Positive Rate (FPR)")
+    ax.set_title("FPR per Domain and Scenario\n"
+                 "(Legitimate prompts incorrectly blocked by LLM Guard)")
+    ax.axhline(0, color="black", linewidth=0.5)
+    ax.legend(fontsize=9)
+
+    fig.tight_layout()
+    _save(fig, figures_dir, "fpr_by_domain_scenario.png")
+    plt.close(fig)
+
+
+def plot_tfa_heatmap_ab_comparison(tfa_by_domain: dict, figures_dir: Path):
+    """Two-panel heatmap of TFA per probe (rows) × domain (columns), split by scenario.
+
+    The left panel shows Scenario A (unprotected) and the right panel shows
+    Scenario B (LLM Guard), sharing the same color scale (RdYlGn, 0.0 = red,
+    1.0 = green) to allow direct visual comparison of the guard's contribution.
+    Cells are annotated with the numeric TFA value; cells with no data are shown
+    in gray.  The right panel is omitted when no Scenario B data is available.
+
+    TFA values are sourced from the JSONL-based ``load_tfa_from_jsonl`` function
+    (primary detector filtering applied) rather than from the consolidated CSVs,
+    matching the methodology used in ``print_tfa``.
+
+    Parameters
+    ----------
+    tfa_by_domain : dict
+        Nested mapping ``{domain: {"A": tfa_dict, "B": tfa_dict}}`` as returned
+        by ``load_tfa_from_jsonl``.  ``tfa_dict["per_probe"]`` is used.
+    figures_dir : Path
+        Directory where the output PNG is saved.
+
+    Notes
+    -----
+    **Color thresholds:**
+        Text inside cells is rendered in white when TFA < 0.30 (dark red, low
+        contrast with black) or TFA > 0.72 (dark green, low contrast with black),
+        and in black otherwise.  This preserves legibility across the full
+        RdYlGn colour range without a fixed midpoint.
+
+    Outputs
+    -------
+    - artifacts/figures/tfa_heatmap_ab_comparison.png : two-panel heatmap, dpi=150.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    setup_style()
+
+    domains = list(tfa_by_domain.keys())
+    has_b   = any(tfa_by_domain[d]["B"] for d in domains)
+
+    probe_sets = [set((tfa_by_domain[d]["A"] or {}).get("per_probe", {}).keys())
+                  for d in domains]
+    all_probes = sorted(set.union(*probe_sets) if probe_sets else set())
+    if not all_probes:
+        print("  [skip] tfa_heatmap_ab_comparison: no probe data.")
+        return
+
+    probe_labels  = [PROBE_SHORT.get(p, p) for p in all_probes]
+    domain_labels = [d.replace("_", " ").title() for d in domains]
+    n_panels      = 2 if has_b else 1
+
+    fig_w = 2.5 + len(domains) * 1.8
+    fig, axes = plt.subplots(
+        1, n_panels,
+        figsize=(fig_w * n_panels, 2.5 + len(all_probes) * 0.55),
+        sharey=True,
+    )
+    if n_panels == 1:
+        axes = [axes]
+
+    def _build(scenario_key: str) -> np.ndarray:
+        mat = np.full((len(all_probes), len(domains)), np.nan)
+        for j, domain in enumerate(domains):
+            tfa_d = tfa_by_domain[domain].get(scenario_key) or {}
+            for i, probe in enumerate(all_probes):
+                v = (tfa_d.get("per_probe") or {}).get(probe, {}).get("TFA")
+                if v is not None:
+                    mat[i, j] = v
+        return mat
+
+    def _draw(ax, mat: np.ndarray, title: str):
+        cmap = plt.cm.RdYlGn.copy()
+        cmap.set_bad("#dddddd")
+        im = ax.imshow(np.ma.masked_invalid(mat), cmap=cmap,
+                       vmin=0, vmax=1, aspect="auto")
+        ax.set_xticks(range(len(domains)))
+        ax.set_xticklabels(domain_labels, fontsize=9, rotation=20, ha="right")
+        ax.set_yticks(range(len(all_probes)))
+        ax.set_yticklabels(probe_labels, fontsize=8.5)
+        ax.set_xlabel("Domain")
+        ax.set_title(title, fontsize=11, fontweight="bold")
+        for i in range(len(all_probes)):
+            for j in range(len(domains)):
+                val = mat[i, j]
+                if not np.isnan(val):
+                    tc = "white" if (val < 0.3 or val > 0.72) else "black"
+                    ax.text(j, i, f"{val:.2f}", ha="center", va="center",
+                            fontsize=8, color=tc)
+                else:
+                    ax.text(j, i, "N/A", ha="center", va="center",
+                            fontsize=7, color="#aaaaaa")
+        return im
+
+    im = _draw(axes[0], _build("A"), "Scenario A (unprotected)")
+    if has_b:
+        _draw(axes[1], _build("B"), "Scenario B (LLM Guard)")
+
+    fig.colorbar(im, ax=axes[-1], label="TFA (Attack Filtering Rate)", shrink=0.7)
+    fig.suptitle("TFA Heatmap: Probe × Domain — Scenario A vs B",
+                 fontweight="bold", fontsize=12)
+    fig.tight_layout()
+    _save(fig, figures_dir, "tfa_heatmap_ab_comparison.png")
+    plt.close(fig)
+
+
+def plot_delta_tfa_by_domain(tfa_by_domain: dict, figures_dir: Path):
+    """Grouped bar chart of ΔTFA per probe, coloured by domain.
+
+    ΔTFA = TFA_B − TFA_A measures the net change in attack filtering rate
+    attributable to LLM Guard.  A positive ΔTFA indicates that the shield improved
+    resistance for that probe; a negative value indicates that the shield degraded
+    resistance (e.g. due to scanner-induced response truncation or bypass).  Each
+    probe gets one bar group, with one bar per domain offset side by side.
+
+    This function produces the same chart as the existing ``plot_delta_tfa`` but
+    saves to ``delta_tfa_by_probe_by_domain.png`` as required by the segmented
+    analysis output specification.  The function is skipped silently when no
+    Scenario B data is available.
+
+    Parameters
+    ----------
+    tfa_by_domain : dict
+        Nested mapping ``{domain: {"A": tfa_dict, "B": tfa_dict}}`` as returned
+        by ``load_tfa_from_jsonl``.
+    figures_dir : Path
+        Directory where the output PNG is saved.
+
+    Notes
+    -----
+    Probes for which either TFA_A or TFA_B is ``None`` (e.g. detector absent in
+    one run) contribute a ΔTFA of 0 rather than being omitted, to preserve the
+    full x-axis layout and avoid misleading gaps.
+
+    Outputs
+    -------
+    - artifacts/figures/delta_tfa_by_probe_by_domain.png : grouped bar chart, dpi=150.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    has_b = any(tfa_by_domain[d]["B"] for d in tfa_by_domain)
+    if not has_b:
+        print("  [skip] delta_tfa_by_domain: Scenario B data required.")
+        return
+    setup_style()
+
+    probes = sorted(next(iter(tfa_by_domain.values()))["A"]["per_probe"].keys())
+    labels = [PROBE_SHORT.get(p, p) for p in probes]
+    fig, ax = plt.subplots(figsize=(13, 5))
+    x     = np.arange(len(probes))
+    width = 0.35
+    domain_colors = ["#4C72B0", "#DD8452"]
+
+    for i, (domain, color) in enumerate(zip(tfa_by_domain.keys(), domain_colors)):
+        tfa_a = tfa_by_domain[domain]["A"]
+        tfa_b = tfa_by_domain[domain]["B"]
+        if not tfa_b:
+            continue
+        deltas = [
+            ((tfa_b["per_probe"].get(p, {}).get("TFA") or 0)
+             - (tfa_a["per_probe"].get(p, {}).get("TFA") or 0))
+            if (tfa_a["per_probe"].get(p, {}).get("TFA") is not None
+                and tfa_b["per_probe"].get(p, {}).get("TFA") is not None)
+            else 0
+            for p in probes
+        ]
+        offset = (i - 0.5) * width
+        ax.bar(x + offset, deltas, width,
+               label=domain.replace("_", " ").title(),
+               color=color, alpha=0.8, edgecolor="white")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=35, ha="right", fontsize=9)
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.set_xlabel("Probe")
+    ax.set_ylabel("ΔTFA (Scenario B − Scenario A)")
+    ax.set_title("ΔTFA per Probe by Domain — LLM Guard Net Contribution")
+    ax.legend(fontsize=9, title="Domain")
+    fig.tight_layout()
+    _save(fig, figures_dir, "delta_tfa_by_probe_by_domain.png")
+    plt.close(fig)
+
+
+def plot_scanner_breakdown_by_probe(artifacts_dir: Path, domains: list, figures_dir: Path):
+    """Stacked bar chart of scanner activations per probe for Scenario B adversarial prompts.
+
+    For each probe (x-axis), bars are stacked by the ``scanner_triggered`` value
+    recorded in the consolidated CSV, showing how many adversarial requests
+    activated each LLM Guard scanner (or none).  One subplot is created per domain.
+    Only Scenario B (``consolidated_<domain>_protected.csv``) is used because
+    Scenario A has no scanner layer.
+
+    Parameters
+    ----------
+    artifacts_dir : Path
+        Root artifacts directory.  Reads
+        ``consolidated_<domain>_protected.csv`` for each domain.
+    domains : list
+        Ordered list of domain names; one subplot per domain.
+    figures_dir : Path
+        Directory where the output PNG is saved.
+
+    Notes
+    -----
+    Rows where ``scanner_triggered`` is NaN (request processed without any
+    scanner firing) are recoded to the label ``"(none)"`` so they appear as an
+    explicit stack segment rather than being silently excluded.  The colour
+    palette uses ``matplotlib.cm.tab10``, which provides up to 10 visually
+    distinct colours for scanner categories.
+
+    Outputs
+    -------
+    - artifacts/figures/scanner_breakdown_by_probe.png : stacked bar chart, dpi=150.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    setup_style()
+
+    n_dom = len(domains)
+    if n_dom == 0:
+        return
+
+    fig, axes = plt.subplots(1, n_dom, figsize=(max(10, 6 * n_dom), 6), squeeze=False)
+    any_data = False
+
+    for ax, domain in zip(axes[0], domains):
+        path = artifacts_dir / f"consolidated_{domain}_protected.csv"
+        if not path.exists():
+            ax.set_title(f"{domain.replace('_', ' ').title()}\n[no Scenario B data]")
+            ax.set_visible(False)
+            continue
+        df = pd.read_csv(path)
+        if "prompt_type" in df.columns:
+            df = df[df["prompt_type"] == "adversarial"].copy()
+        if df.empty or "probe" not in df.columns or "scanner_triggered" not in df.columns:
+            ax.set_title(f"{domain.replace('_', ' ').title()}\n[missing columns]")
+            ax.set_visible(False)
+            continue
+
+        df["scanner_triggered"] = df["scanner_triggered"].fillna("(none)")
+        df["probe_short"] = df["probe"].map(PROBE_SHORT).fillna(df["probe"])
+
+        pivot = (df.groupby(["probe_short", "scanner_triggered"])
+                   .size()
+                   .unstack(fill_value=0))
+
+        probes_ord   = list(pivot.index)
+        scanner_cats = list(pivot.columns)
+        x_pos        = np.arange(len(probes_ord))
+        tab_colors   = plt.cm.tab10.colors
+
+        bottoms = np.zeros(len(probes_ord), dtype=float)
+        for k, scanner in enumerate(scanner_cats):
+            vals = pivot[scanner].values.astype(float)
+            ax.bar(x_pos, vals, bottom=bottoms,
+                   label=str(scanner),
+                   color=tab_colors[k % len(tab_colors)],
+                   alpha=0.85, edgecolor="white")
+            bottoms += vals
+
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(probes_ord, rotation=35, ha="right", fontsize=8.5)
+        ax.set_xlabel("Probe")
+        ax.set_ylabel("Adversarial prompts (count)")
+        ax.set_title(domain.replace("_", " ").title())
+        ax.legend(title="Scanner triggered", fontsize=7.5, loc="upper right")
+        any_data = True
+
+    if not any_data:
+        print("  [skip] scanner_breakdown_by_probe: no Scenario B adversarial data.")
+        plt.close(fig)
+        return
+
+    fig.suptitle(
+        "Scanner Triggered Breakdown per Probe\nScenario B — Adversarial Prompts",
+        fontweight="bold",
+    )
+    fig.tight_layout()
+    _save(fig, figures_dir, "scanner_breakdown_by_probe.png")
+    plt.close(fig)
+
+
+def generate_segmented_plots(
+    artifacts_dir: Path, domains: list, tfa_by_domain: dict, figures_dir: Path
+):
+    """Generate all six supplementary segmented-analysis figures and save them to disk.
+
+    Orchestrates the six plot functions added to complement
+    ``generate_all_plots``.  Each function is called in sequence; individual
+    functions print ``[skip]`` messages when their required data is absent and
+    return without raising an exception, so the overall pipeline is resilient to
+    partially collected data.
+
+    Requires ``matplotlib`` to be installed.  Uses ``matplotlib.use("Agg")`` to
+    suppress any interactive display (safe for headless / Docker environments).
+
+    Parameters
+    ----------
+    artifacts_dir : Path
+        Root artifacts directory containing ``consolidated_*.csv`` files.
+    domains : list
+        Ordered list of domain names to include in domain-level subplots.
+    tfa_by_domain : dict
+        Nested mapping ``{domain: {"A": tfa_dict, "B": tfa_dict}}`` as returned
+        by ``load_tfa_from_jsonl``, used by the TFA heatmap and ΔTFA chart.
+    figures_dir : Path
+        Directory where all output PNGs are saved (created if absent).
+
+    Outputs
+    -------
+    - artifacts/figures/latency_adv_vs_legit_boxplot.png : boxplots per domain ×
+      scenario, comparing adversarial and legitimate latency (log scale).
+    - artifacts/figures/latency_adv_vs_legit_kde.png : KDE curves per domain ×
+      scenario overlay for adversarial vs legitimate latency.
+    - artifacts/figures/fpr_by_domain_scenario.png : FPR grouped bar chart per
+      domain, Scenario A vs B.
+    - artifacts/figures/tfa_heatmap_ab_comparison.png : side-by-side TFA heatmaps
+      (probe × domain) for Scenario A and Scenario B.
+    - artifacts/figures/delta_tfa_by_probe_by_domain.png : ΔTFA grouped bars per
+      probe, coloured by domain.
+    - artifacts/figures/scanner_breakdown_by_probe.png : stacked bars of scanner
+      activations per probe (Scenario B adversarial).
+    """
+    print(f"\n  GENERATING SEGMENTED FIGURES → {figures_dir}")
+    print(f"  {'-'*60}")
+
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+    except ImportError:
+        print("  [ERROR] matplotlib not installed.")
+        return
+
+    plot_latency_adv_vs_legit_boxplot(artifacts_dir, domains, figures_dir)
+    plot_latency_adv_vs_legit_kde(artifacts_dir, domains, figures_dir)
+    plot_fpr_by_domain_scenario(artifacts_dir, domains, figures_dir)
+    plot_tfa_heatmap_ab_comparison(tfa_by_domain, figures_dir)
+    plot_delta_tfa_by_domain(tfa_by_domain, figures_dir)
+    plot_scanner_breakdown_by_probe(artifacts_dir, domains, figures_dir)
+
+    n = len(list(figures_dir.glob("*.png")))
+    print(f"\n  Segmented figures complete. {n} total figures in {figures_dir}.\n")
+
+
+# ─────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────
 
@@ -1748,6 +3161,14 @@ def main():
     lat_b = load_latency(latency_dir, "latency_protected.csv")
     compute_las(lat_a, lat_b)
 
+    # ── Segmented analysis ───────────────────────────────────
+    # TODO: replace pcc_values=None with manually verified PCC values after
+    # control verification. Format: {domain: {"D1": float, "D2": float, ...}}
+    segmented_analysis(artifacts, domains, pcc_values=None)
+
+    # ── Latency: adversarial vs legitimate ───────────────────
+    latency_adv_vs_legit(artifacts, domains)
+
     # ── Deep analysis ────────────────────────────────────────
     if args.deep:
         for domain in domains:
@@ -1765,6 +3186,7 @@ def main():
     # ── Figures ─────────────────────────────────────────────
     if args.plots:
         generate_all_plots(tfa_by_domain, lat_a, lat_b, artifacts, runs_dir, figures_dir)
+        generate_segmented_plots(artifacts, domains, tfa_by_domain, figures_dir)
 
 
 if __name__ == "__main__":
