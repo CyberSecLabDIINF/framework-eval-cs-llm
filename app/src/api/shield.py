@@ -130,9 +130,12 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
         user_prompt: Raw user-supplied prompt string.
 
     Returns:
-        A 3-tuple ``(sanitized_prompt, scanner_name, score)``:
-          - On pass: ``(sanitized_text, None, last_score)``
-          - On block: ``(None, blocking_scanner_name, score)``
+        A 3-tuple ``(sanitized_prompt, scanner_name, pi_score)``:
+          - On pass: ``(sanitized_text, None, pi_score)``
+          - On block: ``(None, blocking_scanner_name, pi_score)``
+        ``pi_score`` is the continuous PromptInjection score, captured
+        regardless of the block decision (TokenLimit is binary and reports a
+        sentinel score of -1.0, so it is ignored for this purpose).
     """
     p = user_prompt.strip()
     if not ENABLE_LLM_GUARD:
@@ -162,11 +165,14 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
         )
 
     last_score = None
+    pi_score = None
 
     for scanner in scanners:
         sanitized, is_valid_dict, scores = scan_prompt([scanner], p)
         if isinstance(scores, dict):
             last_score = next(iter(scores.values()), None)
+        if isinstance(scanner, PromptInjection):
+            pi_score = last_score
         _llm_guard_logger.debug(
             "INPUT SCAN | scanner=%s | score=%s | blocked=%s",
             scanner.__class__.__name__, last_score, not all(is_valid_dict.values()),
@@ -176,9 +182,9 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
                 "INPUT BLOCKED | scanner=%s | score=%s | prompt_preview=%.120s",
                 scanner.__class__.__name__, last_score, p,
             )
-            return None, scanner.__class__.__name__, last_score
+            return None, scanner.__class__.__name__, pi_score
         p = sanitized
-    return p, None, last_score
+    return p, None, pi_score
 
 
 def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[float]]:
@@ -193,8 +199,11 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
     OutputRegex acts as a deterministic safety net for structured PII that may
     fall below the Sensitive threshold.
  
-    Returns (sanitized_output, None, score) if allowed.
-    Returns (blocked_message, scanner_name, score) if blocked.
+    Returns (sanitized_output, None, sens_score) if allowed.
+    Returns (blocked_message, scanner_name, sens_score) if blocked.
+
+    ``sens_score`` is the continuous Sensitive score, captured regardless of
+    the block decision (whether Sensitive or OutputRegex triggered the block).
     """
     if not ENABLE_LLM_GUARD:
         return text, None, None
@@ -228,12 +237,15 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
  
     p_out      = text
     last_score = None
- 
+    sens_score = None
+
     for scanner in scanners:
         try:
             sanitized, is_valid_dict, scores = scan_output([scanner], prompt, p_out)
             if isinstance(scores, dict):
                 last_score = next(iter(scores.values()), None)
+            if isinstance(scanner, Sensitive):
+                sens_score = last_score
             if scanner.__class__.__name__ == "Sensitive":
                 _llm_guard_logger.debug(
                     "OUTPUT SCAN | scanner=%s | score=%s | blocked=%s",
@@ -247,7 +259,7 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
                 return (
                     f"Output blocked by {scanner.__class__.__name__}.",
                     scanner.__class__.__name__,
-                    last_score,
+                    sens_score,
                 )
             p_out = sanitized
         except Exception as exc:
@@ -256,8 +268,8 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
                 scanner.__class__.__name__, exc,
             )
             continue
- 
-    return p_out, None, last_score
+
+    return p_out, None, sens_score
 
 
 def _extract_forward_headers(req: Request) -> Dict[str, str]:
