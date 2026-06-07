@@ -391,6 +391,7 @@ def _blocked_response(
     message: str,
     block_reason: str,
     log: bool = True,
+    grounding_ratio: float | None = None,
 ) -> dict:
     """Build a blocked-response dict and optionally log it to the consolidated CSV.
 
@@ -404,6 +405,7 @@ def _blocked_response(
         block_reason: Short code identifying the control that triggered the block.
         log: When False, skips writing to the consolidated CSV (used to avoid
             double-logging requests forwarded through Shield).
+        grounding_ratio: C17 grounding ratio of the response, if computed.
 
     Returns:
         A ``{"response": message}`` dict ready to be returned by the endpoint.
@@ -422,6 +424,7 @@ def _blocked_response(
             garak_tag=garak_tag,
             prompt_type=prompt_type,
             block_reason=block_reason,
+            grounding_ratio=grounding_ratio,
         )
     return {"response": message}
 
@@ -508,7 +511,10 @@ Question:
                 request, query, start, garak_tag, prompt_type,
                 message="Response could not be grounded in the retrieved context.",
                 block_reason="response_not_grounded",
+                grounding_ratio=grounding_ratio,
             )
+    else:
+        grounding_ratio = None
 
     latency_ms = (time.perf_counter() - start) * 1000.0
 
@@ -525,6 +531,7 @@ Question:
             was_blocked=False,
             garak_tag=garak_tag,
             prompt_type=prompt_type,
+            grounding_ratio=grounding_ratio,
         )
 
     return {"response": out}

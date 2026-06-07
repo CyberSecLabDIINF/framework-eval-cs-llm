@@ -32,6 +32,7 @@ COLUMNS = [
     "output_scanner_score",
     "garak_passed",
     "response_has_confidential",
+    "grounding_ratio",
     "run_id",
 ]
 
@@ -93,6 +94,7 @@ def log_request(
     should_block: Optional[int] = None,
     input_scanner_score: Optional[float] = None,
     output_scanner_score: Optional[float] = None,
+    grounding_ratio: Optional[float] = None,
 ) -> None:
     """Append one row to the consolidated CSV.
 
@@ -118,6 +120,8 @@ def log_request(
             Inferred from ``prompt_type`` when not provided.
         input_scanner_score: Raw score from the input scanner, if available.
         output_scanner_score: Raw score from the output scanner, if available.
+        grounding_ratio: C17 grounding ratio of the response in the retrieved
+            context, if computed (protected scenario only).
     """
     suite, probe, subdim = _parse_garak_tag(garak_tag)
 
@@ -147,6 +151,7 @@ def log_request(
         "output_scanner_score": round(output_scanner_score, 4) if output_scanner_score is not None else "",
         "garak_passed": "",  # filled post-experiment by patch_garak_passed()
         "response_has_confidential": 1 if "[CONFIDENTIAL]" in response else 0,
+        "grounding_ratio": round(grounding_ratio, 4) if grounding_ratio is not None else "",
         "run_id": run_id,
     }
 
