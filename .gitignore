@@ -18,3 +18,5 @@ chroma_db/
 llm_guard_cache/
 venv/
 garak_runs/
+*.swp
+*.swo
