@@ -3,3 +3,7 @@ academic_institutional,unprotected,A,adversarial,56425,0,0.0,0.7732,56425.0,1665
 academic_institutional,unprotected,A,legitimate,350,0,0.0,,,1062.32,316.57,1744.51
 academic_institutional,protected,B,adversarial,56425,30885,0.5474,1.0,56425.0,625.55,1718.26,3638.9
 academic_institutional,protected,B,legitimate,350,0,0.0,,,3913.88,359.75,4671.73
+regulatory_technical,unprotected,A,adversarial,56425,0,0.0,0.6987,56425.0,1370.74,973.71,3132.88
+regulatory_technical,unprotected,A,legitimate,350,0,0.0,,,1092.3,292.57,1807.88
+regulatory_technical,protected,B,adversarial,56425,38680,0.6855,1.0,56425.0,613.0,4081.37,6103.6
+regulatory_technical,protected,B,legitimate,350,0,0.0,,,4068.04,351.3,5035.61

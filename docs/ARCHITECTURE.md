@@ -12,14 +12,18 @@ This document describes each module in `app/src/`, the Docker Compose services, 
 4. [api/shield.py](#4-apishieldpy)
 5. [api/middleware.py](#5-apimiddlewarepy)
 6. [eval/consolidator.py](#6-evalconsolidatorpy)
-7. [eval/process_results.py](#7-evalprocess_resultspy)
-8. [eval/garak_catalog.py](#8-evalgarak_catalogpy)
-9. [eval/legitimate_runner.py](#9-evallegitimate_runnerpy)
-10. [ingestion/generic_dir.py](#10-ingestiongeneric_dirpy)
-11. [ingestion/registry.py](#11-ingestionregistrypy)
-12. [utils/paths.py](#12-utilspathspy)
-13. [utils/logging.py](#13-utilsloggingpy)
-14. [docker-compose.yml](#14-docker-composeyml)
+7. [eval/constants.py](#7-evalconstantspy)
+8. [eval/loaders.py](#8-evalloaderspy)
+9. [eval/metrics.py](#9-evalmetricspy)
+10. [eval/plots.py](#10-evalplotspy)
+11. [eval/process_results.py](#11-evalprocess_resultspy)
+12. [eval/garak_catalog.py](#12-evalgarak_catalogpy)
+13. [eval/legitimate_runner.py](#13-evallegitimate_runnerpy)
+14. [ingestion/generic_dir.py](#14-ingestiongeneric_dirpy)
+15. [ingestion/registry.py](#15-ingestionregistrypy)
+16. [utils/paths.py](#16-utilspathspy)
+17. [utils/logging.py](#17-utilsloggingpy)
+18. [docker-compose.yml](#18-docker-composeyml)
 
 ---
 
@@ -205,29 +209,127 @@ response_has_confidential, run_id
 
 ---
 
-## 7. `eval/process_results.py`
+## 7. `eval/constants.py`
 
-**Purpose.** Standalone analysis script (also callable from `cli.py metrics process`) that computes the two primary evaluation metrics — TFA (Total Filtering Accuracy) and LAS (Latency Added by Shield) — plus deep-analysis tables and optional figures. Reads Garak JSONL reports and the consolidated CSV; outputs terminal tables, `metrics.json`, and matplotlib figures.
+**Purpose.** Module of shared constants reused across the evaluation pipeline — probe/suite mappings, display labels, and colour palettes for the experiment's OWASP LLM categories. Has no behaviour of its own; it exists purely so `loaders.py`, `metrics.py`, and `plots.py` share a single source of truth for these mappings.
+
+**Key constants.**
+
+| Name | Description |
+|---|---|
+| `PRIMARY_DETECTOR` | Maps probe → primary Garak detector used for TFA (e.g. `encoding.InjectBase64` → `encoding.DecodeMatch`; discards `DecodeApprox`). |
+| `PROBE_TO_SUITE` | Maps Garak probe name → OWASP LLM suite (`LLM01`, `LLM02`, `LLM07`, `LLM08`). |
+| `SUITE_TO_SUBDIM` | Maps OWASP suite → LLM-Sec subdimension (`LLM01`→`D1`, `LLM02`→`D2`, `LLM07`→`D3`, `LLM08`→`D4`). |
+| `VECTOR_MAP` | Maps OWASP suite → human-readable subdimension label (e.g. `"LLM01": "D1 — Input protection"`). |
+| `PROBE_SHORT` | Maps probe name → short display label for plot legends/axes (e.g. `promptinject.HijackKillHumans` → `HijackKill`). |
+| `SUITE_COLORS` | Hex colour palette keyed by OWASP suite, shared by all suite-coloured figures. |
+| `SCENARIO_COLORS` | Hex colour palette keyed by scenario label (`"A"`, `"B"`). |
+
+**Environment variables read.** None.
+
+**Files read/written.** None.
+
+**Dependencies.** No internal module dependencies.
+
+---
+
+## 8. `eval/loaders.py`
+
+**Purpose.** Data-access layer for evaluation result processing. Reads Garak `*.report.jsonl` files, consolidated CSVs, and latency CSVs, and discovers run directories/domains under `artifacts/`. These functions are the single point of contact with the artifact files; `metrics.py` and `plots.py` consume them rather than reading CSVs/JSONL directly.
 
 **Key functions.**
 
 | Name | Description |
 |---|---|
-| `load_tfa_from_jsonl(garak_dir)` | Parses `*.report.jsonl`, aggregates pass/total per probe and suite, returns `{per_probe, per_suite, global}` with TFA values. |
-| `load_consolidated(artifacts_dir, domain, scenario, run_id)` | Loads consolidated CSV, adversarial rows only, optionally filtered by `run_id`. |
-| `load_latency(latency_dir, filename)` | Loads a latency CSV, retaining only `/generate` endpoint rows. |
-| `find_run_dir(runs_dir, domain, scenario)` | Returns the most recent run directory matching domain and scenario. |
-| `discover_domains(runs_dir)` | Auto-discovers domain names from existing run directories. |
-| `print_tfa(tfa_a, tfa_b, domain)` | Prints a terminal table comparing TFA A vs. B with Fisher exact p-values. |
-| `compute_las(lat_a, lat_b)` | Prints LAS summary: Δmedian latency and Mann-Whitney U test result. |
-| `deep_analysis_tfa/las/confusion/detector` | Detailed per-suite or per-scenario breakdowns. |
-| `plot_tfa_by_probe()` | Grouped bar chart of TFA per probe. |
-| `plot_tfa_by_suite()` | Grouped bar chart of TFA per OWASP suite. |
-| `plot_tfa_domains_combined()` | Heatmap combining both domains. |
-| `plot_delta_tfa()` | ΔTFA bar chart (B − A) with significance markers. |
-| `plot_las_by_suite()` | Box plot of latency distributions per suite. |
+| `load_tfa_from_jsonl(garak_dir)` | Parses `*.report.jsonl`, aggregates pass/total per probe and suite (primary detector only), returns `{per_probe, per_suite, global}` with TFA values. |
+| `load_consolidated(artifacts_dir, domain, scenario, run_id=None)` | Loads the consolidated CSV, adversarial rows only, optionally filtered by `run_id`; coerces numeric columns (`was_blocked`, `should_block`, `response_has_confidential`, `garak_passed`). |
+| `load_latency(latency_dir, filename)` | Loads a latency CSV (no header row), keeping only `/generate` endpoint rows with a valid numeric `latency_ms`. |
+| `find_run_dir(runs_dir, domain, scenario)` | Returns the most recent run directory matching `domain` and `scenario`. |
+| `discover_domains(runs_dir)` | Auto-discovers domain names from existing run directory names. |
+| `_load_jsonl_eval_entries(garak_dir)` | Private. Yields `(probe, detector, passed, total)` for every `entry_type == "eval"` line across `*.report.jsonl` files. |
+| `_extract_suite(val)` | Private. Parses `"LLM01\|probe.name"` into `"LLM01"`; returns `"UNKNOWN"` if unparseable. |
+| `_confusion_counts(adv_df, legit_df)` | Private. Returns TP/FN/FP/TN counts derived from `should_block` vs. `was_blocked` across adversarial and legitimate DataFrames. |
+| `_load_consolidated_legit(artifacts_dir, domain, scenario)` | Private. Loads the consolidated CSV, legitimate rows only; coerces `response_has_confidential` to int. |
 
-**Key constants.** `PROBE_TO_SUITE`, `PROBE_SHORT`, `VECTOR_MAP`, `SUITE_COLORS`, `PRIMARY_DETECTOR`, `SUITE_TO_SUBDIM`.
+**Environment variables read.** None.
+
+**Files read.** `artifacts/runs/<run_dir>/garak/*.report.jsonl`, `artifacts/consolidated_<domain>_<scenario>.csv`, `artifacts/latency/<filename>`.
+
+**Files written.** None.
+
+**Dependencies.** `eval.constants`.
+
+---
+
+## 9. `eval/metrics.py`
+
+**Purpose.** Computes the experiment's evaluation metrics — TFA (Total Filtering Accuracy), LAS (Latency Added by Shield), confusion-matrix breakdowns, segmented analyses, adversarial-vs-legitimate latency comparisons, PII-exposure scans, and scanner-threshold sensitivity sweeps. Prints formatted terminal reports and exports CSVs to `artifacts/segmented/`.
+
+**Key functions.**
+
+| Name | Description |
+|---|---|
+| `print_tfa(tfa_a, tfa_b, domain)` | Prints a terminal table comparing TFA A vs. B (global, per-suite, per-probe) with Fisher exact p-values. |
+| `compute_las(lat_a, lat_b)` | Prints the LAS summary: Δmedian latency and Mann-Whitney U test result. |
+| `deep_analysis_tfa(df_a, df_b, domain)` | Per-suite TFA breakdown from consolidated-CSV `garak_passed`, comparing Scenario A vs. B. |
+| `deep_analysis_by_detector(runs_dir, domains)` | Per-probe × detector pass-rate breakdown from JSONL reports. |
+| `deep_analysis_confusion_a(artifacts_dir, domains)` / `deep_analysis_confusion(artifacts_dir, domains)` | Confusion-matrix tables (TP/FN/FP/TN) for Scenario A only, and A vs. B compared. |
+| `deep_analysis_las(lat_a, lat_b)` | Per-suite latency comparison between scenarios with Mann-Whitney U tests. |
+| `segmented_analysis(artifacts_dir, domains, pcc_values=None)` | Five-block segmented analysis (segment overview, per-probe/suite adversarial TFA, adversarial distributions, legitimate FPR, cross-scenario statistical tests); exports CSVs to `artifacts/segmented/`. |
+| `latency_adv_vs_legit(artifacts_dir, domains)` | Compares adversarial vs. legitimate latency distributions per domain × scenario (counts/proportions, descriptive stats, Mann-Whitney U); exports `artifacts/segmented/12_latency_adv_vs_legit.csv`. |
+| `analyze_pii_exposure(artifacts_dir, domains)` | Scans adversarial `response` text against `PII_PATTERNS` (`[CONFIDENTIAL]` marker, Chilean RUT, email, phone, password, card number); prints per-domain × scenario counts/percentages and returns `{domain: {scenario: {pattern_name: {"count": int, "pct": float}}}}`. |
+| `analyze_sensitivity_thresholds(artifacts_dir, domains, config_dir)` | Reads candidate `PromptInjection` (input) and `Sensitive` (output) thresholds plus the active threshold index from `llm_guard_config.yaml`'s `sensitivity_analysis` block (falling back to defaults `[0.75, 0.92, 0.97]` / `[0.3, 0.5, 0.7]` with a warning if absent); reclassifies adversarial rows as blocked when `input_scanner_score` / `output_scanner_score` ≥ each candidate threshold (ignoring negative sentinel scores), prints a comparison table of reclassified TFA vs. Δ from the active threshold, and returns `{domain: {"input": {threshold: tfa}, "output": {threshold: tfa}}}`. |
+
+**Key constants.** `PII_PATTERNS` (regex map consumed by `analyze_pii_exposure`); also imports `PRIMARY_DETECTOR`, `PROBE_SHORT`, `PROBE_TO_SUITE`, `VECTOR_MAP` from `eval.constants`.
+
+**Environment variables read.** None.
+
+**Files read.** `artifacts/consolidated_<domain>_<scenario>.csv`, `artifacts/runs/<run_dir>/garak/*.report.jsonl`, `app/config/global/llm_guard_config.yaml` (read by `analyze_sensitivity_thresholds`).
+
+**Files written.** CSVs under `artifacts/segmented/` (e.g. `12_latency_adv_vs_legit.csv` and the `segmented_analysis` exports).
+
+**Dependencies.** `pandas`, `scipy`, `pyyaml`, `eval.constants`, `eval.loaders`.
+
+---
+
+## 10. `eval/plots.py`
+
+**Purpose.** Generates all matplotlib figures for the experiment — TFA/LAS comparisons, confusion matrices, latency distributions, scanner/detector breakdowns, and segmented-analysis charts — and saves them as PNGs under `artifacts/figures/`. `generate_all_plots()` and `generate_segmented_plots()` are the two entry points invoked by `process_results.main()`.
+
+**Key functions.**
+
+| Name | Description |
+|---|---|
+| `setup_style()` | Applies the shared matplotlib rcParams style used by every figure. |
+| `_save(fig, figures_dir, filename)` | Saves a figure to `figures_dir/filename`, creating the directory if absent, and prints the saved path. |
+| `plot_tfa_by_probe` / `plot_tfa_by_suite` / `plot_tfa_domains_combined` / `plot_tfa_heatmap` / `plot_delta_tfa` / `plot_pvalue_by_suite` | Core TFA comparison figures (grouped bars, heatmaps, ΔTFA, significance markers). |
+| `plot_confidential_exposure` / `plot_confusion_matrix` / `plot_confusion_matrix_scenario_a` / `plot_detector_heatmap` | Confidential-leak rate, confusion-matrix, and detector-breakdown figures. |
+| `plot_las_boxplot` / `plot_latency_histogram` / `plot_las_by_suite` / `plot_latency_distribution_by_suite` | Latency distribution figures (box plots, histograms, per-suite breakdowns). |
+| `plot_latency_adv_vs_legit_boxplot` / `plot_latency_adv_vs_legit_kde` / `plot_fpr_by_domain_scenario` / `plot_tfa_heatmap_ab_comparison` / `plot_delta_tfa_by_domain` / `plot_scanner_breakdown_by_probe` | Segmented-analysis figures added alongside `segmented_analysis()`. |
+| `generate_all_plots(tfa_by_domain, lat_a, lat_b, artifacts_dir, runs_dir, figures_dir)` | Orchestrates the core figure set (TFA, LAS, confusion, detector breakdowns). |
+| `generate_segmented_plots(artifacts_dir, domains, tfa_by_domain, figures_dir)` | Orchestrates the six segmented-analysis figures; each `plot_*` prints `[skip]` and returns cleanly when its required data is absent. |
+
+**Environment variables read.** None.
+
+**Files read.** `artifacts/consolidated_<domain>_<scenario>.csv`, `artifacts/runs/<run_dir>/garak/*.report.jsonl`, latency DataFrames passed in by the caller.
+
+**Files written.** PNG figures under `artifacts/figures/`.
+
+**Dependencies.** `pandas`, `scipy`, `matplotlib`, `eval.constants`, `eval.loaders`, `eval.metrics` (for `print_tfa`).
+
+---
+
+## 11. `eval/process_results.py`
+
+**Purpose.** Thin orchestrator script (also callable from `cli.py metrics process`) that wires together the loading, metrics, and plotting layers to compute TFA and LAS, run the deep/segmented analyses, and optionally generate figures. Contains only `main()` and wildcard imports from the four modules above — all logic lives in `eval.constants`, `eval.loaders`, `eval.metrics`, and `eval.plots`.
+
+**Key functions.**
+
+| Name | Description |
+|---|---|
+| `main()` | Parses CLI args (`--artifacts`, `--domains`, `--plots`, `--deep`), discovers domains, loads TFA per domain via `load_tfa_from_jsonl` + `find_run_dir`, computes LAS via `load_latency` + `compute_las`, runs `segmented_analysis` and `latency_adv_vs_legit`, optionally runs the deep-analysis functions (`--deep`) and figure generation (`--plots`). |
+
+**Imports.** `from eval.constants import *`, `from eval.loaders import *`, `from eval.metrics import *`, `from eval.plots import *`.
 
 **Environment variables read.** None at module level; all paths supplied via CLI args or the `cli.py` caller.
 
@@ -237,13 +339,13 @@ response_has_confidential, run_id
 - `artifacts/latency/latency_unprotected_direct.csv`
 - `artifacts/latency/latency_protected.csv`
 
-**Files written.** `artifacts/runs/<run_dir>/metrics.json`, optional PNG figures to `artifacts/runs/<run_dir>/`.
+**Files written.** Delegates all writes to the imported modules — `metrics.json` is not written by this script directly; CSVs land under `artifacts/segmented/` (via `eval.metrics`) and PNGs under `artifacts/figures/` (via `eval.plots`).
 
-**Dependencies.** `pandas`, `scipy`, `matplotlib`. No internal module imports.
+**Dependencies.** `eval.constants`, `eval.loaders`, `eval.metrics`, `eval.plots`.
 
 ---
 
-## 8. `eval/garak_catalog.py`
+## 12. `eval/garak_catalog.py`
 
 **Purpose.** Loads and queries the OWASP probe catalog from `owasp_suites.json`. Used by `cli.py` to resolve suite/probe names before invoking Garak.
 
@@ -263,7 +365,7 @@ response_has_confidential, run_id
 
 ---
 
-## 9. `eval/legitimate_runner.py`
+## 13. `eval/legitimate_runner.py`
 
 **Purpose.** Sends legitimate prompts from `legitimate_prompts.json` to the active target endpoint and collects responses for FP/TN ground-truth data. Called by `cli.py attack legitimate`. Checks endpoint health before starting and logs every response via `consolidator.log_request()`.
 
@@ -283,7 +385,7 @@ response_has_confidential, run_id
 
 ---
 
-## 10. `ingestion/generic_dir.py`
+## 14. `ingestion/generic_dir.py`
 
 **Purpose.** PDF ingestion pipeline. Discovers PDFs in a directory, splits them with LangChain's `RecursiveCharacterTextSplitter`, computes content-addressed stable IDs, and upserts all chunks into a ChromaDB collection. Supports idempotent re-ingestion (stable IDs survive) and optional collection reset. Also classifies each chunk's sensitivity (`high` / `medium` / `low`) based on `[CONFIDENTIAL]` markers and Chilean RUT patterns.
 
@@ -308,7 +410,7 @@ response_has_confidential, run_id
 
 ---
 
-## 11. `ingestion/registry.py`
+## 15. `ingestion/registry.py`
 
 **Purpose.** Dispatch layer mapping logical domain names (e.g. `regulatory_technical`) to their data paths and ingestion parameters. Calls `generic_dir.ingest_dir_pdfs()` with the correct arguments for each registered domain.
 
@@ -326,7 +428,7 @@ response_has_confidential, run_id
 
 ---
 
-## 12. `utils/paths.py`
+## 16. `utils/paths.py`
 
 **Purpose.** Defines the `RunPaths` frozen dataclass and helper functions for creating and reconstructing run directory layouts. Also captures run reproducibility metadata (`run_meta.json`) and copies the active config files into each run's `config_used/` directory.
 
@@ -348,7 +450,7 @@ response_has_confidential, run_id
 
 ---
 
-## 13. `utils/logging.py`
+## 17. `utils/logging.py`
 
 **Purpose.** Configures a shared structlog/stdlib logger used across CLI commands and API servers. Clears existing handlers on repeated calls (idempotent).
 
@@ -366,7 +468,7 @@ response_has_confidential, run_id
 
 ---
 
-## 14. `docker-compose.yml`
+## 18. `docker-compose.yml`
 
 **Purpose.** Defines all services, networks, volumes, and profiles for the containerised experiment environment.
 
