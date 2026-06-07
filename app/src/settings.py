@@ -78,7 +78,7 @@ class Settings(BaseSettings):
 
     # --- Artifact subdirectories ---
     runs_dir: Path = Field(default=None, description="Root directory for all run outputs")
-    latency_dir: Path = Field(default=None, description="CSV latency logs directory")
+    latency_dir: Optional[Path] = Field(default=None, description="CSV latency logs directory")
 
     # --- Garak REST security header ---
     rest_api_key_env: str = Field(
