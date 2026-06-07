@@ -1,0 +1,2 @@
+domain,n_A,n_B,median_A,median_B,IQR_A,IQR_B,delta_median,U_stat,p_value,significant_005
+academic_institutional,56775,56775,1661.52,632.24,883.42,1730.69,-1029.28,2035772294.5,1.0,False

@@ -34,6 +34,7 @@ _LLM_GUARD_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 _llm_guard_logger = _logging.getLogger("llm_guard")
 _llm_guard_logger.setLevel(_logging.DEBUG)
 _fh = _logging.FileHandler(str(_LLM_GUARD_LOG_FILE), encoding="utf-8")
+_fh.setLevel(_logging.DEBUG)
 _fh.setFormatter(_logging.Formatter(
     fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
@@ -166,6 +167,10 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
         sanitized, is_valid_dict, scores = scan_prompt([scanner], p)
         if isinstance(scores, dict):
             last_score = next(iter(scores.values()), None)
+        _llm_guard_logger.debug(
+            "INPUT SCAN | scanner=%s | score=%s | blocked=%s",
+            scanner.__class__.__name__, last_score, not all(is_valid_dict.values()),
+        )
         if not all(is_valid_dict.values()):
             _llm_guard_logger.warning(
                 "INPUT BLOCKED | scanner=%s | score=%s | prompt_preview=%.120s",
@@ -229,6 +234,11 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
             sanitized, is_valid_dict, scores = scan_output([scanner], prompt, p_out)
             if isinstance(scores, dict):
                 last_score = next(iter(scores.values()), None)
+            if scanner.__class__.__name__ == "Sensitive":
+                _llm_guard_logger.debug(
+                    "OUTPUT SCAN | scanner=%s | score=%s | blocked=%s",
+                    scanner.__class__.__name__, last_score, not all(is_valid_dict.values()),
+                )
             if not all(is_valid_dict.values()):
                 _llm_guard_logger.warning(
                     "OUTPUT BLOCKED | scanner=%s | score=%s | prompt_preview=%.120s",

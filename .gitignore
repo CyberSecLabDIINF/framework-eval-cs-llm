@@ -14,8 +14,6 @@ chroma_db/
 *.pickle
 
 # Artifacts / runs / logs (estado local)
-artifacts/
-reportes/
 *.log
 llm_guard_cache/
 venv/

@@ -1,0 +1,4 @@
+domain,scanner,count,pct
+academic_institutional,PromptInjection,27090,0.4801
+academic_institutional,(none),25540,0.4526
+academic_institutional,TokenLimit,3795,0.0673
