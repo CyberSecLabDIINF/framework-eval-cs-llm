@@ -1150,8 +1150,17 @@ def plot_latency_adv_vs_legit_kde(artifacts_dir: Path, domains: list, figures_di
         are sensitive to bin width and alignment.  Pandas ``Series.plot.kde()``
         uses a Gaussian kernel with Scott's rule for bandwidth selection, which
         is appropriate for unimodal distributions.  The x-axis is clipped to zero
-        (no negative latency); the right tail is left unconstrained to show
-        heavy-tail behaviour.
+        on the left (no negative latency).
+
+    **Per-subplot 99th-percentile x-axis clip:**
+        Latency outliers (e.g. cold-start or retry spikes) can extend the x-axis
+        by orders of magnitude and compress the bulk of the distribution into an
+        unreadable sliver. Each subplot independently clips its right x-limit at
+        ``np.percentile(latencies, 99)``, computed over all rows (adversarial +
+        legitimate combined) for that domain × scenario combination. The KDE
+        itself is still fit on the full (unclipped) data — only the displayed
+        x-range is limited. A footnote on each subplot reports how many rows
+        fall beyond the clip.
 
     **Median lines:**
         Because the KDE may show a mode that differs from the median (right-skewed
@@ -1163,6 +1172,7 @@ def plot_latency_adv_vs_legit_kde(artifacts_dir: Path, domains: list, figures_di
     - artifacts/figures/latency_adv_vs_legit_kde.png : KDE grid figure, dpi=150.
     """
     import matplotlib.pyplot as plt
+    import numpy as np
     setup_style()
 
     SCENARIOS  = ["unprotected", "protected"]
@@ -1186,6 +1196,15 @@ def plot_latency_adv_vs_legit_kde(artifacts_dir: Path, domains: list, figures_di
                 ax.set_visible(False)
                 continue
             df["latency_ms"] = pd.to_numeric(df["latency_ms"], errors="coerce")
+
+            all_lat = df["latency_ms"].dropna()
+            if all_lat.empty:
+                ax.set_visible(False)
+                continue
+
+            xmax       = np.percentile(all_lat.values, 99)
+            n_outliers = int((all_lat > xmax).sum())
+
             plotted = False
             for pt in ("adversarial", "legitimate"):
                 lat = df[df["prompt_type"] == pt]["latency_ms"].dropna()
@@ -1199,13 +1218,17 @@ def plot_latency_adv_vs_legit_kde(artifacts_dir: Path, domains: list, figures_di
                 plotted   = True
                 any_data  = True
             if plotted:
-                ax.set_xlim(left=0)
+                ax.set_xlim(left=0, right=xmax)
                 ax.set_xlabel("Latency (ms)")
                 ax.set_ylabel("Density")
                 ax.set_title(
                     f"{domain.replace('_', ' ').title()} — Scenario {SCEN_LABEL[scenario]}"
                 )
                 ax.legend(fontsize=8)
+                ax.text(0.5, -0.22,
+                        f"x-axis clipped at 99th percentile; {n_outliers} outliers excluded",
+                        transform=ax.transAxes, ha="center", va="top",
+                        fontsize=7.5, style="italic", color="#555555")
             else:
                 ax.set_visible(False)
 

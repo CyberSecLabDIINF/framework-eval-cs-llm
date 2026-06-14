@@ -434,7 +434,12 @@ def _blocked_response(
             block_reason=block_reason,
             grounding_ratio=grounding_ratio,
         )
-    return {"response": message}
+    return {
+        "response": message,
+        "blocked_by_rag": True,
+        "block_reason": block_reason,
+        "grounding_ratio": grounding_ratio,
+    }
 
 
 @app.post("/generate")
@@ -467,6 +472,7 @@ async def generate(query: Query, request: Request):
                 request, query, start, garak_tag, prompt_type,
                 message="System prompt integrity check failed.",
                 block_reason="system_prompt_integrity_failed",
+                log=not forwarded_by_shield,
             )
         if not is_on_domain(query.prompt):
             return _blocked_response(
@@ -500,6 +506,7 @@ async def generate(query: Query, request: Request):
                 request, query, start, garak_tag, prompt_type,
                 message="Corpus integrity check failed.",
                 block_reason="corpus_integrity_failed",
+                log=not forwarded_by_shield,
             )
 
     prompt = f"""{SYSTEM_ROLE}
@@ -515,17 +522,15 @@ Question:
     response = client.generate(model=MODEL_NAME, prompt=prompt)
     out = response.get("response", "")
 
-    if IS_PROTECTED:
-        grounded, grounding_ratio = is_grounded_response(out, context)
-        if not grounded:
-            return _blocked_response(
-                request, query, start, garak_tag, prompt_type,
-                message="Response could not be grounded in the retrieved context.",
-                block_reason="response_not_grounded",
-                grounding_ratio=grounding_ratio,
-            )
-    else:
-        grounding_ratio = None
+    grounded, grounding_ratio = is_grounded_response(out, context)
+    if IS_PROTECTED and not grounded:
+        return _blocked_response(
+            request, query, start, garak_tag, prompt_type,
+            message="Response could not be grounded in the retrieved context.",
+            block_reason="response_not_grounded",
+            log=not forwarded_by_shield,
+            grounding_ratio=grounding_ratio,
+        )
 
     latency_ms = (time.perf_counter() - start) * 1000.0
 
@@ -545,7 +550,7 @@ Question:
             grounding_ratio=grounding_ratio,
         )
 
-    return {"response": out}
+    return {"response": out, "blocked_by_rag": False, "grounding_ratio": grounding_ratio}
 
 
 @app.get("/health")

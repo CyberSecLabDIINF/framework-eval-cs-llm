@@ -37,6 +37,7 @@ from eval.loaders import *
 from eval.metrics import *
 from eval.plots import *
 from eval.characterizer import run_full_characterization
+from eval.exfiltration import run_exfiltration_analysis
 
 # ─────────────────────────────────────────────
 # Main
@@ -52,6 +53,11 @@ def main():
                         help="Generate and save figures to artifacts/figures/")
     parser.add_argument("--deep", action="store_true",
                         help="Run deep analysis from consolidated CSVs")
+    parser.add_argument("--exfiltration", action="store_true",
+                        help="Run confidential-data exfiltration analysis (CONFIDENTIAL "
+                             "marker, verbatim ground-truth values, PII) and persist results")
+    parser.add_argument("--data-dir", type=Path, default=Path("data"),
+                        help="Path to data/ directory for --exfiltration (default: data/)")
     parser.add_argument("--characterize", action="store_true",
                         help="Run full artifact characterization (characterizer.py) and persist results")
     parser.add_argument("--artifacts-dir", type=Path, default=None,
@@ -131,6 +137,9 @@ def main():
         deep_analysis_confusion(artifacts, domains)
         deep_analysis_las(lat_a, lat_b)
 
+    # ── Confidential data exfiltration analysis ──────────────
+    if args.exfiltration:
+        run_exfiltration_analysis(artifacts, args.data_dir, domains, figures_dir)
 
     print(f"\n{'='*70}\n")
 

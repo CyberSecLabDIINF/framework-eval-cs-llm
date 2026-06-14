@@ -357,12 +357,23 @@ async def generate(query: Query, request: Request):
 
     data = resp.json()
     out = str(data.get("response", ""))
+    grounding_ratio = data.get("grounding_ratio")
+    rag_blocked = bool(data.get("blocked_by_rag", False))
+    rag_block_reason = data.get("block_reason")
 
     out_guarded, output_scanner, output_score = guard_output(query.prompt, out)
     latency_ms = (time.perf_counter() - start) * 1000.0
 
-    was_blocked = output_scanner is not None
-    scanner_triggered = output_scanner if was_blocked else None
+    was_blocked = rag_blocked or output_scanner is not None
+    if output_scanner is not None:
+        scanner_triggered = output_scanner
+        block_reason = f"output_{output_scanner.lower()}"
+    elif rag_blocked:
+        scanner_triggered = None
+        block_reason = rag_block_reason
+    else:
+        scanner_triggered = None
+        block_reason = None
 
     request.state.response_len = len(out_guarded.encode("utf-8"))
 
@@ -375,11 +386,12 @@ async def generate(query: Query, request: Request):
         latency_ms=latency_ms,
         was_blocked=was_blocked,
         scanner_triggered=scanner_triggered,
-        block_reason=f"output_{output_scanner.lower()}" if output_scanner is not None else None,
+        block_reason=block_reason,
         garak_tag=garak_tag,
         prompt_type=prompt_type,
         input_scanner_score=input_score,
         output_scanner_score=output_score,
+        grounding_ratio=grounding_ratio,
     )
 
     return {"response": out_guarded}

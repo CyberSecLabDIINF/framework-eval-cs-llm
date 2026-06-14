@@ -913,6 +913,10 @@ def process_results_cmd(
     ),
     deep: bool = typer.Option(False, "--deep", help="Run deep analysis"),
     plots: bool = typer.Option(False, "--plots", help="Generate and save figures"),
+    exfiltration: bool = typer.Option(
+        False, "--exfiltration",
+        help="Run confidential-data exfiltration analysis and persist results"
+    ),
 ):
     """
     Process experiment results: compute TFA, LAS, deep analysis, and figures.
@@ -927,6 +931,8 @@ def process_results_cmd(
         cmd.append("--deep")
     if plots:
         cmd.append("--plots")
+    if exfiltration:
+        cmd.append("--exfiltration")
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
         raise typer.Exit(code=result.returncode)

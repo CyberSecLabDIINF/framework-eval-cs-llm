@@ -123,7 +123,8 @@ def log_request(
         input_scanner_score: Raw score from the input scanner, if available.
         output_scanner_score: Raw score from the output scanner, if available.
         grounding_ratio: C17 grounding ratio of the response in the retrieved
-            context, if computed (protected scenario only).
+            context. Computed for every non-pre-empted response in both
+            scenarios; only used to block the request when running protected.
     """
     suite, probe, subdim = _parse_garak_tag(garak_tag)
 
