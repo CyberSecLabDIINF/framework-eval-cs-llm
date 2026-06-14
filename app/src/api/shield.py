@@ -119,6 +119,29 @@ def _sanitize_control_chars(text: str) -> str:
     )
     return text.strip()
 
+def _raw_score_from_risk(risk_score: Optional[float], threshold: float) -> Optional[float]:
+    """Invert ``llm_guard.util.calculate_risk_score`` to recover the model's
+    raw 0.0-1.0 classifier probability.
+
+    LLM Guard scanners (``PromptInjection``, ``Sensitive``) compute a raw
+    probability internally but only return a threshold-relative "risk score"
+    in ``[-1, 1]``:
+      - raw > threshold:  risk = (raw - threshold) / (1 - threshold)  -> (0, 1]
+      - raw <= threshold: risk = (raw - threshold) / threshold        -> [-1, 0]
+    This reverses that mapping so stored scores sit back on the model's
+    native 0.0-1.0 probability scale (accurate to within the library's own
+    rounding to 1 decimal). The sentinel ``risk_score == -1.0`` (empty
+    input/output, no entities found) maps back to ``0.0``.
+    """
+    if risk_score is None:
+        return None
+    if risk_score >= 0:
+        raw = threshold + risk_score * (1 - threshold)
+    else:
+        raw = threshold + risk_score * threshold
+    return min(max(raw, 0.0), 1.0)
+
+
 def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optional[float]]:
     """Validate and sanitize the input prompt using LLM Guard input scanners.
 
@@ -133,9 +156,13 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
         A 3-tuple ``(sanitized_prompt, scanner_name, pi_score)``:
           - On pass: ``(sanitized_text, None, pi_score)``
           - On block: ``(None, blocking_scanner_name, pi_score)``
-        ``pi_score`` is the continuous PromptInjection score, captured
-        regardless of the block decision (TokenLimit is binary and reports a
-        sentinel score of -1.0, so it is ignored for this purpose).
+        ``pi_score`` is the raw PromptInjection classifier probability
+        (0.0-1.0, where higher means more likely an injection), captured
+        regardless of the block decision and independent of whether
+        ``threshold`` was exceeded. See :func:`_raw_score_from_risk` for how
+        this is recovered from LLM Guard's threshold-relative risk score.
+        TokenLimit is binary and reports a sentinel score of -1.0, so it is
+        ignored for this purpose.
 
     LLM-Sec Control C3: Blocks input prompts classified as prompt injection attempts by the PromptInjection scanner
     """
@@ -147,6 +174,7 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
 
     pi_cfg = _input_cfg.get("prompt_injection", {})
     tl_cfg = _input_cfg.get("token_limit", {})
+    pi_threshold = pi_cfg.get("threshold", 0.92)
 
     scanners = []
 
@@ -161,7 +189,7 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
     if pi_cfg.get("enabled", True):
         scanners.append(
             PromptInjection(
-                threshold=pi_cfg.get("threshold", 0.92),
+                threshold=pi_threshold,
                 use_onnx=pi_cfg.get("use_onnx", False),
             )
         )
@@ -174,7 +202,7 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
         if isinstance(scores, dict):
             last_score = next(iter(scores.values()), None)
         if isinstance(scanner, PromptInjection):
-            pi_score = last_score
+            pi_score = _raw_score_from_risk(last_score, pi_threshold)
         _llm_guard_logger.debug(
             "INPUT SCAN | scanner=%s | score=%s | blocked=%s",
             scanner.__class__.__name__, last_score, not all(is_valid_dict.values()),
@@ -204,8 +232,12 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
     Returns (sanitized_output, None, sens_score) if allowed.
     Returns (blocked_message, scanner_name, sens_score) if blocked.
 
-    ``sens_score`` is the continuous Sensitive score, captured regardless of
-    the block decision (whether Sensitive or OutputRegex triggered the block).
+    ``sens_score`` is the raw Sensitive classifier probability (0.0-1.0,
+    where higher means more likely sensitive content), captured regardless
+    of the block decision (whether Sensitive or OutputRegex triggered the
+    block) and independent of whether ``threshold`` was exceeded. See
+    :func:`_raw_score_from_risk` for how this is recovered from LLM Guard's
+    threshold-relative risk score.
 
     LLM-Sec Control C18: Strips control characters and special tokens from the model output before scanning/returning it
     LLM-Sec Control C19: Blocks model output matching deterministic regex patterns for structured PII / confidential markers
@@ -218,13 +250,14 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
 
     sens_cfg = _output_cfg.get("sensitive", {})
     rx_cfg = _output_cfg.get("regex", {})
+    sens_threshold = sens_cfg.get("threshold", 0.5)
 
     scanners = []
 
     if sens_cfg.get("enabled", True):
         scanners.append(
             Sensitive(
-                threshold=sens_cfg.get("threshold", 0.5),
+                threshold=sens_threshold,
                 redact=sens_cfg.get("redact", False),
                 use_onnx=sens_cfg.get("use_onnx", False),
             )
@@ -249,7 +282,7 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
             if isinstance(scores, dict):
                 last_score = next(iter(scores.values()), None)
             if isinstance(scanner, Sensitive):
-                sens_score = last_score
+                sens_score = _raw_score_from_risk(last_score, sens_threshold)
             if scanner.__class__.__name__ == "Sensitive":
                 _llm_guard_logger.debug(
                     "OUTPUT SCAN | scanner=%s | score=%s | blocked=%s",
@@ -335,6 +368,8 @@ async def generate(query: Query, request: Request):
             block_reason=f"input_{input_scanner.lower()}",
             garak_tag=garak_tag,
             prompt_type=prompt_type,
+            # input_scanner_score: raw PromptInjection probability (0.0-1.0,
+            # higher = more likely an injection), regardless of block outcome.
             input_scanner_score=input_score,
             output_scanner_score=None,
         )
@@ -389,6 +424,11 @@ async def generate(query: Query, request: Request):
         block_reason=block_reason,
         garak_tag=garak_tag,
         prompt_type=prompt_type,
+        # input_scanner_score: raw PromptInjection probability (0.0-1.0,
+        #   higher = more likely an injection).
+        # output_scanner_score: raw Sensitive probability (0.0-1.0, higher =
+        #   more likely sensitive content). Both are independent of whether
+        #   the configured threshold was exceeded.
         input_scanner_score=input_score,
         output_scanner_score=output_score,
         grounding_ratio=grounding_ratio,
