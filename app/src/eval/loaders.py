@@ -58,8 +58,8 @@ def _confusion_counts(adv_df: pd.DataFrame, legit_df: pd.DataFrame) -> dict:
     return {
         "TP": int(((adv_df["should_block"]  == 1) & (adv_df["was_blocked"]  == 1)).sum()),
         "FN": int(((adv_df["should_block"]  == 1) & (adv_df["was_blocked"]  == 0)).sum()),
-        "FP": int(((legit_df["should_block"] == 0) & (legit_df["was_blocked"] == 1)).sum()),
-        "TN": int(((legit_df["should_block"] == 0) & (legit_df["was_blocked"] == 0)).sum()),
+        "FP": int((legit_df["was_blocked"] == 1).sum()),
+        "TN": int((legit_df["was_blocked"] == 0).sum()),
     }
 
 
@@ -88,8 +88,8 @@ def _confusion_counts_system(adv_df: pd.DataFrame, legit_df: pd.DataFrame) -> di
     return {
         "TP": int((was_blocked | model_resisted).sum()),
         "FN": int(both_failed.sum()),
-        "FP": int(((legit_df["should_block"] == 0) & (legit_df["was_blocked"] == 1)).sum()),
-        "TN": int(((legit_df["should_block"] == 0) & (legit_df["was_blocked"] == 0)).sum()),
+        "FP": int((legit_df["was_blocked"] == 1).sum()),
+        "TN": int((legit_df["was_blocked"] == 0).sum()),
     }
 
 
@@ -100,10 +100,9 @@ def _load_consolidated_legit(artifacts_dir: Path, domain: str, scenario: str) ->
         return pd.DataFrame()
     df = pd.read_csv(path)
     df = df[df["prompt_type"] == "legitimate"].copy()
-    if "response_has_confidential" in df.columns:
-        df["response_has_confidential"] = pd.to_numeric(
-            df["response_has_confidential"], errors="coerce"
-        ).fillna(0).astype(int)
+    for col in ["was_blocked", "should_block", "response_has_confidential"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
     return df
 
 
@@ -189,7 +188,7 @@ def load_latency(latency_dir: Path, filename: str) -> pd.DataFrame:
         "timestamp", "scenario", "domain", "method",
         "endpoint", "status_code", "latency_ms",
         "col8", "suite_probe", "prompt_tokens", "response_tokens"
-    ])
+    ], on_bad_lines="skip")
     df = df[df["endpoint"] == "/generate"].copy()
     df["latency_ms"] = pd.to_numeric(df["latency_ms"], errors="coerce")
     df = df[df["latency_ms"].notna()]

@@ -464,7 +464,7 @@ def deep_analysis_confusion(artifacts_dir: Path, domains: list):
         }
 
     for domain in domains:
-        df_b = load_consolidated(artifacts_dir, domain, "protected")
+        adv  = load_consolidated(artifacts_dir, domain, "protected")
         df_a = load_consolidated(artifacts_dir, domain, "unprotected")
 
         print(f"\n  DOMAIN: {domain.upper()}")
@@ -484,13 +484,11 @@ def deep_analysis_confusion(artifacts_dir: Path, domains: list):
             print(f"  Note: No FP/TN concept applies — no active classifier.")
 
         # ── Scenario B: full confusion matrix ───────────────
-        if df_b.empty:
+        if adv.empty:
             print(f"\n  Scenario B — Not available yet.")
             continue
 
-        # Split adversarial and legitimate
-        adv  = df_b[df_b["prompt_type"] == "adversarial"].copy()
-        legit = df_b[df_b["prompt_type"] == "legitimate"].copy()
+        legit = _load_consolidated_legit(artifacts_dir, domain, "protected")
 
         # Primary system-level (two-layer) matrix and the single-layer
         # (LLM Guard only) matrix for comparison — see _confusion_counts_system
@@ -527,7 +525,9 @@ def deep_analysis_confusion(artifacts_dir: Path, domains: list):
               f"{'TP_grd':>7} {'FN_grd':>7} {'Rec_grd':>8}")
         print(f"  {'-'*72}")
 
-        for subdim in sorted(df_b["subdimension"].dropna().unique()):
+        subdims = sorted(set(adv["subdimension"].dropna().unique())
+                         | set(legit["subdimension"].dropna().unique()))
+        for subdim in subdims:
             sub_adv   = adv[adv["subdimension"] == subdim]
             sub_legit = legit[legit["subdimension"] == subdim]
             sc_sys = _confusion_counts_system(sub_adv, sub_legit)

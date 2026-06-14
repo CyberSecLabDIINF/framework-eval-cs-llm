@@ -176,6 +176,16 @@ def plot_tfa_domains_combined(tfa_by_domain: dict, figures_dir: Path):
     for ax, domain in zip(axes, domains):
         tfa_a = tfa_by_domain[domain]["A"]
         tfa_b = tfa_by_domain[domain]["B"]
+
+        if not tfa_a:
+            # No Scenario A data for this domain yet: render a placeholder so
+            # the figure still has one panel per domain (matching the title)
+            # instead of raising on tfa_a["per_suite"] and aborting before
+            # _save() — which previously left a stale single-panel PNG.
+            ax.set_title(f"{domain.replace('_', ' ').title()}\n[no data]", fontsize=10)
+            ax.set_xticks([])
+            continue
+
         vals_a = [tfa_a["per_suite"].get(s, {}).get("TFA") or 0 for s in suites]
         vals_b = [tfa_b["per_suite"].get(s, {}).get("TFA") or 0 for s in suites] if tfa_b else None
 
@@ -198,7 +208,13 @@ def plot_tfa_domains_combined(tfa_by_domain: dict, figures_dir: Path):
             ax.legend(fontsize=8)
 
     axes[0].set_ylabel("TFA (Attack Filtering Rate)")
-    fig.suptitle("TFA per OWASP Suite — Both Domains", fontweight="bold")
+    if len(domains) == 2:
+        title = "TFA per OWASP Suite — Both Domains"
+    elif len(domains) == 1:
+        title = f"TFA per OWASP Suite — {domains[0].replace('_', ' ').title()}"
+    else:
+        title = "TFA per OWASP Suite — All Domains"
+    fig.suptitle(title, fontweight="bold")
     fig.tight_layout()
     _save(fig, figures_dir, "tfa_by_suite_combined.png")
     plt.close(fig)
@@ -289,7 +305,20 @@ def plot_delta_tfa(tfa_by_domain: dict, figures_dir: Path):
     plt.close(fig)
 
 def plot_pvalue_by_suite(tfa_by_domain: dict, figures_dir: Path):
-    """Bar chart of -log10(p-value) per suite — Fisher exact test A vs B."""
+    """Bar chart of -log10(p-value) per suite — Fisher exact test A vs B.
+
+    Contingency table per suite is ``[[TP_A, FN_A], [TP_B, FN_B]]``, built from
+    the per-suite ``passed``/``total`` totals of Scenario A and B (TP = passed
+    = resisted, FN = total - passed = attack succeeded). Tables are printed to
+    console before each Fisher exact call so the inputs can be verified.
+
+    scipy's ``fisher_exact`` underflows to exactly ``p == 0.0`` for very large,
+    highly significant tables (common here with ~32k samples per suite). The
+    old ``-log10(p) if p > 0 else 0`` guard mapped that underflow to a bar of
+    height 0 — visually indistinguishable from a *non-significant* p == 1.0.
+    p is floored to the smallest representable double before taking -log10 so
+    highly significant results render as tall bars instead of disappearing.
+    """
     import matplotlib.pyplot as plt
     import numpy as np
     has_b = any(tfa_by_domain[d]["B"] for d in tfa_by_domain)
@@ -302,7 +331,9 @@ def plot_pvalue_by_suite(tfa_by_domain: dict, figures_dir: Path):
     x = np.arange(len(VECTOR_MAP))
     width = 0.8 / max(len(tfa_by_domain), 1)
     domain_colors = ["#4C72B0", "#DD8452", "#55A868", "#C44E52"]
+    p_floor = np.finfo(float).tiny
 
+    print("\n  Fisher exact contingency tables — [[TP_A, FN_A], [TP_B, FN_B]]")
     for i, (domain, color) in enumerate(zip(tfa_by_domain.keys(), domain_colors)):
         tfa_a = tfa_by_domain[domain]["A"]
         tfa_b = tfa_by_domain[domain]["B"]
@@ -315,11 +346,10 @@ def plot_pvalue_by_suite(tfa_by_domain: dict, figures_dir: Path):
             if va and vb:
                 fn_a = va["total"] - va["passed"]
                 fn_b = vb["total"] - vb["passed"]
-                _, p = fisher_exact(
-                    [[va["passed"], fn_a], [vb["passed"], fn_b]],
-                    alternative="less"
-                )
-                pvals.append(-np.log10(p) if p > 0 else 0)
+                table = [[va["passed"], fn_a], [vb["passed"], fn_b]]
+                _, p = fisher_exact(table, alternative="less")
+                print(f"    {domain:25s} {suite}: {table}  p={p:.3e}")
+                pvals.append(-np.log10(max(p, p_floor)))
             else:
                 pvals.append(0)
 
@@ -403,7 +433,11 @@ def plot_las_boxplot(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Path
                 patch.set_alpha(0.6)
             ax.set_title(domain.replace("_", " ").title(), fontsize=10)
             ax.set_ylabel("Latency (ms)" if ax == axes[0] else "")
-        fig.suptitle("Latency Distribution per Domain", fontweight="bold")
+            ax.set_yscale("log")
+        fig.suptitle(
+            "Latency Distribution per Domain\n"
+            "(y-axis in log scale; extreme outliers shown)",
+            fontweight="bold")
         fig.tight_layout()
         _save(fig, figures_dir, "las_boxplot_by_domain.png")
     else:
@@ -417,8 +451,11 @@ def plot_las_boxplot(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Path
         for patch, color in zip(bp["boxes"], colors):
             patch.set_facecolor(color)
             patch.set_alpha(0.6)
+        ax.set_yscale("log")
         ax.set_ylabel("Latency (ms)")
-        ax.set_title("Latency Distribution — Scenario A vs B")
+        ax.set_title(
+            "Latency Distribution — Scenario A vs B\n"
+            "(y-axis in log scale; extreme outliers shown)")
         _save(fig, figures_dir, "las_boxplot_global.png")
 
     plt.close(fig)
@@ -537,6 +574,11 @@ def plot_las_by_suite(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Pat
     ax.set_title("Median Latency per OWASP Suite")
     if has_b:
         ax.legend(fontsize=9)
+        fig.text(0.5, -0.02,
+                 "Note: a lower median in Scenario B for some suites (e.g. LLM01, LLM08) "
+                 "reflects early blocking by LLM Guard before model inference.",
+                 ha="center", va="top", fontsize=8.5, style="italic", color="#555555")
+    fig.tight_layout()
     _save(fig, figures_dir, "las_median_by_suite.png")
     plt.close(fig)
 
@@ -665,12 +707,11 @@ def plot_confusion_matrix(artifacts_dir: Path, domains: list, figures_dir: Path)
     matrices = []
 
     for domain in domains:
-        df_b = load_consolidated(artifacts_dir, domain, "protected")
-        if df_b.empty:
+        adv = load_consolidated(artifacts_dir, domain, "protected")
+        if adv.empty:
             print(f"  [skip] confusion matrix: no Scenario B data for {domain}")
             continue
-        adv   = df_b[df_b["prompt_type"] == "adversarial"]
-        legit = df_b[df_b["prompt_type"] == "legitimate"]
+        legit = _load_consolidated_legit(artifacts_dir, domain, "protected")
         counts = _confusion_counts_system(adv, legit)
         TP, FN, FP, TN = counts["TP"], counts["FN"], counts["FP"], counts["TN"]
         valid_domains.append(domain)
@@ -706,12 +747,11 @@ def plot_confusion_matrix_guard_only(artifacts_dir: Path, domains: list, figures
     matrices = []
 
     for domain in domains:
-        df_b = load_consolidated(artifacts_dir, domain, "protected")
-        if df_b.empty:
+        adv = load_consolidated(artifacts_dir, domain, "protected")
+        if adv.empty:
             print(f"  [skip] confusion matrix (guard-only): no Scenario B data for {domain}")
             continue
-        adv   = df_b[df_b["prompt_type"] == "adversarial"]
-        legit = df_b[df_b["prompt_type"] == "legitimate"]
+        legit = _load_consolidated_legit(artifacts_dir, domain, "protected")
         counts = _confusion_counts(adv, legit)
         TP, FN, FP, TN = counts["TP"], counts["FN"], counts["FP"], counts["TN"]
         valid_domains.append(domain)
@@ -724,7 +764,7 @@ def plot_confusion_matrix_guard_only(artifacts_dir: Path, domains: list, figures
     _render_confusion_matrices(
         matrices, valid_domains,
         title="Confusion Matrix — Scenario B, LLM Guard Only (Single-Layer)",
-        filename="confusion_matrix_scenario_b_guard_only.png",
+        filename="confusion_matrix_scenario_b_llmguard_only.png",
         figures_dir=figures_dir,
         recall_label="Recall",
     )
@@ -1182,25 +1222,25 @@ def plot_latency_adv_vs_legit_kde(artifacts_dir: Path, domains: list, figures_di
 
 
 def plot_fpr_by_domain_scenario(artifacts_dir: Path, domains: list, figures_dir: Path):
-    """Grouped bar chart of False Positive Rate (FPR) per domain and scenario.
+    """Bar chart of False Positive Rate (FPR) per domain — Scenario B only.
 
     FPR is defined as the proportion of legitimate prompts incorrectly blocked by
     the security layer:
 
         FPR = legitimate_blocked / total_legitimate
 
-    Scenario A (unprotected) has no active blocking mechanism, so its FPR is
-    structurally zero by design; the bar is included to make the contrast with
-    Scenario B explicit.  Each bar is annotated with its exact four-decimal FPR
-    value to facilitate direct comparison across domains.
+    Scenario A (unprotected) has no active classifier/blocking mechanism, so FPR
+    is undefined (not zero) for it — there is nothing to compute a false-positive
+    rate over. Scenario A is therefore omitted entirely; this figure shows one bar
+    per domain, all from Scenario B (LLM Guard), with an explanatory annotation.
 
     Parameters
     ----------
     artifacts_dir : Path
-        Root artifacts directory containing ``consolidated_<domain>_<scenario>.csv``
+        Root artifacts directory containing ``consolidated_<domain>_protected.csv``
         files.  Only rows with ``prompt_type == "legitimate"`` are used.
     domains : list
-        Ordered list of domain names; one group of bars per domain.
+        Ordered list of domain names; one bar per domain.
     figures_dir : Path
         Directory where the output PNG is saved.
 
@@ -1213,60 +1253,53 @@ def plot_fpr_by_domain_scenario(artifacts_dir: Path, domains: list, figures_dir:
 
     Outputs
     -------
-    - artifacts/figures/fpr_by_domain_scenario.png : grouped bar chart, dpi=150.
+    - artifacts/figures/fpr_by_domain_scenario.png : bar chart, dpi=150.
     """
     import matplotlib.pyplot as plt
     import numpy as np
     setup_style()
 
-    SCENARIOS   = ["unprotected", "protected"]
-    SCEN_LABELS = {"unprotected": "A (unprotected)", "protected": "B (LLM Guard)"}
-    SCEN_COLORS = {"unprotected": "#4C72B0", "protected": "#DD8452"}
-
-    fpr_data: dict[str, dict[str, float | None]] = {}
+    fpr_data: dict[str, float | None] = {}
     for domain in domains:
-        fpr_data[domain] = {}
-        for scenario in SCENARIOS:
-            path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
-            if not path.exists():
-                fpr_data[domain][scenario] = None
-                continue
-            df    = pd.read_csv(path)
-            legit = (df[df["prompt_type"] == "legitimate"].copy()
-                     if "prompt_type" in df.columns else pd.DataFrame())
-            if legit.empty or "was_blocked" not in legit.columns:
-                fpr_data[domain][scenario] = None
-                continue
-            n  = len(legit)
-            nb = int(pd.to_numeric(legit["was_blocked"], errors="coerce").fillna(0).sum())
-            fpr_data[domain][scenario] = nb / n if n > 0 else 0.0
+        path = artifacts_dir / f"consolidated_{domain}_protected.csv"
+        if not path.exists():
+            fpr_data[domain] = None
+            continue
+        df    = pd.read_csv(path)
+        legit = (df[df["prompt_type"] == "legitimate"].copy()
+                 if "prompt_type" in df.columns else pd.DataFrame())
+        if legit.empty or "was_blocked" not in legit.columns:
+            fpr_data[domain] = None
+            continue
+        n  = len(legit)
+        nb = int(pd.to_numeric(legit["was_blocked"], errors="coerce").fillna(0).sum())
+        fpr_data[domain] = nb / n if n > 0 else 0.0
 
     x     = np.arange(len(domains))
-    width = 0.35
+    width = 0.5
     fig, ax = plt.subplots(figsize=(max(6, 3 * len(domains)), 5))
 
-    for i, scenario in enumerate(SCENARIOS):
-        vals = [fpr_data[d].get(scenario) or 0.0 for d in domains]
-        orig = [fpr_data[d].get(scenario)         for d in domains]
-        offset = (i - 0.5) * width
-        bars = ax.bar(x + offset, vals, width,
-                      label=SCEN_LABELS[scenario],
-                      color=SCEN_COLORS[scenario], alpha=0.85, edgecolor="white")
-        for bar, val, o in zip(bars, vals, orig):
-            label = f"{val:.4f}" if o is not None else "N/A"
-            ax.text(bar.get_x() + bar.get_width() / 2,
-                    bar.get_height() + 0.001,
-                    label, ha="center", va="bottom", fontsize=9, fontweight="bold")
+    vals = [fpr_data[d] or 0.0 for d in domains]
+    bars = ax.bar(x, vals, width, label="B (LLM Guard)",
+                   color="#DD8452", alpha=0.85, edgecolor="white")
+    for bar, val, d in zip(bars, vals, domains):
+        label = f"{val:.4f}" if fpr_data[d] is not None else "N/A"
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.001,
+                label, ha="center", va="bottom", fontsize=9, fontweight="bold")
 
-    all_vals = [fpr_data[d].get(s) or 0.0 for d in domains for s in SCENARIOS]
-    ax.set_ylim(0, max(all_vals) * 1.35 + 0.01)
+    ax.set_ylim(0, max(vals) * 1.35 + 0.01)
     ax.set_xticks(x)
     ax.set_xticklabels([d.replace("_", " ").title() for d in domains], fontsize=10)
     ax.set_ylabel("False Positive Rate (FPR)")
-    ax.set_title("FPR per Domain and Scenario\n"
-                 "(Legitimate prompts incorrectly blocked by LLM Guard)")
+    ax.set_title("FPR per Domain — Scenario B (LLM Guard)\n"
+                 "(Legitimate prompts incorrectly blocked)")
     ax.axhline(0, color="black", linewidth=0.5)
     ax.legend(fontsize=9)
+    fig.text(0.5, -0.02,
+             "Scenario A (unprotected) has no active classifier, so FPR is N/A "
+             "by design and is not shown.",
+             ha="center", va="top", fontsize=8.5, style="italic", color="#555555")
 
     fig.tight_layout()
     _save(fig, figures_dir, "fpr_by_domain_scenario.png")
