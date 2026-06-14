@@ -655,7 +655,7 @@ run_full() {
 }
 
 # ==============================================================================
-# EVALUACION DE UN UNICO ESCENARIO (A o B) PARA UN DOMINIO
+# EVALUACION DE UN ÚNICO ESCENARIO (A o B) PARA UN DOMINIO
 # Reutiliza ensure_stack_up, ensure_live_reload, ensure_corpus_ingested,
 # smoke_probe y run_scenario, pero ejecuta solo el escenario solicitado (sin
 # tocar el otro escenario, sin bajar el stack ni procesar resultados al final).
@@ -673,7 +673,7 @@ run_single_scenario() {
     require_env_file "$domain" || return 1
     ef="$(env_file_for "$domain")"
 
-    log_hdr "Escenario unico $scenario — dominio: $domain (target: $target)"
+    log_hdr "Escenario único $scenario — dominio: $domain (target: $target)"
 
     # Rebuild de imagen: solo si el usuario lo pide explicitamente con
     # --rebuild (p.ej. tras cambios en Dockerfile o requirements.txt).
