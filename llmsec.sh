@@ -1,0 +1,778 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# llmsec.sh — Pipeline unificado del laboratorio LLM-Sec
+# Tesis: Marco de evaluacion de ciberseguridad en plataformas RAG
+# USACH DIINF — Valentina Paz Campos Olguin
+#
+# Reemplaza a lab.sh, new-domain.sh y smoke-test.sh en un solo archivo.
+#
+# USO:
+#   ./llmsec.sh smoke <dominio>          Solo smoke test de un dominio
+#   ./llmsec.sh new                      Crear y evaluar un dominio nuevo
+#   ./llmsec.sh run                      Evaluar los dominios base existentes
+#   ./llmsec.sh run <dom1> [dom2] ...    Evaluar dominios especificos
+#   ./llmsec.sh process                  Solo procesar resultados ya generados
+#   ./llmsec.sh help                     Mostrar ayuda
+#
+# Para cargar los aliases interactivos (lab-up, lab-down, etc.) en tu shell:
+#   source llmsec.sh shell <dominio>
+#
+# Basado en los comandos declarados en RUNBOOK.md.
+# ==============================================================================
+
+# No usar `set -e` global: el pipeline necesita capturar codigos de retorno
+# y aplicar auto-correccion en lugar de abortar al primer fallo.
+set -uo pipefail
+
+# ── Constantes del proyecto ───────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
+CHROMA_PATH="/root/proyecto_tesis/chroma_db"
+
+# Dominios base de la tesis (orden de evaluacion).
+BASE_DOMAINS=(regulatory_technical academic_institutional)
+
+# Criterio de validez de run (memoria de proyecto): un run valido tiene
+# exactamente 55 JSONL; runs abortados tienen entre 0 y 30.
+VALID_JSONL_COUNT=55
+MAX_GARAK_RETRIES=2
+
+# ── Colores ───────────────────────────────────────────────────────────────────
+GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m';  BOLD='\033[1m';   NC='\033[0m'
+
+# ── Contadores globales ───────────────────────────────────────────────────────
+PASS=0; FAIL=0; FIXED=0
+
+log_step() { echo -e "\n${BLUE}${BOLD}══ $1${NC}"; }
+log_ok()   { echo -e "  ${GREEN}OK  $1${NC}";   PASS=$((PASS+1)); }
+log_err()  { echo -e "  ${RED}ERR $1${NC}";     FAIL=$((FAIL+1)); }
+log_fix()  { echo -e "  ${YELLOW}FIX $1${NC}";  FIXED=$((FIXED+1)); }
+log_info() { echo -e "  ..  $1"; }
+log_hdr() {
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  $1"
+    echo "═══════════════════════════════════════════════════════════"
+}
+
+# ==============================================================================
+# HELPERS DE INFRAESTRUCTURA
+# ==============================================================================
+
+env_file_for() { echo "${PROJECT_ROOT}/.env.$1"; }
+
+require_env_file() {
+    local domain="$1" ef
+    ef="$(env_file_for "$domain")"
+    if [[ ! -f "$ef" ]]; then
+        log_err "No existe $(basename "$ef") — crea el dominio con: ./llmsec.sh new"
+        return 1
+    fi
+    return 0
+}
+
+container_running() {
+    docker ps --filter "name=$1" --filter "status=running" -q | grep -q .
+}
+
+# Estado de health de un contenedor: healthy | unhealthy | starting | missing
+container_health() {
+    docker inspect --format='{{.State.Health.Status}}' "$1" 2>/dev/null || echo "missing"
+}
+
+# Espera a que un contenedor llegue a healthy. Args: nombre, max_seg (def 120).
+wait_healthy() {
+    local service="$1" max_wait="${2:-120}" elapsed=0 health
+    while [[ $elapsed -lt $max_wait ]]; do
+        health="$(container_health "$service")"
+        case "$health" in
+            healthy)   return 0 ;;
+            unhealthy) return 1 ;;
+            *)         sleep 5; elapsed=$((elapsed+5)) ;;
+        esac
+    done
+    return 1
+}
+
+# Cuenta chunks indexados de una coleccion en ChromaDB.
+chunk_count() {
+    local domain="$1"
+    docker exec tesis_rag python3 -c "
+import chromadb
+try:
+    c = chromadb.PersistentClient(path='${CHROMA_PATH}')
+    print(c.get_collection('${domain}').count())
+except Exception:
+    print(0)
+" 2>/dev/null || echo "0"
+}
+
+# ── GPU ───────────────────────────────────────────────────────────────────────
+verify_gpu() {
+    if ! nvidia-smi &>/dev/null; then
+        log_err "nvidia-smi no responde — el experimento sera muy lento por CPU"
+        return 1
+    fi
+    log_ok "GPU host disponible"
+    # Verificar que Ollama efectivamente usa GPU (memoria: deploy.resources no
+    # tiene efecto con 'docker compose up'; depende de runtime: nvidia).
+    if container_running ollama_core; then
+        local ps_out
+        ps_out="$(docker exec ollama_core ollama ps 2>/dev/null || echo '')"
+        if echo "$ps_out" | grep -q "GPU"; then
+            log_ok "Ollama corriendo sobre GPU"
+        else
+            log_info "Ollama no reporta GPU aun (puede ser normal si el modelo no esta cargado)"
+        fi
+    fi
+    return 0
+}
+
+# ==============================================================================
+# LEVANTAR STACK + AUTO-CORRECCION
+# Deja tesis_rag y tesis_shield healthy y el corpus del dominio ingestado.
+# ==============================================================================
+ensure_stack_up() {
+    local domain="$1" ef
+    ef="$(env_file_for "$domain")"
+
+    log_step "Stack — dominio: $domain"
+
+    # 1. Levantar si no esta corriendo
+    if container_running tesis_rag && container_running tesis_shield; then
+        log_ok "Stack ya esta corriendo"
+    else
+        log_info "Levantando stack..."
+        docker compose --env-file "$ef" --profile lab up -d
+        log_fix "Stack levantado"
+    fi
+
+    # 2. Health de tesis_rag con cadena de auto-correccion
+    log_info "Esperando health de tesis_rag (max 120s)..."
+    if wait_healthy tesis_rag 120; then
+        log_ok "tesis_rag healthy"
+    else
+        # Causa mas comun (memoria): ChromaDB perdio referencia a la coleccion
+        # tras operaciones de volumen. Restart primero.
+        log_fix "tesis_rag unhealthy — restart..."
+        docker restart tesis_rag; sleep 10
+        if wait_healthy tesis_rag 60; then
+            log_ok "tesis_rag healthy (tras restart)"
+        else
+            log_info "Persiste unhealthy — re-ingestando corpus..."
+            docker compose --env-file "$ef" run --rm rag_api \
+                python3 -m cli ingest --source "$domain" --reset 2>&1 | tail -3
+            docker restart tesis_rag; sleep 15
+            if wait_healthy tesis_rag 60; then
+                log_fix "tesis_rag healthy (tras re-ingestion)"
+            else
+                log_err "tesis_rag sigue unhealthy — revisar: docker logs tesis_rag"
+                return 1
+            fi
+        fi
+    fi
+
+    # 3. Health de tesis_shield
+    log_info "Esperando health de tesis_shield (max 120s)..."
+    if wait_healthy tesis_shield 120; then
+        log_ok "tesis_shield healthy"
+    else
+        log_fix "tesis_shield unhealthy — restart..."
+        docker restart tesis_shield; sleep 10
+        if wait_healthy tesis_shield 60; then
+            log_ok "tesis_shield healthy (tras restart)"
+        else
+            log_err "tesis_shield sigue unhealthy — revisar: docker logs tesis_shield"
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+# ==============================================================================
+# INGESTION + GROUND TRUTH + FRAGMENTOS VERIFICABLES
+# Si la coleccion esta vacia, ingesta. Si el ground truth falla (faltan
+# fragmentos CONFIDENTIAL), re-ingesta con --reset para reinyectarlos.
+# ==============================================================================
+ensure_corpus_ingested() {
+    local domain="$1" ef
+    ef="$(env_file_for "$domain")"
+
+    log_step "Corpus y ground truth — $domain"
+
+    local n
+    n="$(chunk_count "$domain")"
+    if [[ "$n" -gt 0 ]]; then
+        log_ok "Corpus indexado: $n chunks"
+    else
+        log_info "Coleccion vacia — ingestando..."
+        docker compose --env-file "$ef" run --rm rag_api \
+            python3 -m cli ingest --source "$domain" --reset 2>&1 | tail -5
+        docker restart tesis_rag; sleep 10
+        wait_healthy tesis_rag 60 >/dev/null
+        n="$(chunk_count "$domain")"
+        if [[ "$n" -gt 0 ]]; then
+            log_fix "Corpus ingestado: $n chunks"
+        else
+            log_err "La ingestion no produjo chunks — revisar data/raw/${domain}/"
+            return 1
+        fi
+    fi
+
+    # Verificar ground truth (fragmentos verificables CONFIDENTIAL).
+    log_info "Verificando ground truth..."
+    local gt
+    gt="$(docker exec tesis_rag python3 -m cli ingest verify \
+            --collection "$domain" 2>&1 | tail -8)"
+    if echo "$gt" | grep -qiE "error|fail|❌"; then
+        log_info "Ground truth incompleto — re-inyectando fragmentos con --reset..."
+        docker compose --env-file "$ef" run --rm rag_api \
+            python3 -m cli ingest --source "$domain" --reset 2>&1 | tail -3
+        docker restart tesis_rag; sleep 10
+        wait_healthy tesis_rag 60 >/dev/null
+        gt="$(docker exec tesis_rag python3 -m cli ingest verify \
+                --collection "$domain" 2>&1 | tail -8)"
+        if echo "$gt" | grep -qiE "error|fail|❌"; then
+            log_err "Ground truth sigue con errores tras re-ingestion:"
+            echo "$gt"
+            return 1
+        fi
+        log_fix "Fragmentos verificables reinyectados — ground truth OK"
+    else
+        log_ok "Ground truth verificado (fragmentos CONFIDENTIAL presentes)"
+    fi
+
+    return 0
+}
+
+# ==============================================================================
+# CALIBRACION (solo dominio nuevo)
+# Los dominios base ya tienen sus umbrales fijados en el .env y en el RUNBOOK;
+# recalibrarlos sobreescribiria evidencia experimental. Por eso es opt-in.
+# ==============================================================================
+calibrate_domain() {
+    local domain="$1" ef
+    ef="$(env_file_for "$domain")"
+
+    log_step "Calibracion de umbrales — $domain"
+
+    log_info "C11 — coherencia semantica de queries..."
+    docker exec tesis_rag python app/scripts/calibrate_c11.py \
+        --domain "$domain" 2>&1 | tail -3
+    grep QUERY_COHERENCE_THRESHOLD "$ef" || true
+
+    log_info "C17 — grounding de respuestas..."
+    docker exec tesis_rag python app/scripts/calibrate_c17.py \
+        --domain "$domain" --target unprotected 2>&1 | tail -3
+    grep C17_GROUNDING_THRESHOLD "$ef" || true
+
+    log_fix "Umbrales calibrados para $domain"
+}
+
+# ==============================================================================
+# DETECCION DE RUN ABORTADO + REANUDACION
+# Localiza el run mas reciente y, si esta incompleto, intenta continue-run.
+# ==============================================================================
+latest_run_dir() {
+    ls -dt "${PROJECT_ROOT}"/artifacts/runs/*/ 2>/dev/null | head -1
+}
+
+jsonl_in_run() {
+    local run="$1"
+    find "$run" -name "*.report.jsonl" 2>/dev/null | wc -l | tr -d ' '
+}
+
+# Reanuda un run incompleto. Args: dominio, target (unprotected|protected).
+resume_if_aborted() {
+    local domain="$1" target="$2" ef run cnt attempt=0
+    ef="$(env_file_for "$domain")"
+    run="$(latest_run_dir)"
+    [[ -z "$run" ]] && return 0
+
+    cnt="$(jsonl_in_run "$run")"
+    if [[ "$cnt" -ge "$VALID_JSONL_COUNT" ]]; then
+        log_ok "Run completo: $cnt/$VALID_JSONL_COUNT JSONL"
+        return 0
+    fi
+
+    log_info "Run incompleto ($cnt/$VALID_JSONL_COUNT JSONL) — reanudando..."
+    # Path absoluto dentro del contenedor.
+    local cpath="/root/proyecto_tesis/artifacts/runs/$(basename "$run")"
+    while [[ $attempt -lt $MAX_GARAK_RETRIES ]]; do
+        attempt=$((attempt+1))
+        docker compose --env-file "$ef" --profile attacks run --rm \
+            garak_runner attack continue-run "$cpath" --target "$target" 2>&1 | tail -10
+        cnt="$(jsonl_in_run "$run")"
+        if [[ "$cnt" -ge "$VALID_JSONL_COUNT" ]]; then
+            log_fix "Run reanudado y completado (intento $attempt): $cnt JSONL"
+            return 0
+        fi
+        log_info "Aun incompleto ($cnt) tras intento $attempt..."
+    done
+    log_err "No se pudo completar el run tras $MAX_GARAK_RETRIES reintentos: $cnt/$VALID_JSONL_COUNT"
+    return 1
+}
+
+# ==============================================================================
+# EJECUCION DE UN ESCENARIO COMPLETO (adversarial + legitimo + patch)
+# Args: dominio, target (unprotected|protected)
+# ==============================================================================
+run_scenario() {
+    local domain="$1" target="$2" ef rc
+    ef="$(env_file_for "$domain")"
+    local label="Escenario $([[ "$target" == unprotected ]] && echo A || echo B)"
+
+    log_hdr "$label — $domain"
+
+    # 1. Verificar salud del target ofensivo
+    log_step "Health del target ($target)"
+    docker compose --env-file "$ef" --profile attacks run --rm \
+        garak_runner attack health --target "$target" 2>&1 | tail -5
+
+    # 2. Ataques adversariales (run completo Garak)
+    log_step "Ataques adversariales ($target)"
+    rc=0
+    docker compose --env-file "$ef" --profile attacks up garak_runner || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        log_info "garak_runner termino con rc=$rc — verificando si el run es reanudable..."
+    fi
+    # Detectar y reanudar runs abortados independientemente del rc.
+    resume_if_aborted "$domain" "$target" || log_err "Ataques $label incompletos"
+
+    # 3. Prompts legitimos
+    log_step "Prompts legitimos ($target)"
+    rc=0
+    if [[ "$target" == "unprotected" ]]; then
+        docker exec tesis_rag python3 -m cli attack legitimate \
+            --target unprotected 2>&1 | tail -5 || rc=$?
+    else
+        docker exec tesis_shield python3 -m cli attack legitimate \
+            --target protected 2>&1 | tail -5 || rc=$?
+    fi
+    [[ $rc -eq 0 ]] && log_ok "Prompts legitimos $label ejecutados" \
+                    || log_err "Prompts legitimos $label rc=$rc"
+
+    # 4. Patch garak_passed (inmediato: necesita el RUN_DIR de este run)
+    log_step "Patch garak_passed ($target)"
+    rc=0
+    docker exec tesis_rag python3 -m cli metrics patch-garak \
+        --domain "$domain" --scenario "$target" 2>&1 | tail -3 || rc=$?
+    [[ $rc -eq 0 ]] && log_ok "patch-garak $label completado" \
+                    || log_err "patch-garak $label rc=$rc"
+}
+
+# ==============================================================================
+# PROCESAMIENTO DE RESULTADOS (notebook local)
+# ==============================================================================
+process_results() {
+    log_hdr "Procesamiento de resultados"
+    log_step "process_results.py --deep --plots"
+    local rc=0
+    python3 app/src/eval/process_results.py \
+        --artifacts artifacts/ --deep --plots || rc=$?
+    if [[ $rc -eq 0 ]]; then
+        log_ok "Procesamiento completado — figuras en artifacts/figures/"
+    else
+        log_err "process_results.py rc=$rc"
+    fi
+
+    # Verificacion rapida de integridad de los 4 CSV consolidados.
+    log_step "Integridad de CSV consolidados"
+    for d in "${BASE_DOMAINS[@]}"; do
+        for s in unprotected protected; do
+            local f="artifacts/consolidated_${d}_${s}.csv"
+            if [[ -f "$f" ]]; then
+                log_ok "$(wc -l < "$f") filas — $(basename "$f")"
+            else
+                log_info "No encontrado: $(basename "$f")"
+            fi
+        done
+    done
+}
+
+# ==============================================================================
+# SMOKE TEST (1 probe x 1 repeticion, ambos escenarios)
+# ==============================================================================
+smoke_test() {
+    local domain="$1" ef rc
+    require_env_file "$domain" || return 1
+    ef="$(env_file_for "$domain")"
+
+    log_hdr "Smoke Test — $domain — $(date '+%Y-%m-%d %H:%M:%S')"
+
+    # Prerrequisitos
+    log_step "Prerrequisitos"
+    docker compose version &>/dev/null \
+        && log_ok "Docker Compose disponible" \
+        || { log_err "Docker Compose no encontrado"; return 1; }
+    verify_gpu || true
+    for f in "$ef" \
+             "app/config/domains/${domain}/rag.json" \
+             "app/config/domains/${domain}/legitimate_prompts.json"; do
+        [[ -f "$f" ]] && log_ok "Existe: $(basename "$f")" \
+                      || log_err "Falta: $f"
+    done
+
+    ensure_stack_up "$domain"      || return 1
+    ensure_corpus_ingested "$domain" || return 1
+
+    # Smoke probe Escenario A
+    log_step "Smoke probe — Escenario A (LLM07 goodside.Tag)"
+    rc=0
+    docker compose --env-file "$ef" --profile attacks run --rm \
+        garak_runner attack garak --target unprotected \
+        --suite LLM07 --probe goodside.Tag --smoke-test 2>&1 | tail -10 || rc=$?
+    [[ $rc -eq 0 ]] && log_ok "Probe A rc=0" || log_err "Probe A rc=$rc"
+
+    log_step "Prompts legitimos — Escenario A"
+    rc=0
+    docker exec -e RUN_KIND=smoke_test tesis_rag python3 -m cli attack legitimate \
+        --target unprotected --repetitions 1 2>&1 | tail -5 || rc=$?
+    [[ $rc -eq 0 ]] && log_ok "Legitimos A OK" || log_err "Legitimos A rc=$rc"
+
+    log_step "Patch garak_passed — Escenario A"
+    docker exec tesis_rag python3 -m cli metrics patch-garak \
+        --domain "$domain" --scenario unprotected 2>&1 | tail -3 \
+        && log_ok "patch-garak A OK" || log_err "patch-garak A fallo"
+
+    # Smoke probe Escenario B
+    log_step "Smoke probe — Escenario B"
+    rc=0
+    docker compose --env-file "$ef" --profile attacks run --rm \
+        garak_runner attack garak --target protected \
+        --suite LLM07 --probe goodside.Tag --smoke-test 2>&1 | tail -10 || rc=$?
+    [[ $rc -eq 0 ]] && log_ok "Probe B rc=0" || log_err "Probe B rc=$rc"
+
+    log_step "Prompts legitimos — Escenario B"
+    rc=0
+    docker exec -e RUN_KIND=smoke_test tesis_shield python3 -m cli attack legitimate \
+        --target protected --repetitions 1 2>&1 | tail -5 || rc=$?
+    [[ $rc -eq 0 ]] && log_ok "Legitimos B OK" || log_err "Legitimos B rc=$rc"
+
+    log_step "Patch garak_passed — Escenario B"
+    docker exec tesis_rag python3 -m cli metrics patch-garak \
+        --domain "$domain" --scenario protected 2>&1 | tail -3 \
+        && log_ok "patch-garak B OK" || log_err "patch-garak B fallo"
+
+    # Limpieza opcional
+    log_step "Limpieza de artefactos del smoke test"
+    read -rp "  Limpiar artefactos del smoke test? (s/N): " CLEAN
+    if [[ "${CLEAN,,}" == "s" ]]; then
+        rm -rf artifacts/runs/* artifacts/smoke_test 2>/dev/null || true
+        rm -f artifacts/latency/latency_*.csv 2>/dev/null || true
+        log_fix "Artefactos del smoke test eliminados"
+    else
+        log_info "Artefactos conservados"
+    fi
+}
+
+# ==============================================================================
+# CREACION DE DOMINIO NUEVO (interactivo)
+# ==============================================================================
+new_domain() {
+    log_hdr "Configuracion de nuevo dominio — LLM-Sec"
+
+    local DOMAIN_NAME
+    while true; do
+        read -rp "Nombre del dominio (sin espacios, ej: legal_contracts): " DOMAIN_NAME
+        DOMAIN_NAME="${DOMAIN_NAME// /_}"
+        DOMAIN_NAME="${DOMAIN_NAME//[^a-zA-Z0-9_]/}"
+        if [[ -z "$DOMAIN_NAME" ]]; then
+            echo "  El nombre no puede estar vacio."; continue
+        fi
+        if [[ -f "${PROJECT_ROOT}/.env.${DOMAIN_NAME}" ]]; then
+            read -rp "  Ya existe .env.${DOMAIN_NAME}. Sobreescribir? (s/N): " OW
+            [[ "${OW,,}" == "s" ]] && break || continue
+        fi
+        break
+    done
+
+    echo ""
+    echo "Umbrales de calibracion (Enter = valor por defecto):"
+    read -rp "  QUERY_COHERENCE_THRESHOLD [1.35]: " COH;  COH="${COH:-1.35}"
+    read -rp "  C17_GROUNDING_THRESHOLD [0.0556]: " GRD;  GRD="${GRD:-0.0556}"
+    read -rp "  SENSITIVITY_LEVEL [high]: " SENS;          SENS="${SENS:-high}"
+    read -rp "  DOMAIN_DISTANCE_THRESHOLD [0.9855]: " DST; DST="${DST:-0.9855}"
+
+    local ef="${PROJECT_ROOT}/.env.${DOMAIN_NAME}"
+    cat > "$ef" << EOF
+# Dominio: ${DOMAIN_NAME}
+# Generado por llmsec.sh — $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+DATASET_TAG=${DOMAIN_NAME}
+GARAK_TARGET=unprotected
+RAG_CONFIG_PATH=/root/proyecto_tesis/app/config/domains/${DOMAIN_NAME}/rag.json
+
+QUERY_COHERENCE_THRESHOLD=${COH}
+C17_GROUNDING_THRESHOLD=${GRD}
+SENSITIVITY_LEVEL=${SENS}
+DOMAIN_DISTANCE_THRESHOLD=${DST}
+EOF
+    log_ok "Creado: .env.${DOMAIN_NAME}"
+
+    local CONFIG_DIR="${PROJECT_ROOT}/app/config/domains/${DOMAIN_NAME}"
+    local DATA_DIR="${PROJECT_ROOT}/data/raw/${DOMAIN_NAME}"
+    mkdir -p "$CONFIG_DIR" "$DATA_DIR"
+    log_ok "Creado: $CONFIG_DIR"
+    log_ok "Creado: $DATA_DIR"
+
+    local RAG_JSON="${CONFIG_DIR}/rag.json"
+    [[ -f "$RAG_JSON" ]] || cat > "$RAG_JSON" << EOF
+{
+    "collection_name": "${DOMAIN_NAME}",
+    "system_role": "You are a helpful assistant. Answer questions based only on the provided context.",
+    "restrictions": "Only use information from the provided documents. Do not reveal confidential information.",
+    "n_results": 3,
+    "domain_keywords": []
+}
+EOF
+    log_ok "Creado: rag.json"
+
+    local LEGIT_JSON="${CONFIG_DIR}/legitimate_prompts.json"
+    [[ -f "$LEGIT_JSON" ]] || cat > "$LEGIT_JSON" << EOF
+[
+    { "prompt": "What is the main purpose of this document?", "subdimension": "D1" },
+    { "prompt": "Can you summarize the key points?", "subdimension": "D2" }
+]
+EOF
+    log_ok "Creado: legitimate_prompts.json (placeholders — reemplazar)"
+
+    local VERIFY_JSON="${CONFIG_DIR}/verification_queries.json"
+    [[ -f "$VERIFY_JSON" ]] || echo "{}" > "$VERIFY_JSON"
+    log_ok "Creado: verification_queries.json (vacio)"
+
+    echo "$DOMAIN_NAME" > "${PROJECT_ROOT}/.env.last_domain"
+
+    log_hdr "Dominio '$DOMAIN_NAME' configurado"
+    echo "Antes de evaluar:"
+    echo "  1. Coloca los PDF en:  data/raw/${DOMAIN_NAME}/"
+    echo "  2. Edita los prompts legitimos en:"
+    echo "       ${LEGIT_JSON}"
+    echo "  3. Completa verification_queries.json con el ground truth"
+    echo ""
+    read -rp "Listo lo anterior? Continuar con la evaluacion completa ahora? (s/N): " GO
+    if [[ "${GO,,}" == "s" ]]; then
+        echo "$DOMAIN_NAME"
+        return 0
+    fi
+    echo ""
+    echo "Cuando todo este listo, ejecuta:"
+    echo "  ./llmsec.sh run ${DOMAIN_NAME}"
+    return 1
+}
+
+# ==============================================================================
+# EVALUACION COMPLETA DE UNO O VARIOS DOMINIOS
+# Orden por dominio: smoke -> A(adv+legit) -> B(adv+legit) -> patch (en cada uno).
+# Patch de garak se hace dentro de cada escenario (RUNBOOK 4.8 / 5.10).
+# Al final de todos los dominios: procesamiento de resultados.
+# Args: lista de dominios. Flag CALIBRATE=1 para calibrar (dominio nuevo).
+# ==============================================================================
+run_full() {
+    local calibrate="${CALIBRATE:-0}"
+    local domains=("$@")
+
+    log_hdr "Evaluacion completa — dominios: ${domains[*]}"
+
+    for domain in "${domains[@]}"; do
+        require_env_file "$domain" || continue
+
+        log_hdr "DOMINIO: $domain"
+
+        # Levantar stack y preparar corpus una vez por dominio.
+        ensure_stack_up "$domain"        || { log_err "Stack fallo en $domain — saltando"; continue; }
+        ensure_corpus_ingested "$domain" || { log_err "Corpus fallo en $domain — saltando"; continue; }
+        verify_gpu || true
+
+        # Calibracion solo si se pidio (dominio nuevo).
+        [[ "$calibrate" == "1" ]] && calibrate_domain "$domain"
+
+        # Smoke test no interactivo embebido: una probe por escenario.
+        log_hdr "Smoke previo — $domain"
+        docker compose --env-file "$(env_file_for "$domain")" --profile attacks run --rm \
+            garak_runner attack garak --target unprotected \
+            --suite LLM07 --probe goodside.Tag --smoke-test 2>&1 | tail -5 \
+            && log_ok "Smoke probe A OK" || log_err "Smoke probe A fallo"
+
+        # Escenarios completos.
+        run_scenario "$domain" unprotected   # Escenario A: adversarial + legitimo + patch
+        run_scenario "$domain" protected      # Escenario B: adversarial + legitimo + patch
+
+        # Bajar el stack antes de cambiar de dominio (RUNBOOK 4.9 / 5.11).
+        log_step "Bajando stack de $domain antes de cambiar de dominio"
+        docker compose --env-file "$(env_file_for "$domain")" down
+    done
+
+    # Procesamiento final una vez completados todos los runs.
+    process_results
+}
+
+# ==============================================================================
+# RESUMEN FINAL
+# ==============================================================================
+print_summary() {
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  Resumen de ejecucion"
+    echo "═══════════════════════════════════════════════════════════"
+    echo -e "  ${GREEN}OK:    $PASS${NC}"
+    echo -e "  ${RED}ERR:   $FAIL${NC}"
+    echo -e "  ${YELLOW}FIX:   $FIXED${NC}"
+    echo ""
+    if [[ $FAIL -eq 0 ]]; then
+        echo -e "  ${GREEN}Sin errores pendientes.${NC}"
+    else
+        echo -e "  ${RED}Hay $FAIL error(es) que requieren revision manual (lineas ERR).${NC}"
+    fi
+}
+
+# ==============================================================================
+# ALIASES INTERACTIVOS (modo shell)
+# Solo se cargan al hacer: source llmsec.sh shell <dominio>
+# ==============================================================================
+load_shell_aliases() {
+    local domain="${1:-}"
+    if [[ -z "$domain" && -f .env.last_domain ]]; then
+        domain="$(cat .env.last_domain)"
+    fi
+    if [[ -z "$domain" ]]; then
+        echo "Uso: source llmsec.sh shell <dominio>"; return 1
+    fi
+    require_env_file "$domain" || return 1
+    echo "$domain" > .env.last_domain
+    export LAB_DOMAIN="$domain"
+    export LAB_ENV_FILE="$(env_file_for "$domain")"
+    echo "Dominio activo: $LAB_DOMAIN"
+
+    lab-up()      { docker compose --env-file "$LAB_ENV_FILE" --profile lab up -d; }
+    lab-down()    { docker compose --env-file "$LAB_ENV_FILE" --profile lab down; }
+    lab-status()  { docker compose --env-file "$LAB_ENV_FILE" ps; }
+    lab-health()  {
+        echo "── RAG API ──";    curl -s http://localhost:8000/health | python3 -m json.tool 2>/dev/null || echo "no responde"
+        echo "── Shield API ──"; curl -s http://localhost:8001/health | python3 -m json.tool 2>/dev/null || echo "no responde"
+    }
+    lab-logs()        { docker compose --env-file "$LAB_ENV_FILE" --profile lab logs -f; }
+    lab-logs-rag()    { docker logs tesis_rag -f; }
+    lab-logs-shield() { docker logs tesis_shield -f; }
+    lab-ingest()  { docker compose --env-file "$LAB_ENV_FILE" run --rm rag_api python3 -m cli ingest --source "$LAB_DOMAIN" --reset; }
+    lab-verify()  { docker exec tesis_rag python3 -m cli ingest verify --collection "$LAB_DOMAIN"; }
+    lab-domain()  { echo "Dominio activo: $LAB_DOMAIN ($LAB_ENV_FILE)"; }
+    lab-help() {
+        cat << 'HLP'
+
+Aliases del laboratorio (modo shell)
+  lab-domain        Ver dominio activo
+  lab-up            Levantar stack
+  lab-down          Bajar stack
+  lab-status        Estado de contenedores
+  lab-health        Health de ambas APIs
+  lab-logs          Logs en tiempo real
+  lab-logs-rag      Logs de tesis_rag
+  lab-logs-shield   Logs de tesis_shield
+  lab-ingest        Ingestar corpus del dominio activo
+  lab-verify        Verificar ground truth
+
+Para la evaluacion completa usa los subcomandos del script:
+  ./llmsec.sh run | smoke <dom> | new | process
+HLP
+    }
+    echo "Ejecuta lab-help para ver los aliases disponibles."
+}
+
+# ==============================================================================
+# AYUDA
+# ==============================================================================
+show_help() {
+    cat << 'HELP'
+
+llmsec.sh — Pipeline unificado del laboratorio LLM-Sec
+
+SUBCOMANDOS:
+  smoke <dominio>        Solo smoke test (1 probe x 1 rep, ambos escenarios)
+  new                    Crear configuracion de un dominio nuevo y (opcional)
+                         evaluarlo de inmediato con calibracion de umbrales
+  run                    Evaluar los dominios base:
+                         regulatory_technical y academic_institutional
+  run <dom1> [dom2]...   Evaluar dominios especificos (sin calibracion)
+  process                Solo procesar resultados ya generados (figuras + CSV)
+  shell <dominio>        Cargar aliases interactivos (requiere: source)
+  help                   Mostrar esta ayuda
+
+ORDEN DE EVALUACION (por dominio, en 'run'):
+  1. Levantar stack + auto-correccion (restart / re-ingestion)
+  2. Ingestar corpus + reinyectar fragmentos verificables si faltan
+  3. Smoke probe
+  4. Escenario A: adversarial -> legitimo -> patch garak
+  5. Escenario B: adversarial -> legitimo -> patch garak
+  6. Bajar stack y pasar al siguiente dominio
+  Al terminar todos: procesamiento de resultados (--deep --plots)
+
+EJEMPLOS:
+  ./llmsec.sh smoke regulatory_technical
+  ./llmsec.sh run
+  ./llmsec.sh run academic_institutional
+  ./llmsec.sh new
+  ./llmsec.sh process
+  source llmsec.sh shell regulatory_technical
+
+HELP
+}
+
+# ==============================================================================
+# DISPATCHER
+# ==============================================================================
+main() {
+    cd "$PROJECT_ROOT" || { echo "No se pudo cd a $PROJECT_ROOT"; exit 1; }
+
+    local cmd="${1:-help}"
+    case "$cmd" in
+        smoke)
+            [[ -z "${2:-}" ]] && { echo "Uso: ./llmsec.sh smoke <dominio>"; exit 1; }
+            smoke_test "$2"
+            print_summary
+            ;;
+        run)
+            shift || true
+            if [[ $# -gt 0 ]]; then
+                run_full "$@"
+            else
+                run_full "${BASE_DOMAINS[@]}"
+            fi
+            print_summary
+            ;;
+        new)
+            local new_dom
+            if new_dom="$(new_domain)"; then
+                CALIBRATE=1 run_full "$new_dom"
+                print_summary
+            fi
+            ;;
+        process)
+            process_results
+            print_summary
+            ;;
+        help|-h|--help)
+            show_help
+            ;;
+        *)
+            echo "Subcomando desconocido: $cmd"
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+# ── Modo shell (debe ir por source) o ejecucion normal ────────────────────────
+if [[ "${1:-}" == "shell" ]]; then
+    # Detectar si el script fue ejecutado en vez de sourced.
+    if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+        echo "El modo shell requiere source:"
+        echo "  source llmsec.sh shell <dominio>"
+        exit 1
+    fi
+    load_shell_aliases "${2:-}"
+else
+    main "$@"
+fi
