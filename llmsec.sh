@@ -11,6 +11,9 @@
 #   ./llmsec.sh new                      Crear y evaluar un dominio nuevo
 #   ./llmsec.sh run                      Evaluar los dominios base existentes
 #   ./llmsec.sh run <dom1> [dom2] ...    Evaluar dominios especificos
+#   ./llmsec.sh run-scenario <A|B> <dom> [--rebuild]
+#                                         Evaluar solo el Escenario A o B de un dominio
+#                                         (--rebuild fuerza rebuild de imagen)
 #   ./llmsec.sh process                  Solo procesar resultados ya generados
 #   ./llmsec.sh help                     Mostrar ayuda
 #
@@ -192,6 +195,39 @@ ensure_stack_up() {
 }
 
 # ==============================================================================
+# LIVE-RELOAD (uvicorn --reload)
+# docker-compose.yml lanza tesis_rag/tesis_shield con
+# 'uvicorn ... --reload --reload-dir app/src', por lo que los cambios en
+# app/src/ se recargan solos sin rebuild ni restart. Esta funcion verifica
+# que ese --reload este realmente activo en el comando con el que corre
+# cada contenedor (lo mismo que reporta 'docker compose ps'); si no lo
+# esta, reinicia ambos contenedores (sin rebuild) para que tomen el
+# codigo actual.
+# ==============================================================================
+uvicorn_reload_active() {
+    local container="$1"
+    docker inspect --format '{{.Config.Cmd}}' "$container" 2>/dev/null | grep -q -- '--reload'
+}
+
+ensure_live_reload() {
+    log_step "Live-reload (uvicorn --reload) en tesis_rag / tesis_shield"
+
+    if uvicorn_reload_active tesis_rag && uvicorn_reload_active tesis_shield; then
+        log_ok "uvicorn --reload activo en ambos contenedores"
+        log_info "Cambios en app/src/ ya estan live — no se necesita rebuild ni restart"
+        return 0
+    fi
+
+    log_fix "uvicorn --reload no detectado — reiniciando tesis_rag/tesis_shield (sin rebuild)"
+    log_info "ADVERTENCIA: sin --reload activo el proceso uvicorn podria no reflejar los ultimos cambios de app/src/; se hace 'docker compose restart' (sin reconstruir la imagen) para tomar el codigo actual."
+    docker compose restart tesis_rag tesis_shield
+    wait_healthy tesis_rag 60 >/dev/null    && log_ok "tesis_rag healthy tras restart" \
+                                             || log_err "tesis_rag unhealthy tras restart"
+    wait_healthy tesis_shield 60 >/dev/null && log_ok "tesis_shield healthy tras restart" \
+                                             || log_err "tesis_shield unhealthy tras restart"
+}
+
+# ==============================================================================
 # INGESTION + GROUND TRUTH + FRAGMENTOS VERIFICABLES
 # Si la coleccion esta vacia, ingesta. Si el ground truth falla (faltan
 # fragmentos CONFIDENTIAL), re-ingesta con --reset para reinyectarlos.
@@ -313,6 +349,19 @@ resume_if_aborted() {
     done
     log_err "No se pudo completar el run tras $MAX_GARAK_RETRIES reintentos: $cnt/$VALID_JSONL_COUNT"
     return 1
+}
+
+# ==============================================================================
+# SMOKE PROBE PREVIO (1 probe LLM07 goodside.Tag --smoke-test)
+# Args: dominio, target (unprotected|protected)
+# ==============================================================================
+smoke_probe() {
+    local domain="$1" target="$2"
+    log_hdr "Smoke previo — $domain ($target)"
+    docker compose --env-file "$(env_file_for "$domain")" --profile attacks run --rm \
+        garak_runner attack garak --target "$target" \
+        --suite LLM07 --probe goodside.Tag --smoke-test 2>&1 | tail -5 \
+        && log_ok "Smoke probe ($target) OK" || log_err "Smoke probe ($target) fallo"
 }
 
 # ==============================================================================
@@ -590,11 +639,7 @@ run_full() {
         [[ "$calibrate" == "1" ]] && calibrate_domain "$domain"
 
         # Smoke test no interactivo embebido: una probe por escenario.
-        log_hdr "Smoke previo — $domain"
-        docker compose --env-file "$(env_file_for "$domain")" --profile attacks run --rm \
-            garak_runner attack garak --target unprotected \
-            --suite LLM07 --probe goodside.Tag --smoke-test 2>&1 | tail -5 \
-            && log_ok "Smoke probe A OK" || log_err "Smoke probe A fallo"
+        smoke_probe "$domain" unprotected
 
         # Escenarios completos.
         run_scenario "$domain" unprotected   # Escenario A: adversarial + legitimo + patch
@@ -607,6 +652,52 @@ run_full() {
 
     # Procesamiento final una vez completados todos los runs.
     process_results
+}
+
+# ==============================================================================
+# EVALUACION DE UN UNICO ESCENARIO (A o B) PARA UN DOMINIO
+# Reutiliza ensure_stack_up, ensure_live_reload, ensure_corpus_ingested,
+# smoke_probe y run_scenario, pero ejecuta solo el escenario solicitado (sin
+# tocar el otro escenario, sin bajar el stack ni procesar resultados al final).
+# Args: escenario (A|B), dominio, rebuild (1 = --rebuild solicitado, def 0)
+# ==============================================================================
+run_single_scenario() {
+    local scenario="$1" domain="$2" rebuild="${3:-0}" target ef
+
+    case "${scenario^^}" in
+        A) target="unprotected" ;;
+        B) target="protected" ;;
+        *) echo "Escenario invalido: '$scenario' (usa A o B)"; return 1 ;;
+    esac
+
+    require_env_file "$domain" || return 1
+    ef="$(env_file_for "$domain")"
+
+    log_hdr "Escenario unico $scenario — dominio: $domain (target: $target)"
+
+    # Rebuild de imagen: solo si el usuario lo pide explicitamente con
+    # --rebuild (p.ej. tras cambios en Dockerfile o requirements.txt).
+    if [[ "$rebuild" == "1" ]]; then
+        log_step "Rebuild de imagenes (--rebuild solicitado)"
+        docker compose --env-file "$ef" --profile lab up -d --build \
+            && log_fix "Imagenes reconstruidas y stack actualizado" \
+            || { log_err "Rebuild fallo (docker compose up -d --build)"; return 1; }
+    fi
+
+    # Levantar stack y preparar corpus.
+    ensure_stack_up "$domain" || { log_err "Stack fallo en $domain"; return 1; }
+
+    # Verificar live-reload de uvicorn (o reiniciar sin rebuild si no esta activo).
+    ensure_live_reload
+
+    ensure_corpus_ingested "$domain" || { log_err "Corpus fallo en $domain"; return 1; }
+    verify_gpu || true
+
+    # Smoke probe previo, contra el target del escenario solicitado.
+    smoke_probe "$domain" "$target"
+
+    # Escenario solicitado: adversarial + legitimo + patch garak.
+    run_scenario "$domain" "$target"
 }
 
 # ==============================================================================
@@ -696,6 +787,10 @@ SUBCOMANDOS:
   run                    Evaluar los dominios base:
                          regulatory_technical y academic_institutional
   run <dom1> [dom2]...   Evaluar dominios especificos (sin calibracion)
+  run-scenario <A|B> <dominio>   Evaluar solo un escenario especifico para un dominio
+                                  (sin rebuild; uvicorn --reload detecta cambios en app/src/)
+    --rebuild                    Forzar rebuild de imagen antes de correr (solo si cambiaron
+                                  Dockerfile o requirements.txt)
   process                Solo procesar resultados ya generados (figuras + CSV)
   reload                 Reiniciar tesis_rag y tesis_shield sin rebuild
                          (uvicorn --reload recoge los cambios de app/src/)
@@ -715,6 +810,9 @@ EJEMPLOS:
   ./llmsec.sh smoke regulatory_technical
   ./llmsec.sh run
   ./llmsec.sh run academic_institutional
+  ./llmsec.sh run-scenario B academic_institutional
+  ./llmsec.sh run-scenario B regulatory_technical
+  ./llmsec.sh run-scenario A regulatory_technical --rebuild
   ./llmsec.sh new
   ./llmsec.sh process
   source llmsec.sh shell regulatory_technical
@@ -742,6 +840,18 @@ main() {
             else
                 run_full "${BASE_DOMAINS[@]}"
             fi
+            print_summary
+            ;;
+        run-scenario)
+            if [[ -z "${2:-}" || -z "${3:-}" ]]; then
+                echo "Uso: ./llmsec.sh run-scenario <A|B> <dominio> [--rebuild]"
+                exit 1
+            fi
+            local rebuild=0 extra
+            for extra in "${@:4}"; do
+                [[ "$extra" == "--rebuild" ]] && rebuild=1
+            done
+            run_single_scenario "$2" "$3" "$rebuild"
             print_summary
             ;;
         new)
