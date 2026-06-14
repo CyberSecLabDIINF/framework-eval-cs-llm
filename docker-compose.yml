@@ -45,7 +45,7 @@ services:
       - ./chroma_cache:/root/.cache/chroma
       - ./app/src:/root/proyecto_tesis/app/src
       - ./app/scripts:/root/proyecto_tesis/app/scripts
-    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn api.rag:app --host 0.0.0.0 --port 8000"]
+    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn api.rag:app --host 0.0.0.0 --port 8000 --reload --reload-dir /root/proyecto_tesis/app/src"]
     depends_on:
       - ollama_core
     healthcheck:
@@ -98,7 +98,7 @@ services:
       timeout: 5s
       retries: 12
 
-    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn api.shield:app --host 0.0.0.0 --port 8001"]
+    command: ["bash","-lc","mkdir -p /root/proyecto_tesis/artifacts/latency /root/proyecto_tesis/artifacts/runs && python3 -m uvicorn api.shield:app --host 0.0.0.0 --port 8001 --reload --reload-dir /root/proyecto_tesis/app/src"]
 
     depends_on:
       - ollama_core

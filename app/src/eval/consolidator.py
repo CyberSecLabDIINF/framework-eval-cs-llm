@@ -240,3 +240,108 @@ def patch_garak_passed(csv_path: Path, garak_dir: Path) -> int:
         writer.writerows(rows)
 
     return updated
+
+
+def _invert_risk_score(risk_score: float, threshold: float) -> float:
+    """Invert ``llm_guard.util.calculate_risk_score`` for a single value.
+
+    Mirrors the formula in ``api.shield._raw_score_from_risk`` (the ``None``
+    case is handled by the caller, which skips empty cells):
+      - risk_score >= 0: raw = threshold + risk_score * (1 - threshold)
+      - risk_score <  0: raw = threshold + risk_score * threshold
+    The sentinel ``risk_score == -1.0`` maps back to ``0.0``. Result is
+    clamped to ``[0.0, 1.0]``.
+    """
+    if risk_score >= 0:
+        raw = threshold + risk_score * (1 - threshold)
+    else:
+        raw = threshold + risk_score * threshold
+    return min(max(raw, 0.0), 1.0)
+
+
+def backfill_raw_scores(
+    csv_path: str,
+    pi_threshold: float = 0.92,
+    sens_threshold: float = 0.50,
+) -> None:
+    """Convert threshold-relative risk scores to raw 0-1 probabilities in-place.
+
+    Applies the inverse of LLM Guard's calculate_risk_score() to
+    input_scanner_score and output_scanner_score columns. Only modifies
+    rows where the score is not null. Overwrites the original CSV.
+
+    This function must be run once on all consolidated CSVs generated
+    before the shield.py fix (commit that added _raw_score_from_risk()).
+    After that commit, new runs write raw probabilities directly.
+
+    Args:
+        csv_path: Path to the consolidated CSV to backfill.
+        pi_threshold: PromptInjection threshold used during that run (default 0.92).
+        sens_threshold: Sensitive threshold used during that run (default 0.50).
+    """
+    path = Path(csv_path)
+    thresholds = {
+        "input_scanner_score": pi_threshold,
+        "output_scanner_score": sens_threshold,
+    }
+
+    with path.open("r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+
+    for row in rows:
+        for col, threshold in thresholds.items():
+            value = row.get(col, "")
+            if value == "":
+                continue
+            row[col] = round(_invert_risk_score(float(value), threshold), 4)
+
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _score_column_stats(csv_path: Path, column: str) -> Optional[tuple[float, float, float]]:
+    """Return (min, max, mean) for the non-empty values of ``column``, or ``None``."""
+    values = []
+    with csv_path.open("r", newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            value = row.get(column, "")
+            if value != "":
+                values.append(float(value))
+    if not values:
+        return None
+    return min(values), max(values), sum(values) / len(values)
+
+
+def run_backfill_scores(artifacts_dir: Path) -> None:
+    """Backfill scanner scores for every ``consolidated_*.csv`` under ``artifacts_dir``.
+
+    For each file, prints min/max/mean of ``input_scanner_score`` and
+    ``output_scanner_score`` before and after applying
+    :func:`backfill_raw_scores`.
+    """
+    score_columns = ("input_scanner_score", "output_scanner_score")
+    csv_paths = sorted(artifacts_dir.glob("consolidated_*.csv"))
+    if not csv_paths:
+        print(f"  [WARN] No consolidated_*.csv files found in {artifacts_dir}")
+        return
+
+    for path in csv_paths:
+        print(f"\n  {path.name}")
+        before = {col: _score_column_stats(path, col) for col in score_columns}
+
+        backfill_raw_scores(str(path))
+
+        after = {col: _score_column_stats(path, col) for col in score_columns}
+
+        for col in score_columns:
+            b, a = before[col], after[col]
+            if b is None:
+                print(f"    {col}: no data")
+                continue
+            print(f"    {col}:")
+            print(f"      before  min={b[0]:.4f}  max={b[1]:.4f}  mean={b[2]:.4f}")
+            print(f"      after   min={a[0]:.4f}  max={a[1]:.4f}  mean={a[2]:.4f}")

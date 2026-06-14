@@ -491,6 +491,32 @@ for domain in ['regulatory_technical', 'academic_institutional']:
 
 ---
 
+## Backfill de scores de escáneres
+
+> Ejecutar **una sola vez** sobre los CSVs consolidados generados **antes**
+> del fix de `_raw_score_from_risk()` en `api/shield.py`. Antes de ese fix,
+> `input_scanner_score` y `output_scanner_score` se guardaban como "risk
+> score" relativo al umbral (`calculate_risk_score()`, rango `[-1, 1]`), no
+> como probabilidad cruda del clasificador (`[0, 1]`).
+
+```bash
+python3 app/src/eval/process_results.py --backfill-scores
+```
+
+Busca todos los archivos `artifacts/consolidated_*.csv`, aplica
+`backfill_raw_scores()` (inversa de `calculate_risk_score()`, con
+`pi_threshold=0.92` y `sens_threshold=0.50`) sobre las columnas
+`input_scanner_score` y `output_scanner_score`, y sobreescribe cada archivo
+in-place. Para cada archivo imprime min/max/mean de ambas columnas antes y
+después de la conversión.
+
+> **Importante**: no volver a ejecutar este comando sobre CSVs generados
+> **después** del fix — esos runs ya escriben probabilidades crudas
+> directamente, y aplicar `--backfill-scores` sobre ellos invertiría los
+> valores incorrectamente.
+
+---
+
 ## Paso 7 — Limpieza de artefactos
 
 > Secciones independientes. Ejecutar solo la que corresponda.
@@ -704,9 +730,27 @@ scp "pc-u:~/framework-eval-cs-llm/artifacts/runs/<RUN_DIR>/garak/*.report.html" 
 
 ### Actualización de componentes
 
+`--build` reconstruye la imagen Docker. Solo es necesario si cambió el
+`Dockerfile` o `requirements.txt`:
+
 ```bash
 docker compose --env-file .env.<DOMAIN> --profile lab down
 docker compose --env-file .env.<DOMAIN> --profile lab up -d --build
+```
+
+**Para cambios de código Python en `app/src/`** (sin tocar `Dockerfile` ni
+`requirements.txt`), **no** uses `--build`. `tesis_rag` y `tesis_shield`
+corren `uvicorn` con `--reload --reload-dir app/src`, que vigila el bind
+mount `./app/src`: la próxima petición HTTP ya usa el código actualizado,
+sin reiniciar nada.
+
+Si después de editar un archivo el cambio no se refleja (por ejemplo,
+quedó un error de import a mitad de carga del módulo), reinicia solo esos
+dos servicios sin rebuild:
+
+```bash
+bash llmsec.sh reload
+# equivalente a: docker compose restart tesis_rag tesis_shield
 ```
 
 ---

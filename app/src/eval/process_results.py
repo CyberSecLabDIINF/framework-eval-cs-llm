@@ -38,6 +38,7 @@ from eval.metrics import *
 from eval.plots import *
 from eval.characterizer import run_full_characterization
 from eval.exfiltration import run_exfiltration_analysis
+from eval.consolidator import run_backfill_scores
 
 # ─────────────────────────────────────────────
 # Main
@@ -65,7 +66,18 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=None,
                         help="Output directory for --characterize results "
                              "(default: <artifacts-dir>/characterization)")
+    parser.add_argument("--backfill-scores", action="store_true",
+                        help="One-time fix: convert input_scanner_score/output_scanner_score "
+                             "in every artifacts/consolidated_*.csv from threshold-relative risk "
+                             "scores ([-1,1]) to raw probabilities (see "
+                             "eval.consolidator.backfill_raw_scores). Only run on CSVs generated "
+                             "before the _raw_score_from_risk() fix in api/shield.py.")
     args = parser.parse_args()
+
+    # ── Backfill scanner scores (one-time fix) ───────────────
+    if args.backfill_scores:
+        run_backfill_scores(args.artifacts)
+        return
 
     # ── Artifact characterization ────────────────────────────
     if args.characterize:

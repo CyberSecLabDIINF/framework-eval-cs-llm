@@ -697,6 +697,8 @@ SUBCOMANDOS:
                          regulatory_technical y academic_institutional
   run <dom1> [dom2]...   Evaluar dominios especificos (sin calibracion)
   process                Solo procesar resultados ya generados (figuras + CSV)
+  reload                 Reiniciar tesis_rag y tesis_shield sin rebuild
+                         (uvicorn --reload recoge los cambios de app/src/)
   shell <dominio>        Cargar aliases interactivos (requiere: source)
   help                   Mostrar esta ayuda
 
@@ -752,6 +754,11 @@ main() {
         process)
             process_results
             print_summary
+            ;;
+        reload)
+            echo "Reloading RAG and Shield services (no rebuild)..."
+            docker compose restart tesis_rag tesis_shield
+            echo "Done. Python changes in app/src/ are now active."
             ;;
         help|-h|--help)
             show_help
