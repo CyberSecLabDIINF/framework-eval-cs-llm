@@ -102,11 +102,11 @@ _CONTROL_TOKEN_RE = re.compile(r"<\|[a-zA-Z0-9_]+\|>")
  
 def _sanitize_control_chars(text: str) -> str:
     """
-    C2 — Remove control characters and special tokens from prompt input.
- 
     Covers:
       - Model special tokens: <|endoftext|>, <|im_start|>, <|fim_prefix|>, etc.
       - Null bytes and C0/C1 Unicode control characters (except \\n, \\t, \\r)
+
+    LLM-Sec Control C2: Strips model special tokens, null bytes, and Unicode control characters from input/output text
     """
     # Special tokens used by GPT, Llama, and similar tokenizers
     text = _CONTROL_TOKEN_RE.sub("", text)
@@ -136,6 +136,8 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
         ``pi_score`` is the continuous PromptInjection score, captured
         regardless of the block decision (TokenLimit is binary and reports a
         sentinel score of -1.0, so it is ignored for this purpose).
+
+    LLM-Sec Control C3: Blocks input prompts classified as prompt injection attempts by the PromptInjection scanner
     """
     p = user_prompt.strip()
     if not ENABLE_LLM_GUARD:
@@ -204,6 +206,10 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
 
     ``sens_score`` is the continuous Sensitive score, captured regardless of
     the block decision (whether Sensitive or OutputRegex triggered the block).
+
+    LLM-Sec Control C18: Strips control characters and special tokens from the model output before scanning/returning it
+    LLM-Sec Control C19: Blocks model output matching deterministic regex patterns for structured PII / confidential markers
+    LLM-Sec Control C20: Scores/blocks model output containing sensitive information via the Sensitive scanner
     """
     if not ENABLE_LLM_GUARD:
         return text, None, None
@@ -215,7 +221,6 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
 
     scanners = []
 
-    # C20 — semantic scanner (continuous score, participates in sensitivity analysis)
     if sens_cfg.get("enabled", True):
         scanners.append(
             Sensitive(
@@ -225,7 +230,6 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
             )
         )
  
-    # C19 — deterministic regex scanner (binary match, no continuous score)
     if HAS_OUTPUT_REGEX and rx_cfg.get("enabled", True):
         scanners.append(
             OutputRegex(
@@ -304,6 +308,9 @@ async def generate(query: Query, request: Request):
 
     Raises:
         HTTPException: 502 if the upstream RAG is unreachable or returns an error.
+
+    LLM-Sec Control C23: Records the name of the scanner that triggered the block in the consolidated CSV
+    LLM-Sec Control C31: Records a structured block_reason (input_<scanner>/output_<scanner>) for blocked requests
     """
     start = time.perf_counter()
 

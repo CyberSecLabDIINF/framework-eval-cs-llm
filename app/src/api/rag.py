@@ -200,18 +200,23 @@ def retrieve_context(query: str, k: int = 3) -> tuple:
     """
     Retrieve the top-k fragments from ChromaDB for the given query.
 
-    C8  — Only fragments whose sensitivity level is within ALLOWED_SENSITIVITY
-          are eligible for retrieval, enforcing vector store partitioning at query time.
-    C14 — Document metadata is intentionally excluded from the include list.
-          Passing only ["documents", "ids"] ensures that source paths, page numbers,
-          chunk indices, and any other metadata fields stored in ChromaDB are never
-          injected into the LLM context or exposed to the caller. The fragment IDs
-          are used internally for C9 integrity verification only and are never
-          included in the prompt sent to the model.
+    Only fragments whose sensitivity level is within ALLOWED_SENSITIVITY are
+    eligible for retrieval, enforcing vector store partitioning at query time.
+    Document metadata is intentionally excluded from the include list. Passing
+    only ["documents", "ids"] ensures that source paths, page numbers, chunk
+    indices, and any other metadata fields stored in ChromaDB are never
+    injected into the LLM context or exposed to the caller. The fragment IDs
+    are used internally for C9 integrity verification only and are never
+    included in the prompt sent to the model.
 
     Returns:
         context_str  — fragments joined for prompt injection.
         fragments    — list of (doc_id, text) pairs, used by C9 integrity check.
+
+    LLM-Sec Control C8: Restricts retrieval to fragments whose sensitivity metadata is within ALLOWED_SENSITIVITY for the active scenario
+    LLM-Sec Control C10: Bounds the number of retrieved fragments via the n_results (k) parameter passed to ChromaDB
+    LLM-Sec Control C13: Caps the total context volume injected into the prompt by limiting retrieval to k fragments
+    LLM-Sec Control C14: Excludes document metadata from retrieval, so only fragment text/IDs reach the LLM context
     """
     try:
         where_filter = {"sensitivity": {"$in": ALLOWED_SENSITIVITY}} if IS_PROTECTED else None
@@ -231,8 +236,9 @@ def retrieve_context(query: str, k: int = 3) -> tuple:
 
 def validate_system_prompt_integrity() -> bool:
     """
-    C32 — Verify that the system prompt has not been modified.
     Compares current hash against the hash computed at startup.
+
+    LLM-Sec Control C32: Verifies the system prompt and restrictions have not been modified since startup (SHA-256 hash check)
     """
     current_hash = hashlib.sha256(
         (SYSTEM_ROLE + RESTRICTIONS).encode("utf-8")
@@ -241,9 +247,10 @@ def validate_system_prompt_integrity() -> bool:
 
 def is_on_domain(query: str) -> bool:
     """
-    C4 — Validate semantic relevance of the prompt against the authorized domain.
     Returns False if the minimum distance to the corpus exceeds the configured threshold.
     Fails open: if ChromaDB is unavailable, the prompt is allowed through.
+
+    LLM-Sec Control C4: Blocks queries whose minimum semantic distance to the corpus exceeds DOMAIN_DISTANCE_THRESHOLD (out-of-domain rejection)
     """
     try:
         results = collection.query(
@@ -259,11 +266,12 @@ def is_on_domain(query: str) -> bool:
 
 def is_coherent_query(query: str) -> bool:
     """
-    C11 — Validate minimum semantic coherence of the query before retrieval.
     Returns False if the minimum distance to any corpus fragment exceeds
     QUERY_COHERENCE_THRESHOLD, indicating a structurally incoherent or
     adversarially encoded query.
     Fails open: if ChromaDB is unavailable, the query is allowed through.
+
+    LLM-Sec Control C11: Blocks queries whose minimum semantic distance to the corpus exceeds QUERY_COHERENCE_THRESHOLD (incoherent/encoded query rejection)
     """
     try:
         results = collection.query(
@@ -279,8 +287,6 @@ def is_coherent_query(query: str) -> bool:
 
 def is_safe_from_reconnaissance(query: str) -> bool:
     """
-    C12 — Detect queries designed for systematic corpus reconnaissance.
-
     Returns False if the query matches either detection strategy:
       Lexical:    explicit bulk-retrieval or enumeration patterns.
       Structural: excessive length (> _C12_MAX_TOKENS tokens) combined with
@@ -290,6 +296,8 @@ def is_safe_from_reconnaissance(query: str) -> bool:
     Fails closed on lexical matches (deterministic).
     Structural check only triggers when BOTH conditions are met simultaneously
     to avoid false positives on legitimate long queries.
+
+    LLM-Sec Control C12: Detects and blocks queries indicative of systematic corpus reconnaissance/enumeration attempts
     """
     # Lexical check — deterministic, fail closed.
     if _C12_RECON_PATTERNS.search(query):
@@ -312,8 +320,6 @@ def is_safe_from_reconnaissance(query: str) -> bool:
 
 def is_grounded_response(response: str, context: str) -> tuple:
     """
-    C17 — Validate that the model response is grounded in the retrieved context.
-
     Computes the ratio of significant response tokens that also appear in the
     context. Significant tokens are non-stop-word, alphabetic tokens of at
     least 4 characters.
@@ -327,6 +333,8 @@ def is_grounded_response(response: str, context: str) -> tuple:
         - No significant tokens in response: treated as grounded (e.g. short
           acknowledgment responses).
         - Empty context: treated as not grounded (fail closed).
+
+    LLM-Sec Control C17: Blocks responses whose token overlap with the retrieved context falls below C17_GROUNDING_THRESHOLD
     """
     if not response.strip():
         return True, 1.0
@@ -359,17 +367,17 @@ def is_grounded_response(response: str, context: str) -> tuple:
 
 def validate_corpus_integrity(fragments: list) -> tuple:
     """
-    C9 — Validate integrity of retrieved fragments before LLM context injection.
- 
     For each (doc_id, text) pair returned by ChromaDB, recomputes the SHA-256
     hash and compares it against the baseline stored in CORPUS_HASHES.
- 
+
     Returns:
         (True, None)           — all fragments pass.
         (False, tampered_id)   — first doc_id whose hash does not match.
- 
+
     Behavior on unknown IDs: a fragment whose ID was not present at startup
     is treated as a tampered document (fail-closed).
+
+    LLM-Sec Control C9: Verifies retrieved fragment hashes against the CORPUS_HASHES baseline before LLM context injection
     """
     for doc_id, text in fragments:
         expected = CORPUS_HASHES.get(doc_id)
@@ -441,6 +449,10 @@ async def generate(query: Query, request: Request):
 
     Returns:
         A JSON object ``{"response": <text>}``, blocked responses included.
+
+    LLM-Sec Control C5: Only the model's generated text is extracted/returned to the client; the system prompt (SYSTEM_ROLE/RESTRICTIONS) is never included in the response
+    LLM-Sec Control C6: Structures the prompt with explicit Context:/Question: delimiters, separating retrieved content from the user query
+    LLM-Sec Control C15: Injects externally-configured system role and restriction instructions (SYSTEM_ROLE/RESTRICTIONS) into every prompt
     """
     start = time.perf_counter()
 
@@ -503,7 +515,6 @@ Question:
     response = client.generate(model=MODEL_NAME, prompt=prompt)
     out = response.get("response", "")
 
-    # C17 — Block response if not sufficiently grounded in retrieved context.
     if IS_PROTECTED:
         grounded, grounding_ratio = is_grounded_response(out, context)
         if not grounded:

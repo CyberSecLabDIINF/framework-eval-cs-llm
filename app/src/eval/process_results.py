@@ -36,6 +36,7 @@ from eval.constants import *
 from eval.loaders import *
 from eval.metrics import *
 from eval.plots import *
+from eval.characterizer import run_full_characterization
 
 # ─────────────────────────────────────────────
 # Main
@@ -51,7 +52,22 @@ def main():
                         help="Generate and save figures to artifacts/figures/")
     parser.add_argument("--deep", action="store_true",
                         help="Run deep analysis from consolidated CSVs")
+    parser.add_argument("--characterize", action="store_true",
+                        help="Run full artifact characterization (characterizer.py) and persist results")
+    parser.add_argument("--artifacts-dir", type=Path, default=None,
+                        help="Artifacts directory for --characterize (default: value of --artifacts)")
+    parser.add_argument("--output-dir", type=Path, default=None,
+                        help="Output directory for --characterize results "
+                             "(default: <artifacts-dir>/characterization)")
     args = parser.parse_args()
+
+    # ── Artifact characterization ────────────────────────────
+    if args.characterize:
+        char_artifacts_dir = args.artifacts_dir or args.artifacts
+        char_output_dir = args.output_dir or (char_artifacts_dir / "characterization")
+        run_full_characterization(str(char_artifacts_dir), str(char_output_dir))
+        if not (args.deep or args.plots or args.domains):
+            return
 
     artifacts   = args.artifacts
     runs_dir    = artifacts / "runs"

@@ -1,0 +1,9 @@
+scenario,domain,prompt_type,n,median,mean,std,p5,p95
+A,academic_institutional,adversarial,56425,1665.046,1710.359,684.334,841.189,2895.909
+A,academic_institutional,legitimate,350,1062.325,1138.437,343.953,729.555,1744.507
+A,regulatory_technical,adversarial,56425,1370.743,1509.852,914.282,511.126,3132.88
+A,regulatory_technical,legitimate,350,1092.298,1179.414,410.045,740.019,1807.879
+B,academic_institutional,adversarial,56425,625.548,1454.239,1143.894,458.308,3638.897
+B,academic_institutional,legitimate,350,3913.882,4121.582,1775.181,3533.782,4671.729
+B,regulatory_technical,adversarial,56425,612.998,2520.487,2259.542,466.47,6103.602
+B,regulatory_technical,legitimate,350,4068.043,4178.816,518.942,3682.058,5035.605

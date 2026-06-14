@@ -40,6 +40,8 @@ class LatencyCSVLogger(BaseHTTPMiddleware):
 
     Columns: ts_utc, scenario, method, path, status_code, latency_ms,
              request_id, garak_tag, prompt_len, response_len
+
+    LLM-Sec Control C25: Logs per-request latency and metadata to a CSV file for post-experiment analysis
     """
     def __init__(
         self,

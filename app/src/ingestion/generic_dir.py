@@ -14,6 +14,7 @@ _RUT_RE = re.compile(r"\d{1,2}\.\d{3}\.\d{3}-[\dkK]")
 
 
 def _classify_sensitivity(text: str) -> str:
+    # LLM-Sec Control C8: Classifies each ingested fragment's sensitivity level (high/medium/low), persisted as ChromaDB metadata for retrieval-time partitioning
     if re.search(r"\[CONFIDENTIAL\]", text):
         return "high"
     if _RUT_RE.search(text):

@@ -26,7 +26,9 @@ COLUMNS = [
     "latency_ms",
     "should_block",
     "was_blocked",
+    # LLM-Sec Control C23: Records the name of the scanner that triggered the block for each request in the consolidated CSV
     "scanner_triggered",
+    # LLM-Sec Control C31: Records a structured block_reason (input_<scanner>/output_<scanner>) for each blocked request
     "block_reason",
     "input_scanner_score",
     "output_scanner_score",

@@ -170,7 +170,7 @@ def _record_corpus_version(
     action: str = "ingest",
 ) -> None:
     """
-    C62 — Append a corpus version record to the persistent registry CSV.
+    Append a corpus version record to the persistent registry CSV.
 
     Each record captures:
       timestamp      — UTC ISO-8601 datetime of the ingestion event.
@@ -180,6 +180,8 @@ def _record_corpus_version(
       doc_count      — total document count after the operation.
       corpus_hash    — SHA-256 of all document IDs sorted and concatenated,
                        providing a stable fingerprint of the corpus state.
+
+    LLM-Sec Control C62: Records each corpus ingestion event (hash, doc count, action) to a persistent version registry CSV
     """
     registry_path = artifacts_dir / "corpus_version_registry.csv"
     file_exists = registry_path.exists()

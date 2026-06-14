@@ -21,6 +21,7 @@ from eval.constants import (
 )
 from eval.loaders import (
     _confusion_counts,
+    _confusion_counts_system,
     _extract_suite,
     _load_consolidated_legit,
     _load_jsonl_eval_entries,
@@ -564,40 +565,36 @@ def plot_latency_distribution_by_suite(lat_a: pd.DataFrame, figures_dir: Path):
     _save(fig, figures_dir, "las_distribution_by_suite_A.png")
     plt.close(fig)
 
-def plot_confusion_matrix(artifacts_dir: Path, domains: list, figures_dir: Path):
-    """
-    Heatmap confusion matrix for LLM Guard — Scenario B.
-    One subplot per domain.
+def _render_confusion_matrices(
+    matrices: list,
+    valid_domains: list,
+    title: str,
+    filename: str,
+    figures_dir: Path,
+    recall_label: str = "Recall",
+):
+    """Renders one confusion-matrix heatmap subplot per domain and saves the figure.
+
+    Shared by ``plot_confusion_matrix`` (system-level, two-layer) and
+    ``plot_confusion_matrix_guard_only`` (single-layer, LLM Guard only) so
+    both Scenario B perspectives are rendered identically.
+
+    Args:
+        matrices: 2x2 arrays ``[[TP, FN], [FP, TN]]``, one per domain.
+        valid_domains: Domain names corresponding to ``matrices``.
+        title: Figure suptitle.
+        filename: Output PNG filename, saved under ``figures_dir``.
+        figures_dir: Output directory for figures.
+        recall_label: Label used for the recall row in the per-subplot stats box.
     """
     import matplotlib.pyplot as plt
-    import numpy as np
     setup_style()
-
-    valid_domains = []
-    matrices = []
-
-    for domain in domains:
-        df_b = load_consolidated(artifacts_dir, domain, "protected")
-        if df_b.empty:
-            print(f"  [skip] confusion matrix: no Scenario B data for {domain}")
-            continue
-        adv   = df_b[df_b["prompt_type"] == "adversarial"]
-        legit = df_b[df_b["prompt_type"] == "legitimate"]
-        counts = _confusion_counts(adv, legit)
-        TP, FN, FP, TN = counts["TP"], counts["FN"], counts["FP"], counts["TN"]
-        valid_domains.append(domain)
-        matrices.append(np.array([[TP, FN], [FP, TN]]))
-
-    if not valid_domains:
-        print("  [skip] confusion matrix: no Scenario B data available yet.")
-        return
 
     n = len(valid_domains)
     fig, axes = plt.subplots(1, n, figsize=(5 * n, 4))
     if n == 1:
         axes = [axes]
 
-    labels = ["BLOCK", "PASS"]
     row_labels = ["Actual\nATTACK", "Actual\nLEGIT"]
 
     for ax, domain, matrix in zip(axes, valid_domains, matrices):
@@ -605,7 +602,7 @@ def plot_confusion_matrix(artifacts_dir: Path, domains: list, figures_dir: Path)
         # Normalize for color, show raw counts as annotation
         norm = matrix / total if total > 0 else matrix
 
-        im = ax.imshow(norm, cmap="Blues", vmin=0, vmax=1)
+        ax.imshow(norm, cmap="Blues", vmin=0, vmax=1)
 
         ax.set_xticks([0, 1])
         ax.set_xticklabels(["Predicted\nBLOCK", "Predicted\nPASS"], fontsize=9)
@@ -613,7 +610,6 @@ def plot_confusion_matrix(artifacts_dir: Path, domains: list, figures_dir: Path)
         ax.set_yticklabels(row_labels, fontsize=9)
 
         cell_labels = [["TP", "FN"], ["FP", "TN"]]
-        colors_text  = [["white", "black"], ["black", "white"]]
 
         for i in range(2):
             for j in range(2):
@@ -634,7 +630,7 @@ def plot_confusion_matrix(artifacts_dir: Path, domains: list, figures_dir: Path)
         specificity = TN/(TN+FP) if (TN+FP) > 0 else 0
 
         stats = (f"Precision: {precision:.3f}\n"
-                 f"Recall (TFA): {recall:.3f}\n"
+                 f"{recall_label}: {recall:.3f}\n"
                  f"F1: {f1:.3f}\n"
                  f"Specificity: {specificity:.3f}")
         ax.text(1.35, 0.5, stats,
@@ -645,10 +641,93 @@ def plot_confusion_matrix(artifacts_dir: Path, domains: list, figures_dir: Path)
 
         ax.set_title(domain.replace("_", " ").title(), fontsize=10)
 
-    fig.suptitle("Confusion Matrix — LLM Guard (Scenario B)", fontweight="bold")
+    fig.suptitle(title, fontweight="bold")
     fig.tight_layout()
-    _save(fig, figures_dir, "confusion_matrix_scenario_b.png")
+    _save(fig, figures_dir, filename)
     plt.close(fig)
+
+
+def plot_confusion_matrix(artifacts_dir: Path, domains: list, figures_dir: Path):
+    """
+    Heatmap confusion matrix for Scenario B — SYSTEM-LEVEL (two-layer, PRIMARY) view.
+
+    TP/FN account for BOTH defensive layers: LLM Guard (``was_blocked``) and
+    the model's own intrinsic resistance (``garak_passed``). A prompt that
+    LLM Guard passed but the model resisted naturally is a system-level TP,
+    NOT an FN — see ``_confusion_counts_system`` in ``loaders.py`` for the
+    full two-layer definition. This is the PRIMARY Scenario B matrix; use
+    ``plot_confusion_matrix_guard_only`` for LLM Guard's contribution in
+    isolation. One subplot per domain.
+    """
+    import numpy as np
+
+    valid_domains = []
+    matrices = []
+
+    for domain in domains:
+        df_b = load_consolidated(artifacts_dir, domain, "protected")
+        if df_b.empty:
+            print(f"  [skip] confusion matrix: no Scenario B data for {domain}")
+            continue
+        adv   = df_b[df_b["prompt_type"] == "adversarial"]
+        legit = df_b[df_b["prompt_type"] == "legitimate"]
+        counts = _confusion_counts_system(adv, legit)
+        TP, FN, FP, TN = counts["TP"], counts["FN"], counts["FP"], counts["TN"]
+        valid_domains.append(domain)
+        matrices.append(np.array([[TP, FN], [FP, TN]]))
+
+    if not valid_domains:
+        print("  [skip] confusion matrix: no Scenario B data available yet.")
+        return
+
+    _render_confusion_matrices(
+        matrices, valid_domains,
+        title="Confusion Matrix — Scenario B, System-Level (Two-Layer)",
+        filename="confusion_matrix_scenario_b.png",
+        figures_dir=figures_dir,
+        recall_label="Recall (TFA_B)",
+    )
+
+
+def plot_confusion_matrix_guard_only(artifacts_dir: Path, domains: list, figures_dir: Path):
+    """
+    Heatmap confusion matrix for Scenario B — LLM GUARD ONLY (single-layer) view.
+
+    TP/FN depend only on ``was_blocked`` vs. ``should_block``, i.e. LLM
+    Guard's blocking decision in isolation, ignoring whether the model would
+    have resisted the attack on its own — see ``_confusion_counts`` in
+    ``loaders.py``. Provided alongside the system-level matrix
+    (``plot_confusion_matrix``) so both perspectives are available for
+    analysis. One subplot per domain.
+    """
+    import numpy as np
+
+    valid_domains = []
+    matrices = []
+
+    for domain in domains:
+        df_b = load_consolidated(artifacts_dir, domain, "protected")
+        if df_b.empty:
+            print(f"  [skip] confusion matrix (guard-only): no Scenario B data for {domain}")
+            continue
+        adv   = df_b[df_b["prompt_type"] == "adversarial"]
+        legit = df_b[df_b["prompt_type"] == "legitimate"]
+        counts = _confusion_counts(adv, legit)
+        TP, FN, FP, TN = counts["TP"], counts["FN"], counts["FP"], counts["TN"]
+        valid_domains.append(domain)
+        matrices.append(np.array([[TP, FN], [FP, TN]]))
+
+    if not valid_domains:
+        print("  [skip] confusion matrix (guard-only): no Scenario B data available yet.")
+        return
+
+    _render_confusion_matrices(
+        matrices, valid_domains,
+        title="Confusion Matrix — Scenario B, LLM Guard Only (Single-Layer)",
+        filename="confusion_matrix_scenario_b_guard_only.png",
+        figures_dir=figures_dir,
+        recall_label="Recall",
+    )
 
 
 def plot_detector_heatmap(runs_dir: Path, domains: list, figures_dir: Path):
@@ -882,6 +961,7 @@ def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
     plot_latency_distribution_by_suite(lat_a, figures_dir)
     plot_confusion_matrix_scenario_a(artifacts_dir, domains, figures_dir)
     plot_confusion_matrix(artifacts_dir, domains, figures_dir)
+    plot_confusion_matrix_guard_only(artifacts_dir, domains, figures_dir)
     plot_detector_heatmap(runs_dir, domains, figures_dir)
 
     n = len(list(figures_dir.glob("*.png")))
