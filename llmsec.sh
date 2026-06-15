@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # llmsec.sh — Pipeline unificado del laboratorio LLM-Sec
-# Tesis: Marco de evaluacion de ciberseguridad en plataformas RAG
-# USACH DIINF — Valentina Paz Campos Olguin
+# Tesis: Marco de evaluación de ciberseguridad en plataformas RAG
+# USACH DIINF — Valentina Paz Campos Olguín
 #
 # Reemplaza a lab.sh, new-domain.sh y smoke-test.sh en un solo archivo.
 #
@@ -10,7 +10,7 @@
 #   ./llmsec.sh smoke <dominio>          Solo smoke test de un dominio
 #   ./llmsec.sh new                      Crear y evaluar un dominio nuevo
 #   ./llmsec.sh run                      Evaluar los dominios base existentes
-#   ./llmsec.sh run <dom1> [dom2] ...    Evaluar dominios especificos
+#   ./llmsec.sh run <dom1> [dom2] ...    Evaluar dominios específicos
 #   ./llmsec.sh run-scenario <A|B> <dom> [--rebuild]
 #                                         Evaluar solo el Escenario A o B de un dominio
 #                                         (--rebuild fuerza rebuild de imagen)
@@ -23,8 +23,8 @@
 # Basado en los comandos declarados en RUNBOOK.md.
 # ==============================================================================
 
-# No usar `set -e` global: el pipeline necesita capturar codigos de retorno
-# y aplicar auto-correccion en lugar de abortar al primer fallo.
+# No usar `set -e` global: el pipeline necesita capturar códigos de retorno
+# y aplicar auto-corrección en lugar de abortar al primer fallo.
 set -uo pipefail
 
 # ── Constantes del proyecto ───────────────────────────────────────────────────
@@ -32,10 +32,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 CHROMA_PATH="/root/proyecto_tesis/chroma_db"
 
-# Dominios base de la tesis (orden de evaluacion).
+# Dominios base de la tesis (orden de evaluación).
 BASE_DOMAINS=(regulatory_technical academic_institutional)
 
-# Criterio de validez de run (memoria de proyecto): un run valido tiene
+# Criterio de validez de run (memoria de proyecto): un run válido tiene
 # exactamente 55 JSONL; runs abortados tienen entre 0 y 30.
 VALID_JSONL_COUNT=55
 MAX_GARAK_RETRIES=2
@@ -98,7 +98,7 @@ wait_healthy() {
     return 1
 }
 
-# Cuenta chunks indexados de una coleccion en ChromaDB.
+# Cuenta chunks indexados de una colección en ChromaDB.
 chunk_count() {
     local domain="$1"
     docker exec tesis_rag python3 -c "
@@ -114,7 +114,7 @@ except Exception:
 # ── GPU ───────────────────────────────────────────────────────────────────────
 verify_gpu() {
     if ! nvidia-smi &>/dev/null; then
-        log_err "nvidia-smi no responde — el experimento sera muy lento por CPU"
+        log_err "nvidia-smi no responde — el experimento será muy lento por CPU"
         return 1
     fi
     log_ok "GPU host disponible"
@@ -126,14 +126,14 @@ verify_gpu() {
         if echo "$ps_out" | grep -q "GPU"; then
             log_ok "Ollama corriendo sobre GPU"
         else
-            log_info "Ollama no reporta GPU aun (puede ser normal si el modelo no esta cargado)"
+            log_info "Ollama no reporta GPU aún (puede ser normal si el modelo no está cargado)"
         fi
     fi
     return 0
 }
 
 # ==============================================================================
-# LEVANTAR STACK + AUTO-CORRECCION
+# LEVANTAR STACK + AUTO-CORRECCIÓN
 # Deja tesis_rag y tesis_shield healthy y el corpus del dominio ingestado.
 # ==============================================================================
 ensure_stack_up() {
@@ -144,19 +144,19 @@ ensure_stack_up() {
 
     # 1. Levantar si no esta corriendo
     if container_running tesis_rag && container_running tesis_shield; then
-        log_ok "Stack ya esta corriendo"
+        log_ok "Stack ya está corriendo"
     else
         log_info "Levantando stack..."
         docker compose --env-file "$ef" --profile lab up -d
         log_fix "Stack levantado"
     fi
 
-    # 2. Health de tesis_rag con cadena de auto-correccion
+    # 2. Health de tesis_rag con cadena de auto-corrección
     log_info "Esperando health de tesis_rag (max 120s)..."
     if wait_healthy tesis_rag 120; then
         log_ok "tesis_rag healthy"
     else
-        # Causa mas comun (memoria): ChromaDB perdio referencia a la coleccion
+        # Causa más común (memoria): ChromaDB perdió referencia a la colección
         # tras operaciones de volumen. Restart primero.
         log_fix "tesis_rag unhealthy — restart..."
         docker restart tesis_rag; sleep 10
@@ -214,12 +214,12 @@ ensure_live_reload() {
 
     if uvicorn_reload_active tesis_rag && uvicorn_reload_active tesis_shield; then
         log_ok "uvicorn --reload activo en ambos contenedores"
-        log_info "Cambios en app/src/ ya estan live — no se necesita rebuild ni restart"
+        log_info "Cambios en app/src/ ya están live — no se necesita rebuild ni restart"
         return 0
     fi
 
     log_fix "uvicorn --reload no detectado — reiniciando tesis_rag/tesis_shield (sin rebuild)"
-    log_info "ADVERTENCIA: sin --reload activo el proceso uvicorn podria no reflejar los ultimos cambios de app/src/; se hace 'docker compose restart' (sin reconstruir la imagen) para tomar el codigo actual."
+    log_info "ADVERTENCIA: sin --reload activo el proceso uvicorn podría no reflejar los últimos cambios de app/src/; se hace 'docker compose restart' (sin reconstruir la imagen) para tomar el código actual."
     docker compose restart tesis_rag tesis_shield
     wait_healthy tesis_rag 60 >/dev/null    && log_ok "tesis_rag healthy tras restart" \
                                              || log_err "tesis_rag unhealthy tras restart"
@@ -229,7 +229,7 @@ ensure_live_reload() {
 
 # ==============================================================================
 # INGESTION + GROUND TRUTH + FRAGMENTOS VERIFICABLES
-# Si la coleccion esta vacia, ingesta. Si el ground truth falla (faltan
+# Si la colección está vacía, ingesta. Si el ground truth falla (faltan
 # fragmentos CONFIDENTIAL), re-ingesta con --reset para reinyectarlos.
 # ==============================================================================
 ensure_corpus_ingested() {
@@ -243,7 +243,7 @@ ensure_corpus_ingested() {
     if [[ "$n" -gt 0 ]]; then
         log_ok "Corpus indexado: $n chunks"
     else
-        log_info "Coleccion vacia — ingestando..."
+        log_info "Colección vacía — ingestando..."
         docker compose --env-file "$ef" run --rm rag_api \
             python3 -m cli ingest --source "$domain" --reset 2>&1 | tail -5
         docker restart tesis_rag; sleep 10
@@ -284,17 +284,17 @@ ensure_corpus_ingested() {
 }
 
 # ==============================================================================
-# CALIBRACION (solo dominio nuevo)
+# CALIBRACIÓN (solo dominio nuevo)
 # Los dominios base ya tienen sus umbrales fijados en el .env y en el RUNBOOK;
-# recalibrarlos sobreescribiria evidencia experimental. Por eso es opt-in.
+# recalibrarlos sobreescribiría evidencia experimental. Por eso es opt-in.
 # ==============================================================================
 calibrate_domain() {
     local domain="$1" ef
     ef="$(env_file_for "$domain")"
 
-    log_step "Calibracion de umbrales — $domain"
+    log_step "Calibración de umbrales — $domain"
 
-    log_info "C11 — coherencia semantica de queries..."
+    log_info "C11 — coherencia semántica de queries..."
     docker exec tesis_rag python app/scripts/calibrate_c11.py \
         --domain "$domain" 2>&1 | tail -3
     grep QUERY_COHERENCE_THRESHOLD "$ef" || true
@@ -308,8 +308,8 @@ calibrate_domain() {
 }
 
 # ==============================================================================
-# DETECCION DE RUN ABORTADO + REANUDACION
-# Localiza el run mas reciente y, si esta incompleto, intenta continue-run.
+# DETECCIÓN DE RUN ABORTADO + REANUDACIÓN
+# Localiza el run más reciente y, si está incompleto, intenta continue-run.
 # ==============================================================================
 latest_run_dir() {
     ls -dt "${PROJECT_ROOT}"/artifacts/runs/*/ 2>/dev/null | head -1
@@ -329,7 +329,7 @@ resume_if_aborted() {
 
     cnt="$(jsonl_in_run "$run")"
     if [[ "$cnt" -ge "$VALID_JSONL_COUNT" ]]; then
-        log_ok "Run completo: $cnt/$VALID_JSONL_COUNT JSONL"
+        log_ok "Run completado: $cnt/$VALID_JSONL_COUNT JSONL"
         return 0
     fi
 
@@ -345,7 +345,7 @@ resume_if_aborted() {
             log_fix "Run reanudado y completado (intento $attempt): $cnt JSONL"
             return 0
         fi
-        log_info "Aun incompleto ($cnt) tras intento $attempt..."
+        log_info "Aún incompleto ($cnt) tras intento $attempt..."
     done
     log_err "No se pudo completar el run tras $MAX_GARAK_RETRIES reintentos: $cnt/$VALID_JSONL_COUNT"
     return 1
@@ -365,7 +365,7 @@ smoke_probe() {
 }
 
 # ==============================================================================
-# EJECUCION DE UN ESCENARIO COMPLETO (adversarial + legitimo + patch)
+# EJECUCIÓN DE UN ESCENARIO COMPLETO (adversarial + legítimo + patch)
 # Args: dominio, target (unprotected|protected)
 # ==============================================================================
 run_scenario() {
@@ -385,13 +385,13 @@ run_scenario() {
     rc=0
     docker compose --env-file "$ef" --profile attacks up garak_runner || rc=$?
     if [[ $rc -ne 0 ]]; then
-        log_info "garak_runner termino con rc=$rc — verificando si el run es reanudable..."
+        log_info "garak_runner terminó con rc=$rc — verificando si el run es reanudable..."
     fi
     # Detectar y reanudar runs abortados independientemente del rc.
     resume_if_aborted "$domain" "$target" || log_err "Ataques $label incompletos"
 
-    # 3. Prompts legitimos
-    log_step "Prompts legitimos ($target)"
+    # 3. Prompts legítimos
+    log_step "Prompts legítimos ($target)"
     rc=0
     if [[ "$target" == "unprotected" ]]; then
         docker exec tesis_rag python3 -m cli attack legitimate \
@@ -400,8 +400,8 @@ run_scenario() {
         docker exec tesis_shield python3 -m cli attack legitimate \
             --target protected 2>&1 | tail -5 || rc=$?
     fi
-    [[ $rc -eq 0 ]] && log_ok "Prompts legitimos $label ejecutados" \
-                    || log_err "Prompts legitimos $label rc=$rc"
+    [[ $rc -eq 0 ]] && log_ok "Prompts legítimos $label ejecutados" \
+                    || log_err "Prompts legítimos $label rc=$rc"
 
     # 4. Patch garak_passed (inmediato: necesita el RUN_DIR de este run)
     log_step "Patch garak_passed ($target)"
@@ -422,12 +422,12 @@ process_results() {
     python3 app/src/eval/process_results.py \
         --artifacts artifacts/ --deep --plots || rc=$?
     if [[ $rc -eq 0 ]]; then
-        log_ok "Procesamiento completado — figuras en artifacts/figures/"
+        log_ok "Procesamiento completado: figuras en artifacts/figures/"
     else
         log_err "process_results.py rc=$rc"
     fi
 
-    # Verificacion rapida de integridad de los 4 CSV consolidados.
+    # Verificación rápida de integridad de los 4 CSV consolidados.
     log_step "Integridad de CSV consolidados"
     for d in "${BASE_DOMAINS[@]}"; do
         for s in unprotected protected; do
@@ -442,7 +442,7 @@ process_results() {
 }
 
 # ==============================================================================
-# SMOKE TEST (1 probe x 1 repeticion, ambos escenarios)
+# SMOKE TEST (1 probe x 1 repetición, ambos escenarios)
 # ==============================================================================
 smoke_test() {
     local domain="$1" ef rc
@@ -475,11 +475,11 @@ smoke_test() {
         --suite LLM07 --probe goodside.Tag --smoke-test 2>&1 | tail -10 || rc=$?
     [[ $rc -eq 0 ]] && log_ok "Probe A rc=0" || log_err "Probe A rc=$rc"
 
-    log_step "Prompts legitimos — Escenario A"
+    log_step "Prompts legítimos — Escenario A"
     rc=0
     docker exec -e RUN_KIND=smoke_test tesis_rag python3 -m cli attack legitimate \
         --target unprotected --repetitions 1 2>&1 | tail -5 || rc=$?
-    [[ $rc -eq 0 ]] && log_ok "Legitimos A OK" || log_err "Legitimos A rc=$rc"
+    [[ $rc -eq 0 ]] && log_ok "Legítimos A OK" || log_err "Legítimos A rc=$rc"
 
     log_step "Patch garak_passed — Escenario A"
     docker exec tesis_rag python3 -m cli metrics patch-garak \
@@ -494,11 +494,11 @@ smoke_test() {
         --suite LLM07 --probe goodside.Tag --smoke-test 2>&1 | tail -10 || rc=$?
     [[ $rc -eq 0 ]] && log_ok "Probe B rc=0" || log_err "Probe B rc=$rc"
 
-    log_step "Prompts legitimos — Escenario B"
+    log_step "Prompts legítimos — Escenario B"
     rc=0
     docker exec -e RUN_KIND=smoke_test tesis_shield python3 -m cli attack legitimate \
         --target protected --repetitions 1 2>&1 | tail -5 || rc=$?
-    [[ $rc -eq 0 ]] && log_ok "Legitimos B OK" || log_err "Legitimos B rc=$rc"
+    [[ $rc -eq 0 ]] && log_ok "Legítimos B OK" || log_err "Legítimos B rc=$rc"
 
     log_step "Patch garak_passed — Escenario B"
     docker exec tesis_rag python3 -m cli metrics patch-garak \
@@ -506,7 +506,7 @@ smoke_test() {
         && log_ok "patch-garak B OK" || log_err "patch-garak B fallo"
 
     # Limpieza opcional
-    log_step "Limpieza de artefactos del smoke test"
+    log_step "Limpieza de artefactos del smoke test (opcional)"
     read -rp "  Limpiar artefactos del smoke test? (s/N): " CLEAN
     if [[ "${CLEAN,,}" == "s" ]]; then
         rm -rf artifacts/runs/* artifacts/smoke_test 2>/dev/null || true
@@ -518,10 +518,10 @@ smoke_test() {
 }
 
 # ==============================================================================
-# CREACION DE DOMINIO NUEVO (interactivo)
+# CREACIÓN DE DOMINIO NUEVO (interactivo)
 # ==============================================================================
 new_domain() {
-    log_hdr "Configuracion de nuevo dominio — LLM-Sec"
+    log_hdr "Configuración de nuevo dominio — LLM-Sec"
 
     local DOMAIN_NAME
     while true; do
@@ -529,7 +529,7 @@ new_domain() {
         DOMAIN_NAME="${DOMAIN_NAME// /_}"
         DOMAIN_NAME="${DOMAIN_NAME//[^a-zA-Z0-9_]/}"
         if [[ -z "$DOMAIN_NAME" ]]; then
-            echo "  El nombre no puede estar vacio."; continue
+            echo "  El nombre no puede estar vacío."; continue
         fi
         if [[ -f "${PROJECT_ROOT}/.env.${DOMAIN_NAME}" ]]; then
             read -rp "  Ya existe .env.${DOMAIN_NAME}. Sobreescribir? (s/N): " OW
@@ -539,7 +539,7 @@ new_domain() {
     done
 
     echo ""
-    echo "Umbrales de calibracion (Enter = valor por defecto):"
+    echo "Umbrales de calibración (Enter = valor por defecto):"
     read -rp "  QUERY_COHERENCE_THRESHOLD [1.35]: " COH;  COH="${COH:-1.35}"
     read -rp "  C17_GROUNDING_THRESHOLD [0.0556]: " GRD;  GRD="${GRD:-0.0556}"
     read -rp "  SENSITIVITY_LEVEL [high]: " SENS;          SENS="${SENS:-high}"
@@ -601,19 +601,19 @@ EOF
     echo "       ${LEGIT_JSON}"
     echo "  3. Completa verification_queries.json con el ground truth"
     echo ""
-    read -rp "Listo lo anterior? Continuar con la evaluacion completa ahora? (s/N): " GO
+    read -rp "Listo lo anterior? Continuar con la evaluación completa ahora? (s/N): " GO
     if [[ "${GO,,}" == "s" ]]; then
         echo "$DOMAIN_NAME"
         return 0
     fi
     echo ""
-    echo "Cuando todo este listo, ejecuta:"
+    echo "Cuando todo esté listo, ejecuta:"
     echo "  ./llmsec.sh run ${DOMAIN_NAME}"
     return 1
 }
 
 # ==============================================================================
-# EVALUACION COMPLETA DE UNO O VARIOS DOMINIOS
+# EVALUACIÓN COMPLETA DE UNO O VARIOS DOMINIOS
 # Orden por dominio: smoke -> A(adv+legit) -> B(adv+legit) -> patch (en cada uno).
 # Patch de garak se hace dentro de cada escenario (RUNBOOK 4.8 / 5.10).
 # Al final de todos los dominios: procesamiento de resultados.
@@ -623,7 +623,7 @@ run_full() {
     local calibrate="${CALIBRATE:-0}"
     local domains=("$@")
 
-    log_hdr "Evaluacion completa — dominios: ${domains[*]}"
+    log_hdr "Evaluación completa — dominios: ${domains[*]}"
 
     for domain in "${domains[@]}"; do
         require_env_file "$domain" || continue
@@ -631,22 +631,22 @@ run_full() {
         log_hdr "DOMINIO: $domain"
 
         # Levantar stack y preparar corpus una vez por dominio.
-        ensure_stack_up "$domain"        || { log_err "Stack fallo en $domain — saltando"; continue; }
-        ensure_corpus_ingested "$domain" || { log_err "Corpus fallo en $domain — saltando"; continue; }
+        ensure_stack_up "$domain"        || { log_err "Stack falló en $domain — saltando"; continue; }
+        ensure_corpus_ingested "$domain" || { log_err "Corpus falló en $domain — saltando"; continue; }
         verify_gpu || true
 
-        # Calibracion solo si se pidio (dominio nuevo).
+        # Calibración solo si se pidió (dominio nuevo).
         [[ "$calibrate" == "1" ]] && calibrate_domain "$domain"
 
         # Smoke test no interactivo embebido: una probe por escenario.
         smoke_probe "$domain" unprotected
 
         # Escenarios completos.
-        run_scenario "$domain" unprotected   # Escenario A: adversarial + legitimo + patch
-        run_scenario "$domain" protected      # Escenario B: adversarial + legitimo + patch
+        run_scenario "$domain" unprotected   # Escenario A: adversarial + legítimo + patch
+        run_scenario "$domain" protected      # Escenario B: adversarial + legítimo + patch
 
         # Bajar el stack antes de cambiar de dominio (RUNBOOK 4.9 / 5.11).
-        log_step "Bajando stack de $domain antes de cambiar de dominio"
+        log_step "Bajando stack de $domain antes de cambiar de dominio (RUNBOOK 4.9 / 5.11)"
         docker compose --env-file "$(env_file_for "$domain")" down
     done
 
@@ -655,7 +655,7 @@ run_full() {
 }
 
 # ==============================================================================
-# EVALUACION DE UN ÚNICO ESCENARIO (A o B) PARA UN DOMINIO
+# EVALUACIÓN DE UN ÚNICO ESCENARIO (A o B) PARA UN DOMINIO
 # Reutiliza ensure_stack_up, ensure_live_reload, ensure_corpus_ingested,
 # smoke_probe y run_scenario, pero ejecuta solo el escenario solicitado (sin
 # tocar el otro escenario, sin bajar el stack ni procesar resultados al final).
@@ -667,7 +667,7 @@ run_single_scenario() {
     case "${scenario^^}" in
         A) target="unprotected" ;;
         B) target="protected" ;;
-        *) echo "Escenario invalido: '$scenario' (usa A o B)"; return 1 ;;
+        *) echo "Escenario inválido: '$scenario' (usa A o B)"; return 1 ;;
     esac
 
     require_env_file "$domain" || return 1
@@ -675,28 +675,28 @@ run_single_scenario() {
 
     log_hdr "Escenario único $scenario — dominio: $domain (target: $target)"
 
-    # Rebuild de imagen: solo si el usuario lo pide explicitamente con
+    # Rebuild de imagen: solo si el usuario lo pide explícitamente con
     # --rebuild (p.ej. tras cambios en Dockerfile o requirements.txt).
     if [[ "$rebuild" == "1" ]]; then
-        log_step "Rebuild de imagenes (--rebuild solicitado)"
+        log_step "Rebuild de imágenes (--rebuild solicitado)"
         docker compose --env-file "$ef" --profile lab up -d --build \
-            && log_fix "Imagenes reconstruidas y stack actualizado" \
-            || { log_err "Rebuild fallo (docker compose up -d --build)"; return 1; }
+            && log_fix "Imágenes reconstruidas y stack actualizado" \
+            || { log_err "Rebuild falló (docker compose up -d --build)"; return 1; }
     fi
 
     # Levantar stack y preparar corpus.
-    ensure_stack_up "$domain" || { log_err "Stack fallo en $domain"; return 1; }
+    ensure_stack_up "$domain" || { log_err "Stack falló en $domain"; return 1; }
 
-    # Verificar live-reload de uvicorn (o reiniciar sin rebuild si no esta activo).
+    # Verificar live-reload de uvicorn (o reiniciar sin rebuild si no está activo).
     ensure_live_reload
 
-    ensure_corpus_ingested "$domain" || { log_err "Corpus fallo en $domain"; return 1; }
+    ensure_corpus_ingested "$domain" || { log_err "Corpus falló en $domain"; return 1; }
     verify_gpu || true
 
     # Smoke probe previo, contra el target del escenario solicitado.
     smoke_probe "$domain" "$target"
 
-    # Escenario solicitado: adversarial + legitimo + patch garak.
+    # Escenario solicitado: adversarial + legítimo + patch garak.
     run_scenario "$domain" "$target"
 }
 
@@ -706,7 +706,7 @@ run_single_scenario() {
 print_summary() {
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  Resumen de ejecucion"
+    echo "  Resumen de ejecución"
     echo "═══════════════════════════════════════════════════════════"
     echo -e "  ${GREEN}OK:    $PASS${NC}"
     echo -e "  ${RED}ERR:   $FAIL${NC}"
@@ -715,12 +715,12 @@ print_summary() {
     if [[ $FAIL -eq 0 ]]; then
         echo -e "  ${GREEN}Sin errores pendientes.${NC}"
     else
-        echo -e "  ${RED}Hay $FAIL error(es) que requieren revision manual (lineas ERR).${NC}"
+        echo -e "  ${RED}Hay $FAIL error(es) que requieren revisión manual (líneas ERR).${NC}"
     fi
 }
 
 # ==============================================================================
-# ALIASES INTERACTIVOS (modo shell)
+# ALIAS INTERACTIVOS (modo shell)
 # Solo se cargan al hacer: source llmsec.sh shell <dominio>
 # ==============================================================================
 load_shell_aliases() {
@@ -753,7 +753,7 @@ load_shell_aliases() {
     lab-help() {
         cat << 'HLP'
 
-Aliases del laboratorio (modo shell)
+Alias del laboratorio (modo shell)
   lab-domain        Ver dominio activo
   lab-up            Levantar stack
   lab-down          Bajar stack
@@ -765,7 +765,7 @@ Aliases del laboratorio (modo shell)
   lab-ingest        Ingestar corpus del dominio activo
   lab-verify        Verificar ground truth
 
-Para la evaluacion completa usa los subcomandos del script:
+Para la evaluación completa usa los subcomandos del script:
   ./llmsec.sh run | smoke <dom> | new | process
 HLP
     }
@@ -782,27 +782,27 @@ llmsec.sh — Pipeline unificado del laboratorio LLM-Sec
 
 SUBCOMANDOS:
   smoke <dominio>        Solo smoke test (1 probe x 1 rep, ambos escenarios)
-  new                    Crear configuracion de un dominio nuevo y (opcional)
-                         evaluarlo de inmediato con calibracion de umbrales
+  new                    Crear configuración de un dominio nuevo y (opcional)
+                         evaluarlo de inmediato con calibración de umbrales
   run                    Evaluar los dominios base:
                          regulatory_technical y academic_institutional
-  run <dom1> [dom2]...   Evaluar dominios especificos (sin calibracion)
-  run-scenario <A|B> <dominio>   Evaluar solo un escenario especifico para un dominio
+  run <dom1> [dom2]...   Evaluar dominios específicos (sin calibración)
+  run-scenario <A|B> <dominio>   Evaluar solo un escenario específico para un dominio
                                   (sin rebuild; uvicorn --reload detecta cambios en app/src/)
     --rebuild                    Forzar rebuild de imagen antes de correr (solo si cambiaron
                                   Dockerfile o requirements.txt)
   process                Solo procesar resultados ya generados (figuras + CSV)
   reload                 Reiniciar tesis_rag y tesis_shield sin rebuild
                          (uvicorn --reload recoge los cambios de app/src/)
-  shell <dominio>        Cargar aliases interactivos (requiere: source)
+  shell <dominio>        Cargar alias interactivos (requiere: source)
   help                   Mostrar esta ayuda
 
-ORDEN DE EVALUACION (por dominio, en 'run'):
-  1. Levantar stack + auto-correccion (restart / re-ingestion)
+ORDEN DE EVALUACIÓN (por dominio, en 'run'):
+  1. Levantar stack + auto-corrección (restart / re-ingestion)
   2. Ingestar corpus + reinyectar fragmentos verificables si faltan
   3. Smoke probe
-  4. Escenario A: adversarial -> legitimo -> patch garak
-  5. Escenario B: adversarial -> legitimo -> patch garak
+  4. Escenario A: adversarial -> legítimo -> patch garak
+  5. Escenario B: adversarial -> legítimo -> patch garak
   6. Bajar stack y pasar al siguiente dominio
   Al terminar todos: procesamiento de resultados (--deep --plots)
 
