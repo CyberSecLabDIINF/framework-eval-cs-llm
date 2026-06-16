@@ -24,7 +24,7 @@ import pandas as pd
 
 from eval.constants import PROBE_SHORT
 from eval.metrics import PII_PATTERNS
-from eval.plots import setup_style, _save
+from eval.plots import setup_style, _save, _domain_label
 
 
 SCENARIOS  = ["unprotected", "protected"]
@@ -465,15 +465,15 @@ def plot_confidential_by_probe(confidential_results: dict, domains: list, figure
                    hatch=hatch, edgecolor="white", linewidth=0.5)
             bottom += vals
 
-    handles = [Patch(facecolor=DOMAIN_COLORS.get(d, "#999999"), label=d) for d in domains]
-    handles.append(Patch(facecolor="white", edgecolor="black", label="Scenario A (left, solid)"))
-    handles.append(Patch(facecolor="white", edgecolor="black", hatch="//", label="Scenario B (right, hatched)"))
+    handles = [Patch(facecolor=DOMAIN_COLORS.get(d, "#999999"), label=_domain_label(d)) for d in domains]
+    handles.append(Patch(facecolor="white", edgecolor="black", label="Escenario A (izquierda, sólido)"))
+    handles.append(Patch(facecolor="white", edgecolor="black", hatch="//", label="Escenario B (derecha, con trama)"))
     ax.legend(handles=handles, fontsize=8, loc="upper right")
 
     ax.set_xticks(x)
     ax.set_xticklabels([PROBE_SHORT.get(p, p) for p in probes], rotation=45, ha="right")
-    ax.set_ylabel("Adversarial responses containing [CONFIDENTIAL]")
-    ax.set_title("CONFIDENTIAL marker exfiltration by probe -- Scenario A vs B")
+    ax.set_ylabel("Respuestas adversariales que contienen [CONFIDENTIAL]")
+    ax.set_title("Exfiltración de marcador CONFIDENTIAL por sonda -- Escenario A vs B")
     fig.tight_layout()
     _save(fig, figures_dir, "exfiltration_confidential_by_probe.png")
     plt.close(fig)
@@ -499,12 +499,12 @@ def plot_pii_by_type(pii_results: dict, domains: list, figures_dir: Path) -> Non
         hatch = "//" if domain == domains[-1] else None
         ax.bar(x + offset, vals, width,
                color=SCENARIO_FILL[scenario], hatch=hatch, edgecolor="white", linewidth=0.5,
-               label=f"{domain} - {SCEN_LABEL[scenario]}")
+               label=f"{_domain_label(domain)} - {SCEN_LABEL[scenario]}")
 
     ax.set_xticks(x)
     ax.set_xticklabels(pii_types)
-    ax.set_ylabel("Adversarial responses matching pattern")
-    ax.set_title("PII exfiltration by type -- Scenario A vs B, by domain")
+    ax.set_ylabel("Respuestas adversariales que coinciden con el patrón")
+    ax.set_title("Exfiltración de PII por tipo -- Escenario A vs B, por dominio")
     ax.legend(fontsize=8)
     fig.tight_layout()
     _save(fig, figures_dir, "exfiltration_pii_by_type.png")
@@ -519,10 +519,10 @@ def plot_delta_ab(deltas: dict, domains: list, figures_dir: Path) -> None:
     rows = []
     for domain in domains:
         d = deltas[domain]
-        rows.append((f"{domain}: [CONFIDENTIAL] marker", d["confidential_marker"]["delta_rel_pct"]))
-        rows.append((f"{domain}: verbatim ground-truth", d["verbatim_value"]["delta_rel_pct"]))
+        rows.append((f"{_domain_label(domain)}: marcador [CONFIDENTIAL]", d["confidential_marker"]["delta_rel_pct"]))
+        rows.append((f"{_domain_label(domain)}: valor textual (ground truth)", d["verbatim_value"]["delta_rel_pct"]))
         for name, r in d["pii"].items():
-            rows.append((f"{domain}: PII {name}", r["delta_rel_pct"]))
+            rows.append((f"{_domain_label(domain)}: PII {name}", r["delta_rel_pct"]))
 
     rows = [(label, val) for label, val in rows if val is not None]
     rows.sort(key=lambda r: r[1])
@@ -534,8 +534,8 @@ def plot_delta_ab(deltas: dict, domains: list, figures_dir: Path) -> None:
     fig, ax = plt.subplots(figsize=(10, max(4, 0.4 * len(rows))))
     ax.barh(labels, values, color=colors)
     ax.axvline(0, color="black", linewidth=0.8)
-    ax.set_xlabel("A -> B relative change (%)  [positive = improvement, fewer leaks under B]")
-    ax.set_title("Exfiltration delta: Scenario A -> Scenario B")
+    ax.set_xlabel("Cambio relativo A -> B (%)  [positivo = mejora, menos filtraciones en B]")
+    ax.set_title("Delta de exfiltración: Escenario A -> Escenario B")
     fig.tight_layout()
     _save(fig, figures_dir, "exfiltration_delta_ab.png")
     plt.close(fig)

@@ -17,6 +17,7 @@ from eval.constants import (
     PROBE_SHORT,
     SCENARIO_COLORS,
     SUITE_COLORS,
+    SUITE_TO_SUBDIM,
     VECTOR_MAP,
 )
 from eval.loaders import (
@@ -30,6 +31,28 @@ from eval.loaders import (
     load_tfa_from_jsonl,
 )
 from eval.metrics import print_tfa
+
+
+# ─────────────────────────────────────────────
+# Spanish display labels (figures only — data/column names stay in English)
+# ─────────────────────────────────────────────
+
+_DOMAIN_LABELS_ES = {
+    "academic_institutional": "Académico-Institucional",
+    "regulatory_technical": "Regulatorio-Técnico",
+}
+
+_SUBDIM_LABELS_ES = {
+    "LLM01": "D1 — Protección de entradas",
+    "LLM02": "D2 — Control del contexto RAG",
+    "LLM07": "D3 — Gestión de salidas",
+    "LLM08": "D4 — Monitoreo y trazabilidad",
+}
+
+
+def _domain_label(domain: str) -> str:
+    """Spanish display label for a domain name (figure titles/ticks)."""
+    return _DOMAIN_LABELS_ES.get(domain, domain.replace("_", " ").title())
 
 
 # ─────────────────────────────────────────────
@@ -86,23 +109,23 @@ def plot_tfa_by_probe(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
     fig, ax = plt.subplots(figsize=(13, 5))
 
     ax.bar(x - width/2 if vals_b else x, vals_a, width,
-           label="Scenario A",
+           label="Escenario A",
            color=[SUITE_COLORS.get(s, "#888") for s in suites],
            alpha=0.85, edgecolor="white")
     if vals_b:
-        ax.bar(x + width/2, vals_b, width, label="Scenario B",
+        ax.bar(x + width/2, vals_b, width, label="Escenario B",
                color=[SUITE_COLORS.get(s, "#888") for s in suites],
                alpha=0.45, edgecolor="white", hatch="//")
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=35, ha="right", fontsize=9)
     ax.set_ylim(0, 1.08)
-    ax.set_ylabel("TFA (Attack Filtering Rate)")
-    ax.set_title(f"TFA per Probe — {domain.replace('_', ' ').title()}")
+    ax.set_ylabel("TFA (Tasa de Filtrado de Ataques)")
+    ax.set_title(f"TFA por sonda — {_domain_label(domain)}")
     ax.axhline(1.0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
 
     suite_patches = [mpatches.Patch(color=c, label=s) for s, c in SUITE_COLORS.items()]
-    legend1 = ax.legend(handles=suite_patches, title="OWASP Suite",
+    legend1 = ax.legend(handles=suite_patches, title="Suite OWASP",
                         loc="lower left", fontsize=8)
     ax.add_artist(legend1)
     if vals_b:
@@ -126,7 +149,7 @@ def plot_tfa_by_suite(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
     setup_style()
 
     suites  = list(VECTOR_MAP.keys())
-    labels  = [f"{s}\n{VECTOR_MAP[s].split('—')[1].strip()}" for s in suites]
+    labels  = [f"{s}\n{_SUBDIM_LABELS_ES[s].split('—')[1].strip()}" for s in suites]
     vals_a  = [tfa_a["per_suite"].get(s, {}).get("TFA") or 0 for s in suites]
     vals_b  = [tfa_b["per_suite"].get(s, {}).get("TFA") or 0 for s in suites] if tfa_b else None
 
@@ -134,18 +157,18 @@ def plot_tfa_by_suite(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
     width = 0.35 if vals_b else 0.5
     fig, ax = plt.subplots(figsize=(8, 5))
 
-    ax.bar(x - width/2 if vals_b else x, vals_a, width, label="Scenario A",
+    ax.bar(x - width/2 if vals_b else x, vals_a, width, label="Escenario A",
            color=[SUITE_COLORS[s] for s in suites], alpha=0.85, edgecolor="white")
     if vals_b:
-        ax.bar(x + width/2, vals_b, width, label="Scenario B",
+        ax.bar(x + width/2, vals_b, width, label="Escenario B",
                color=[SUITE_COLORS[s] for s in suites], alpha=0.45,
                edgecolor="white", hatch="//")
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=9)
     ax.set_ylim(0, 1.08)
-    ax.set_ylabel("TFA (Attack Filtering Rate)")
-    ax.set_title(f"TFA per OWASP Suite — {domain.replace('_', ' ').title()}")
+    ax.set_ylabel("TFA (Tasa de Filtrado de Ataques)")
+    ax.set_title(f"TFA por suite OWASP — {_domain_label(domain)}")
     ax.axhline(1.0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
     if vals_b:
         ax.legend(fontsize=9)
@@ -182,7 +205,7 @@ def plot_tfa_domains_combined(tfa_by_domain: dict, figures_dir: Path):
             # the figure still has one panel per domain (matching the title)
             # instead of raising on tfa_a["per_suite"] and aborting before
             # _save() — which previously left a stale single-panel PNG.
-            ax.set_title(f"{domain.replace('_', ' ').title()}\n[no data]", fontsize=10)
+            ax.set_title(f"{_domain_label(domain)}\n[sin datos]", fontsize=10)
             ax.set_xticks([])
             continue
 
@@ -192,28 +215,28 @@ def plot_tfa_domains_combined(tfa_by_domain: dict, figures_dir: Path):
         x     = np.arange(n_suites)
         width = 0.35 if vals_b else 0.5
 
-        ax.bar(x - width/2 if vals_b else x, vals_a, width, label="Scenario A",
+        ax.bar(x - width/2 if vals_b else x, vals_a, width, label="Escenario A",
                color=[SUITE_COLORS[s] for s in suites], alpha=0.85, edgecolor="white")
         if vals_b:
-            ax.bar(x + width/2, vals_b, width, label="Scenario B",
+            ax.bar(x + width/2, vals_b, width, label="Escenario B",
                    color=[SUITE_COLORS[s] for s in suites], alpha=0.45,
                    edgecolor="white", hatch="//")
 
         ax.set_xticks(x)
         ax.set_xticklabels(suites, fontsize=9)
         ax.set_ylim(0, 1.08)
-        ax.set_title(domain.replace("_", " ").title(), fontsize=10)
+        ax.set_title(_domain_label(domain), fontsize=10)
         ax.axhline(1.0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
         if vals_b:
             ax.legend(fontsize=8)
 
-    axes[0].set_ylabel("TFA (Attack Filtering Rate)")
+    axes[0].set_ylabel("TFA (Tasa de Filtrado de Ataques)")
     if len(domains) == 2:
-        title = "TFA per OWASP Suite — Both Domains"
+        title = "TFA por suite OWASP — Ambos dominios"
     elif len(domains) == 1:
-        title = f"TFA per OWASP Suite — {domains[0].replace('_', ' ').title()}"
+        title = f"TFA por suite OWASP — {_domain_label(domains[0])}"
     else:
-        title = "TFA per OWASP Suite — All Domains"
+        title = "TFA por suite OWASP — Todos los dominios"
     fig.suptitle(title, fontweight="bold")
     fig.tight_layout()
     _save(fig, figures_dir, "tfa_by_suite_combined.png")
@@ -242,7 +265,7 @@ def plot_tfa_heatmap(tfa_by_domain: dict, figures_dir: Path):
     ax.set_xticks(range(len(probes)))
     ax.set_xticklabels(labels, rotation=35, ha="right", fontsize=9)
     ax.set_yticks(range(len(domains)))
-    ax.set_yticklabels([d.replace("_", " ").title() for d in domains], fontsize=9)
+    ax.set_yticklabels([_domain_label(d) for d in domains], fontsize=9)
 
     # Annotate cells
     for i in range(len(domains)):
@@ -251,7 +274,7 @@ def plot_tfa_heatmap(tfa_by_domain: dict, figures_dir: Path):
                     fontsize=8, color="black")
 
     plt.colorbar(im, ax=ax, label="TFA")
-    ax.set_title("TFA Heatmap — Scenario A (per Probe × Domain)")
+    ax.set_title("Mapa de calor de TFA — Escenario A (sonda × dominio)")
     fig.tight_layout()
     _save(fig, figures_dir, "tfa_heatmap_probe_domain.png")
     plt.close(fig)
@@ -292,14 +315,14 @@ def plot_delta_tfa(tfa_by_domain: dict, figures_dir: Path):
             deltas.append((vb - va) if (va is not None and vb is not None) else 0)
         offset = (i - 0.5) * width
         ax.bar(x + offset, deltas, width,
-               label=domain.replace("_", " ").title(),
+               label=_domain_label(domain),
                color=color, alpha=0.8, edgecolor="white")
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=35, ha="right", fontsize=9)
     ax.axhline(0, color="black", linewidth=0.8)
-    ax.set_ylabel("ΔTFA (Scenario B − Scenario A)")
-    ax.set_title("ΔTFA per Probe — LLM Guard Net Contribution")
+    ax.set_ylabel("ΔTFA (Escenario B − Escenario A)")
+    ax.set_title("ΔTFA por sonda — Contribución neta de LLM Guard")
     ax.legend(fontsize=9)
     _save(fig, figures_dir, "delta_tfa_by_probe.png")
     plt.close(fig)
@@ -355,7 +378,7 @@ def plot_pvalue_by_suite(tfa_by_domain: dict, figures_dir: Path):
 
         offset = (i - len(tfa_by_domain) / 2 + 0.5) * width
         ax.bar(x + offset, pvals, width,
-               label=domain.replace("_", " ").title(),
+               label=_domain_label(domain),
                color=color, alpha=0.8, edgecolor="white")
 
     # Significance threshold line: -log10(0.05) ≈ 1.301
@@ -364,8 +387,8 @@ def plot_pvalue_by_suite(tfa_by_domain: dict, figures_dir: Path):
 
     ax.set_xticks(x)
     ax.set_xticklabels(list(VECTOR_MAP.keys()), fontsize=10)
-    ax.set_ylabel("-log₁₀(p-value)")
-    ax.set_title("Statistical Significance per OWASP Suite (Fisher Exact, A vs B)")
+    ax.set_ylabel("-log₁₀(valor p)")
+    ax.set_title("Significancia estadística por suite OWASP (test exacto de Fisher, A vs B)")
     ax.legend(fontsize=9)
     _save(fig, figures_dir, "pvalue_by_suite.png")
     plt.close(fig)
@@ -393,13 +416,13 @@ def plot_confidential_exposure(artifacts_dir: Path, domains: list, figures_dir: 
             rates.append(rate)
         offset = (i - len(domains) / 2 + 0.5) * width
         ax.bar(x + offset, rates, width,
-               label=domain.replace("_", " ").title(),
+               label=_domain_label(domain),
                color=color, alpha=0.8, edgecolor="white")
 
     ax.set_xticks(x)
     ax.set_xticklabels(subdims, fontsize=10)
-    ax.set_ylabel("Confidential Exposure Rate")
-    ax.set_title("Confidential Data Exposure per Subdimension — Scenario A")
+    ax.set_ylabel("Tasa de exposición confidencial")
+    ax.set_title("Exposición de datos confidenciales por subdimensión — Escenario A")
     ax.legend(fontsize=9)
     _save(fig, figures_dir, "confidential_exposure_by_subdim.png")
     plt.close(fig)
@@ -424,26 +447,26 @@ def plot_las_boxplot(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Path
         for ax, domain in zip(axes, domains):
             sub_a = lat_a[lat_a["domain"] == domain]["latency_ms"].values
             sub_b = lat_b[lat_b["domain"] == domain]["latency_ms"].values
-            bp = ax.boxplot([sub_a, sub_b], labels=["Scenario A", "Scenario B"],
+            bp = ax.boxplot([sub_a, sub_b], labels=["Escenario A", "Escenario B"],
                             patch_artist=True,
                             medianprops={"color": "black", "linewidth": 2},
                             flierprops={"marker": ".", "markersize": 3, "alpha": 0.3})
             for patch, color in zip(bp["boxes"], [SCENARIO_COLORS["A"], SCENARIO_COLORS["B"]]):
                 patch.set_facecolor(color)
                 patch.set_alpha(0.6)
-            ax.set_title(domain.replace("_", " ").title(), fontsize=10)
-            ax.set_ylabel("Latency (ms)" if ax == axes[0] else "")
+            ax.set_title(_domain_label(domain), fontsize=10)
+            ax.set_ylabel("Latencia (ms)" if ax == axes[0] else "")
             ax.set_yscale("log")
         fig.suptitle(
-            "Latency Distribution per Domain\n"
-            "(y-axis in log scale; extreme outliers shown)",
+            "Distribución de latencia por dominio\n"
+            "(eje y en escala logarítmica; se muestran valores atípicos extremos)",
             fontweight="bold")
         fig.tight_layout()
         _save(fig, figures_dir, "las_boxplot_by_domain.png")
     else:
         fig, ax = plt.subplots(figsize=(6, 5))
         data   = [lat_a["latency_ms"].values, lat_b["latency_ms"].values]
-        labels = ["Scenario A\n(unprotected)", "Scenario B\n(LLM Guard)"]
+        labels = ["Escenario A\n(sin protección)", "Escenario B\n(LLM Guard)"]
         colors = [SCENARIO_COLORS["A"], SCENARIO_COLORS["B"]]
         bp = ax.boxplot(data, labels=labels, patch_artist=True,
                         medianprops={"color": "black", "linewidth": 2},
@@ -452,10 +475,10 @@ def plot_las_boxplot(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Path
             patch.set_facecolor(color)
             patch.set_alpha(0.6)
         ax.set_yscale("log")
-        ax.set_ylabel("Latency (ms)")
+        ax.set_ylabel("Latencia (ms)")
         ax.set_title(
-            "Latency Distribution — Scenario A vs B\n"
-            "(y-axis in log scale; extreme outliers shown)")
+            "Distribución de latencia — Escenario A vs B\n"
+            "(eje y en escala logarítmica; se muestran valores atípicos extremos)")
         _save(fig, figures_dir, "las_boxplot_global.png")
 
     plt.close(fig)
@@ -471,7 +494,7 @@ def plot_latency_histogram(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir
 
     vals_a = lat_a["latency_ms"].dropna()
     ax.hist(vals_a, bins=80, alpha=0.4, color=SCENARIO_COLORS["A"],
-            label="Scenario A", density=True)
+            label="Escenario A", density=True)
     vals_a.plot.kde(color=SCENARIO_COLORS["A"], linewidth=2, ax=ax, label="_nolegend_")
 
     # Mean lines and stats text
@@ -480,12 +503,12 @@ def plot_latency_histogram(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir
     ax.axvline(mean_a, color=SCENARIO_COLORS["A"], linewidth=1.5,
                linestyle="--", alpha=0.8)
 
-    stats_text = f"Scenario A\n  mean={mean_a:.0f} ms\n  std={std_a:.0f} ms"
+    stats_text = f"Escenario A\n  media={mean_a:.0f} ms\n  desv. est.={std_a:.0f} ms"
 
     if not lat_b.empty:
         vals_b = lat_b["latency_ms"].dropna()
         ax.hist(vals_b, bins=80, alpha=0.4, color=SCENARIO_COLORS["B"],
-                label="Scenario B", density=True)
+                label="Escenario B", density=True)
         vals_b.plot.kde(color=SCENARIO_COLORS["B"], linewidth=2, ax=ax, label="_nolegend_")
 
         mean_b = vals_b.mean()
@@ -495,9 +518,9 @@ def plot_latency_histogram(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir
 
         # Mann-Whitney p-value
         _, p_val = mannwhitneyu(vals_a.values, vals_b.values, alternative="less")
-        sig = "significant" if p_val < 0.05 else "not significant"
+        sig = "significativo" if p_val < 0.05 else "no significativo"
         stats_text += (
-            f"\n\nScenario B\n  mean={mean_b:.0f} ms\n  std={std_b:.0f} ms"
+            f"\n\nEscenario B\n  media={mean_b:.0f} ms\n  desv. est.={std_b:.0f} ms"
             f"\n\nMann-Whitney U\n  p={p_val:.2e}\n  ({sig}, α=0.05)"
         )
         xmax = max(vals_a.quantile(0.999), vals_b.quantile(0.999))
@@ -512,9 +535,9 @@ def plot_latency_histogram(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir
                       edgecolor="gray", alpha=0.85))
 
     ax.set_xlim(left=0, right=xmax * 1.05)
-    ax.set_xlabel("Latency (ms)")
-    ax.set_ylabel("Density")
-    ax.set_title("Latency Distribution — Histogram + KDE")
+    ax.set_xlabel("Latencia (ms)")
+    ax.set_ylabel("Densidad")
+    ax.set_title("Distribución de latencia — Histograma + KDE")
     ax.legend(fontsize=9)
     _save(fig, figures_dir, "las_histogram_kde.png")
     plt.close(fig)
@@ -559,24 +582,25 @@ def plot_las_by_suite(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Pat
     width = 0.35 if has_b else 0.5
     fig, ax = plt.subplots(figsize=(8, 5))
 
-    ax.bar(x - width/2 if has_b else x, meds_a, width, label="Scenario A",
+    ax.bar(x - width/2 if has_b else x, meds_a, width, label="Escenario A",
            color=[SUITE_COLORS.get(s, "#888") for s in labels],
            alpha=0.85, edgecolor="white")
     if has_b:
         valid_b = [v or 0 for v in meds_b]
-        ax.bar(x + width/2, valid_b, width, label="Scenario B",
+        ax.bar(x + width/2, valid_b, width, label="Escenario B",
                color=[SUITE_COLORS.get(s, "#888") for s in labels],
                alpha=0.45, edgecolor="white", hatch="//")
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=9, ha="center")
-    ax.set_ylabel("Median Latency (ms)")
-    ax.set_title("Median Latency per OWASP Suite")
+    ax.set_ylabel("Latencia mediana (ms)")
+    ax.set_title("Latencia mediana por suite OWASP")
     if has_b:
         ax.legend(fontsize=9)
         fig.text(0.5, -0.02,
-                 "Note: a lower median in Scenario B for some suites (e.g. LLM01, LLM08) "
-                 "reflects early blocking by LLM Guard before model inference.",
+                 "Nota: una mediana menor en el Escenario B para algunas suites (p. ej., "
+                 "LLM01, LLM08) refleja el bloqueo temprano de LLM Guard antes de la "
+                 "inferencia del modelo.",
                  ha="center", va="top", fontsize=8.5, style="italic", color="#555555")
     fig.tight_layout()
     _save(fig, figures_dir, "las_median_by_suite.png")
@@ -602,8 +626,8 @@ def plot_latency_distribution_by_suite(lat_a: pd.DataFrame, figures_dir: Path):
     for patch, suite in zip(bp["boxes"], suites):
         patch.set_facecolor(SUITE_COLORS.get(suite, "#888"))
         patch.set_alpha(0.7)
-    ax.set_ylabel("Latency (ms)")
-    ax.set_title("Latency Distribution per OWASP Suite — Scenario A")
+    ax.set_ylabel("Latencia (ms)")
+    ax.set_title("Distribución de latencia por suite OWASP — Escenario A")
     _save(fig, figures_dir, "las_distribution_by_suite_A.png")
     plt.close(fig)
 
@@ -613,7 +637,7 @@ def _render_confusion_matrices(
     title: str,
     filename: str,
     figures_dir: Path,
-    recall_label: str = "Recall",
+    recall_label: str = "Sensibilidad",
 ):
     """Renders one confusion-matrix heatmap subplot per domain and saves the figure.
 
@@ -637,7 +661,7 @@ def _render_confusion_matrices(
     if n == 1:
         axes = [axes]
 
-    row_labels = ["Actual\nATTACK", "Actual\nLEGIT"]
+    row_labels = ["Real\nATAQUE", "Real\nLEGÍTIMO"]
 
     for ax, domain, matrix in zip(axes, valid_domains, matrices):
         total = matrix.sum()
@@ -647,11 +671,11 @@ def _render_confusion_matrices(
         ax.imshow(norm, cmap="Blues", vmin=0, vmax=1)
 
         ax.set_xticks([0, 1])
-        ax.set_xticklabels(["Predicted\nBLOCK", "Predicted\nPASS"], fontsize=9)
+        ax.set_xticklabels(["Predicción\nBLOQUEO", "Predicción\nPASE"], fontsize=9)
         ax.set_yticks([0, 1])
         ax.set_yticklabels(row_labels, fontsize=9)
 
-        cell_labels = [["TP", "FN"], ["FP", "TN"]]
+        cell_labels = [["VP", "FN"], ["FP", "VN"]]
 
         for i in range(2):
             for j in range(2):
@@ -671,17 +695,17 @@ def _render_confusion_matrices(
         f1          = 2*precision*recall/(precision+recall) if (precision+recall) > 0 else 0
         specificity = TN/(TN+FP) if (TN+FP) > 0 else 0
 
-        stats = (f"Precision: {precision:.3f}\n"
+        stats = (f"Precisión: {precision:.3f}\n"
                  f"{recall_label}: {recall:.3f}\n"
                  f"F1: {f1:.3f}\n"
-                 f"Specificity: {specificity:.3f}")
+                 f"Especificidad: {specificity:.3f}")
         ax.text(1.35, 0.5, stats,
                 transform=ax.transAxes,
                 fontsize=8.5, va="center",
                 bbox=dict(boxstyle="round,pad=0.4", facecolor="white",
                           edgecolor="gray", alpha=0.85))
 
-        ax.set_title(domain.replace("_", " ").title(), fontsize=10)
+        ax.set_title(_domain_label(domain), fontsize=10)
 
     fig.suptitle(title, fontweight="bold")
     fig.tight_layout()
@@ -723,10 +747,10 @@ def plot_confusion_matrix(artifacts_dir: Path, domains: list, figures_dir: Path)
 
     _render_confusion_matrices(
         matrices, valid_domains,
-        title="Confusion Matrix — Scenario B, System-Level (Two-Layer)",
+        title="Matriz de confusión — Escenario B, nivel de sistema (dos capas)",
         filename="confusion_matrix_scenario_b.png",
         figures_dir=figures_dir,
-        recall_label="Recall (TFA_B)",
+        recall_label="Sensibilidad (TFA_B)",
     )
 
 
@@ -763,10 +787,10 @@ def plot_confusion_matrix_guard_only(artifacts_dir: Path, domains: list, figures
 
     _render_confusion_matrices(
         matrices, valid_domains,
-        title="Confusion Matrix — Scenario B, LLM Guard Only (Single-Layer)",
+        title="Matriz de confusión — Escenario B, solo LLM Guard (una capa)",
         filename="confusion_matrix_scenario_b_llmguard_only.png",
         figures_dir=figures_dir,
-        recall_label="Recall",
+        recall_label="Sensibilidad",
     )
 
 
@@ -806,7 +830,7 @@ def plot_detector_heatmap(runs_dir: Path, domains: list, figures_dir: Path):
     all_keys_sorted = sorted(all_keys, key=lambda x: (x[0], x[1]))
     row_labels = [f"{PROBE_SHORT.get(p, p)}\n{d.split('.')[-1]}"
                   for p, d in all_keys_sorted]
-    col_labels = [dom.replace("_", " ").title() for dom in domain_data]
+    col_labels = [_domain_label(dom) for dom in domain_data]
 
     matrix = np.array([
         [domain_data[dom].get(key, float("nan")) for dom in domain_data]
@@ -837,8 +861,8 @@ def plot_detector_heatmap(runs_dir: Path, domains: list, figures_dir: Path):
                         fontsize=8, color=color, fontweight=weight)
 
     plt.colorbar(im, ax=ax, label="TFA", shrink=0.6)
-    ax.set_title("TFA per Probe × Detector — Scenario A\n"
-                 "(bold = primary detector used for TFA calculation)",
+    ax.set_title("TFA por sonda × detector — Escenario A\n"
+                 "(negrita = detector primario usado para el cálculo de TFA)",
                  fontsize=10)
     fig.tight_layout()
     _save(fig, figures_dir, "detector_heatmap_scenario_a.png")
@@ -917,16 +941,16 @@ def plot_confusion_matrix_scenario_a(artifacts_dir: Path, domains: list, figures
         )
 
         ax.set_xticks([0, 1])
-        ax.set_xticklabels(["Resisted", "Failed"], fontsize=10)
+        ax.set_xticklabels(["Resistido", "Fallido"], fontsize=10)
         ax.set_yticks([0, 1])
-        ax.set_yticklabels(["Actual\nATTACK", "Actual\nLEGIT"], fontsize=10)
+        ax.set_yticklabels(["Real\nATAQUE", "Real\nLEGÍTIMO"], fontsize=10)
 
         # Cell annotations
         cell_meta = [
-            (0, 0, f"TP\n{TP:,}\n({TP/total_adv*100:.1f}%)",   "black"),
+            (0, 0, f"VP\n{TP:,}\n({TP/total_adv*100:.1f}%)",   "black"),
             (0, 1, f"FN\n{FN:,}\n({FN/total_adv*100:.1f}%)",   "black"),
-            (1, 0, f"TN\n{TN:,}\n({TN/total_legit*100:.1f}%)", "black"),
-            (1, 1, "FP\nN/A\n(no classifier)", "gray"),
+            (1, 0, f"VN\n{TN:,}\n({TN/total_legit*100:.1f}%)", "black"),
+            (1, 1, "FP\nN/D\n(sin clasificador)", "gray"),
         ]
         for row, col, text, color in cell_meta:
             weight = "bold" if text.startswith("FP") is False else "normal"
@@ -941,14 +965,14 @@ def plot_confusion_matrix_scenario_a(artifacts_dir: Path, domains: list, figures
         legit_leak_rate = legit_leaked / total_legit if total_legit > 0 else 0
 
         stats = (
-            f"Model resistance (TFA_A)\n"
-            f"  Recall = {recall:.4f}\n"
+            f"Resistencia del modelo (TFA_A)\n"
+            f"  Sensibilidad = {recall:.4f}\n"
             f"  FNR    = {fnr:.4f}\n\n"
-            f"Legitimate prompts\n"
-            f"  TN rate = {tn_rate:.4f}\n"
-            f"  Leaked  = {legit_leaked} ({legit_leak_rate*100:.1f}%)\n\n"
-            f"FP = N/A\n"
-            f"(no active classifier)"
+            f"Prompts legítimos\n"
+            f"  Tasa de VN = {tn_rate:.4f}\n"
+            f"  Filtrados  = {legit_leaked} ({legit_leak_rate*100:.1f}%)\n\n"
+            f"FP = N/D\n"
+            f"(sin clasificador activo)"
         )
         ax.text(1.38, 0.5, stats,
                 transform=ax.transAxes,
@@ -956,16 +980,171 @@ def plot_confusion_matrix_scenario_a(artifacts_dir: Path, domains: list, figures
                 bbox=dict(boxstyle="round,pad=0.4", facecolor="white",
                           edgecolor="gray", alpha=0.85))
 
-        ax.set_title(domain.replace("_", " ").title(), fontsize=10)
+        ax.set_title(_domain_label(domain), fontsize=10)
 
     fig.suptitle(
-        "Partial Confusion Matrix — Scenario A (no active classifier)\n"
-        "FP cell grayed out: blocking mechanism absent by design",
+        "Matriz de confusión parcial — Escenario A (sin clasificador activo)\n"
+        "Celda FP en gris: mecanismo de bloqueo ausente por diseño",
         fontweight="bold", fontsize=10
     )
     fig.tight_layout()
     _save(fig, figures_dir, "confusion_matrix_scenario_a.png")
     plt.close(fig)
+
+
+def plot_security_posture_radar(tfa_by_domain: dict, figures_dir: Path):
+    """Radar chart of system-level TFA per subdimension (D1-D4), Scenario A vs B.
+
+    Overlays four polygons — one per (scenario, domain) combination — on a
+    shared D1-D4 axis layout (LLM01->D1, LLM02->D2, LLM07->D3, LLM08->D4 via
+    ``SUITE_TO_SUBDIM``). Scenario A is drawn in gray, Scenario B in blue;
+    the academic domain uses a solid line and the regulatory domain a dashed
+    line. Each vertex is annotated with its TFA value.
+
+    Args:
+        tfa_by_domain: Mapping of ``{domain: {"A": tfa_dict, "B": tfa_dict}}``
+            as returned by ``load_tfa_from_jsonl``.
+        figures_dir: Directory where the PNG is saved.
+
+    Outputs:
+        - artifacts/figures/fig_security_posture_radar.png
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    setup_style()
+
+    suites  = list(SUITE_TO_SUBDIM.keys())
+    subdims = [SUITE_TO_SUBDIM[s] for s in suites]
+
+    domains    = list(tfa_by_domain.keys())
+    academic   = next((d for d in domains if "academic" in d), None)
+    regulatory = next((d for d in domains if "regulatory" in d), None)
+
+    series = [
+        ("A", academic,   "Escenario A — Académico",   "#888780", "solid"),
+        ("A", regulatory, "Escenario A — Regulatorio", "#888780", "dashed"),
+        ("B", academic,   "Escenario B — Académico",   "#185FA5", "solid"),
+        ("B", regulatory, "Escenario B — Regulatorio", "#185FA5", "dashed"),
+    ]
+
+    angles = np.linspace(0, 2 * np.pi, len(subdims), endpoint=False).tolist()
+    angles += angles[:1]
+
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw={"projection": "polar"})
+    ax.set_theta_offset(np.pi / 2)
+    ax.set_theta_direction(-1)
+
+    any_series = False
+    for i, (scenario, domain, label, color, style) in enumerate(series):
+        if not domain:
+            continue
+        tfa_d     = tfa_by_domain.get(domain, {}).get(scenario) or {}
+        per_suite = tfa_d.get("per_suite", {})
+        vals      = [per_suite.get(s, {}).get("TFA") or 0 for s in suites]
+        vals_closed = vals + vals[:1]
+
+        ax.plot(angles, vals_closed, color=color, linewidth=2,
+                linestyle=style, label=label)
+        ax.fill(angles, vals_closed, color=color, alpha=0.08)
+
+        # Annotate each axis in a fixed outer "ring" per series (r = 1.05 +
+        # 0.18*i) rather than just outside each vertex — this guarantees
+        # consistent spacing between series even when their TFA values are
+        # nearly identical at a given axis (e.g. D2/D4).
+        ring_r = 1.05 + 0.18 * i
+        for angle, val in zip(angles[:-1], vals):
+            ax.text(angle, ring_r, f"{val:.2f}",
+                    ha="center", va="center", fontsize=7,
+                    color=color, fontweight="bold")
+        any_series = True
+
+    if not any_series:
+        print("  [skip] security posture radar: no TFA data available.")
+        plt.close(fig)
+        return
+
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(subdims, fontsize=11, fontweight="bold")
+    ax.set_ylim(0, 1.85)
+    ax.set_yticks([0.25, 0.50, 0.75, 1.00])
+    ax.set_yticklabels(["0.25", "0.50", "0.75", "1.00"], fontsize=8)
+
+    ax.set_title("Postura de seguridad por subdimensión — D1–D4 (TFA, nivel de sistema)",
+                  fontweight="bold", pad=20)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.06), ncol=2, fontsize=8.5)
+    fig.text(0.5, -0.02,
+             "Solo referencia visual — la escala es TFA [0,1] por subdimensión",
+             ha="center", fontsize=8.5, style="italic", color="#555555")
+
+    fig.tight_layout()
+    _save(fig, figures_dir, "fig_security_posture_radar.png")
+    plt.close(fig)
+
+
+def plot_tfa_suite_all_combos(tfa_by_domain: dict, figures_dir: Path):
+    """Single-panel TFA bar chart with all 4 scenario x domain combos per suite.
+
+    For each OWASP suite (LLM01/02/07/08), draws four bars side by side:
+    Scenario A/B for the academic domain (solid) and Scenario A/B for the
+    regulatory domain (hatched). Complements ``plot_tfa_domains_combined``,
+    which uses one subplot per domain instead of a single grouped panel.
+
+    Args:
+        tfa_by_domain: Mapping of ``{domain: {"A": tfa_dict, "B": tfa_dict}}``
+            as returned by ``load_tfa_from_jsonl``.
+        figures_dir: Directory where the PNG is saved.
+
+    Outputs:
+        - artifacts/figures/fig_tfa_suite_all_combos.png
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    setup_style()
+
+    suites  = list(VECTOR_MAP.keys())
+    domains = list(tfa_by_domain.keys())
+    academic   = next((d for d in domains if "academic" in d), None)
+    regulatory = next((d for d in domains if "regulatory" in d), None)
+
+    series = [
+        ("A", academic,   "Acad A", "#888780", False),
+        ("B", academic,   "Acad B", "#185FA5", False),
+        ("A", regulatory, "Reg A",  "#888780", True),
+        ("B", regulatory, "Reg B",  "#185FA5", True),
+    ]
+
+    x     = np.arange(len(suites))
+    width = 0.8 / len(series)
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    for i, (scenario, domain, label, color, hatched) in enumerate(series):
+        if not domain:
+            continue
+        tfa_d     = tfa_by_domain.get(domain, {}).get(scenario) or {}
+        per_suite = tfa_d.get("per_suite", {})
+        vals      = [per_suite.get(s, {}).get("TFA") or 0 for s in suites]
+
+        offset = (i - (len(series) - 1) / 2) * width
+        bars = ax.bar(x + offset, vals, width, label=label, color=color,
+                       alpha=0.85, edgecolor="white",
+                       hatch="//" if hatched else None)
+        rotation = 90 if width < 0.18 else 0
+        for bar, val in zip(bars, vals):
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.015,
+                    f"{val:.2f}", ha="center", va="bottom",
+                    fontsize=7, rotation=rotation)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(suites, fontsize=10)
+    ax.set_ylim(0, 1.05)
+    ax.set_ylabel("TFA (Tasa de Filtrado de Ataques)")
+    ax.set_title("TFA por suite OWASP — todas las combinaciones de escenario × dominio")
+    ax.axhline(1.0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
+    ax.legend(fontsize=9)
+
+    _save(fig, figures_dir, "fig_tfa_suite_all_combos.png")
+    plt.close(fig)
+
 
 def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
                        lat_b: pd.DataFrame, artifacts_dir: Path, runs_dir: Path, figures_dir: Path):
@@ -1003,6 +1182,8 @@ def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
     plot_confusion_matrix(artifacts_dir, domains, figures_dir)
     plot_confusion_matrix_guard_only(artifacts_dir, domains, figures_dir)
     plot_detector_heatmap(runs_dir, domains, figures_dir)
+    plot_security_posture_radar(tfa_by_domain, figures_dir)
+    plot_tfa_suite_all_combos(tfa_by_domain, figures_dir)
 
     n = len(list(figures_dir.glob("*.png")))
     print(f"\n  Done. {n} figures saved.\n")
@@ -1057,7 +1238,7 @@ def plot_latency_adv_vs_legit_boxplot(artifacts_dir: Path, domains: list, figure
     PT_COLORS  = {"adversarial": "#C44E52", "legitimate": "#4C72B0"}
     # Fixed positions: gap between the two scenario groups
     ALL_POS    = [1.0, 2.0, 3.5, 4.5]
-    ALL_LABS   = ["Scen A\nAdv.", "Scen A\nLegit.", "Scen B\nAdv.", "Scen B\nLegit."]
+    ALL_LABS   = ["Esc A\nAdv.", "Esc A\nLegít.", "Esc B\nAdv.", "Esc B\nLegít."]
 
     n = len(domains)
     if n == 0:
@@ -1086,7 +1267,7 @@ def plot_latency_adv_vs_legit_boxplot(artifacts_dir: Path, domains: list, figure
                         colors.append(PT_COLORS[pt])
 
         if not box_data:
-            ax.set_title(f"{domain.replace('_', ' ').title()}\n[no data]")
+            ax.set_title(f"{_domain_label(domain)}\n[sin datos]")
             continue
 
         bp = ax.boxplot(
@@ -1102,8 +1283,8 @@ def plot_latency_adv_vs_legit_boxplot(artifacts_dir: Path, domains: list, figure
         ax.set_yscale("log")
         ax.set_xticks(used_pos)
         ax.set_xticklabels(used_labs, fontsize=8.5)
-        ax.set_ylabel("Latency (ms, log scale)")
-        ax.set_title(domain.replace("_", " ").title(), fontsize=11)
+        ax.set_ylabel("Latencia (ms, escala log)")
+        ax.set_title(_domain_label(domain), fontsize=11)
 
         # Scenario separator (only when both scenario groups are present)
         if any(p >= 3.0 for p in used_pos) and any(p < 3.0 for p in used_pos):
@@ -1111,12 +1292,12 @@ def plot_latency_adv_vs_legit_boxplot(artifacts_dir: Path, domains: list, figure
 
         patches = [
             mpatches.Patch(facecolor=PT_COLORS["adversarial"], alpha=0.7, label="Adversarial"),
-            mpatches.Patch(facecolor=PT_COLORS["legitimate"],  alpha=0.7, label="Legitimate"),
+            mpatches.Patch(facecolor=PT_COLORS["legitimate"],  alpha=0.7, label="Legítimo"),
         ]
         ax.legend(handles=patches, fontsize=8, loc="upper right")
 
     fig.suptitle(
-        "Latency Distribution: Adversarial vs Legitimate Prompts (log scale)",
+        "Distribución de latencia: prompts adversariales vs legítimos (escala log)",
         fontweight="bold", fontsize=11,
     )
     fig.tight_layout()
@@ -1178,6 +1359,7 @@ def plot_latency_adv_vs_legit_kde(artifacts_dir: Path, domains: list, figures_di
     SCENARIOS  = ["unprotected", "protected"]
     SCEN_LABEL = {"unprotected": "A", "protected": "B"}
     PT_COLORS  = {"adversarial": "#C44E52", "legitimate": "#4C72B0"}
+    PT_LABEL_ES = {"adversarial": "Adversarial", "legitimate": "Legítimo"}
 
     n_dom  = len(domains)
     n_scen = len(SCENARIOS)
@@ -1211,22 +1393,23 @@ def plot_latency_adv_vs_legit_kde(artifacts_dir: Path, domains: list, figures_di
                 if lat.empty:
                     continue
                 lat.plot.kde(ax=ax, color=PT_COLORS[pt], linewidth=2,
-                             label=pt.capitalize())
+                             label=PT_LABEL_ES[pt])
                 ax.axvline(lat.median(), color=PT_COLORS[pt], linewidth=1.2,
                            linestyle="--", alpha=0.7,
-                           label=f"{pt[:3]}. median = {lat.median():.0f} ms")
+                           label=f"{pt[:3]}. mediana = {lat.median():.0f} ms")
                 plotted   = True
                 any_data  = True
             if plotted:
                 ax.set_xlim(left=0, right=xmax)
-                ax.set_xlabel("Latency (ms)")
-                ax.set_ylabel("Density")
+                ax.set_xlabel("Latencia (ms)")
+                ax.set_ylabel("Densidad")
                 ax.set_title(
-                    f"{domain.replace('_', ' ').title()} — Scenario {SCEN_LABEL[scenario]}"
+                    f"{_domain_label(domain)} — Escenario {SCEN_LABEL[scenario]}"
                 )
                 ax.legend(fontsize=8)
                 ax.text(0.5, -0.22,
-                        f"x-axis clipped at 99th percentile; {n_outliers} outliers excluded",
+                        f"eje x recortado en el percentil 99; {n_outliers} valores "
+                        f"atípicos excluidos",
                         transform=ax.transAxes, ha="center", va="top",
                         fontsize=7.5, style="italic", color="#555555")
             else:
@@ -1237,7 +1420,7 @@ def plot_latency_adv_vs_legit_kde(artifacts_dir: Path, domains: list, figures_di
         plt.close(fig)
         return
 
-    fig.suptitle("Latency KDE: Adversarial vs Legitimate Prompts",
+    fig.suptitle("KDE de latencia: prompts adversariales vs legítimos",
                  fontweight="bold", fontsize=12)
     fig.tight_layout()
     _save(fig, figures_dir, "latency_adv_vs_legit_kde.png")
@@ -1306,22 +1489,22 @@ def plot_fpr_by_domain_scenario(artifacts_dir: Path, domains: list, figures_dir:
     bars = ax.bar(x, vals, width, label="B (LLM Guard)",
                    color="#DD8452", alpha=0.85, edgecolor="white")
     for bar, val, d in zip(bars, vals, domains):
-        label = f"{val:.4f}" if fpr_data[d] is not None else "N/A"
+        label = f"{val:.4f}" if fpr_data[d] is not None else "N/D"
         ax.text(bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + 0.001,
                 label, ha="center", va="bottom", fontsize=9, fontweight="bold")
 
     ax.set_ylim(0, max(vals) * 1.35 + 0.01)
     ax.set_xticks(x)
-    ax.set_xticklabels([d.replace("_", " ").title() for d in domains], fontsize=10)
-    ax.set_ylabel("False Positive Rate (FPR)")
-    ax.set_title("FPR per Domain — Scenario B (LLM Guard)\n"
-                 "(Legitimate prompts incorrectly blocked)")
+    ax.set_xticklabels([_domain_label(d) for d in domains], fontsize=10)
+    ax.set_ylabel("Tasa de Falsos Positivos (FPR)")
+    ax.set_title("FPR por dominio — Escenario B (LLM Guard)\n"
+                 "(prompts legítimos bloqueados incorrectamente)")
     ax.axhline(0, color="black", linewidth=0.5)
     ax.legend(fontsize=9)
     fig.text(0.5, -0.02,
-             "Scenario A (unprotected) has no active classifier, so FPR is N/A "
-             "by design and is not shown.",
+             "El Escenario A (sin protección) no tiene un clasificador activo, por lo "
+             "que el FPR no aplica (N/D) por diseño y no se muestra.",
              ha="center", va="top", fontsize=8.5, style="italic", color="#555555")
 
     fig.tight_layout()
@@ -1377,7 +1560,7 @@ def plot_tfa_heatmap_ab_comparison(tfa_by_domain: dict, figures_dir: Path):
         return
 
     probe_labels  = [PROBE_SHORT.get(p, p) for p in all_probes]
-    domain_labels = [d.replace("_", " ").title() for d in domains]
+    domain_labels = [_domain_label(d) for d in domains]
     n_panels      = 2 if has_b else 1
 
     fig_w = 2.5 + len(domains) * 1.8
@@ -1408,7 +1591,7 @@ def plot_tfa_heatmap_ab_comparison(tfa_by_domain: dict, figures_dir: Path):
         ax.set_xticklabels(domain_labels, fontsize=9, rotation=20, ha="right")
         ax.set_yticks(range(len(all_probes)))
         ax.set_yticklabels(probe_labels, fontsize=8.5)
-        ax.set_xlabel("Domain")
+        ax.set_xlabel("Dominio")
         ax.set_title(title, fontsize=11, fontweight="bold")
         for i in range(len(all_probes)):
             for j in range(len(domains)):
@@ -1418,16 +1601,16 @@ def plot_tfa_heatmap_ab_comparison(tfa_by_domain: dict, figures_dir: Path):
                     ax.text(j, i, f"{val:.2f}", ha="center", va="center",
                             fontsize=8, color=tc)
                 else:
-                    ax.text(j, i, "N/A", ha="center", va="center",
+                    ax.text(j, i, "N/D", ha="center", va="center",
                             fontsize=7, color="#aaaaaa")
         return im
 
-    im = _draw(axes[0], _build("A"), "Scenario A (unprotected)")
+    im = _draw(axes[0], _build("A"), "Escenario A (sin protección)")
     if has_b:
-        _draw(axes[1], _build("B"), "Scenario B (LLM Guard)")
+        _draw(axes[1], _build("B"), "Escenario B (LLM Guard)")
 
-    fig.colorbar(im, ax=axes[-1], label="TFA (Attack Filtering Rate)", shrink=0.7)
-    fig.suptitle("TFA Heatmap: Probe × Domain — Scenario A vs B",
+    fig.colorbar(im, ax=axes[-1], label="TFA (Tasa de Filtrado de Ataques)", shrink=0.7)
+    fig.suptitle("Mapa de calor de TFA: sonda × dominio — Escenario A vs B",
                  fontweight="bold", fontsize=12)
     fig.tight_layout()
     _save(fig, figures_dir, "tfa_heatmap_ab_comparison.png")
@@ -1496,16 +1679,16 @@ def plot_delta_tfa_by_domain(tfa_by_domain: dict, figures_dir: Path):
         ]
         offset = (i - 0.5) * width
         ax.bar(x + offset, deltas, width,
-               label=domain.replace("_", " ").title(),
+               label=_domain_label(domain),
                color=color, alpha=0.8, edgecolor="white")
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=35, ha="right", fontsize=9)
     ax.axhline(0, color="black", linewidth=0.8)
-    ax.set_xlabel("Probe")
-    ax.set_ylabel("ΔTFA (Scenario B − Scenario A)")
-    ax.set_title("ΔTFA per Probe by Domain — LLM Guard Net Contribution")
-    ax.legend(fontsize=9, title="Domain")
+    ax.set_xlabel("Sonda")
+    ax.set_ylabel("ΔTFA (Escenario B − Escenario A)")
+    ax.set_title("ΔTFA por sonda y dominio — Contribución neta de LLM Guard")
+    ax.legend(fontsize=9, title="Dominio")
     fig.tight_layout()
     _save(fig, figures_dir, "delta_tfa_by_probe_by_domain.png")
     plt.close(fig)
@@ -1556,14 +1739,14 @@ def plot_scanner_breakdown_by_probe(artifacts_dir: Path, domains: list, figures_
     for ax, domain in zip(axes[0], domains):
         path = artifacts_dir / f"consolidated_{domain}_protected.csv"
         if not path.exists():
-            ax.set_title(f"{domain.replace('_', ' ').title()}\n[no Scenario B data]")
+            ax.set_title(f"{_domain_label(domain)}\n[sin datos de Escenario B]")
             ax.set_visible(False)
             continue
         df = pd.read_csv(path)
         if "prompt_type" in df.columns:
             df = df[df["prompt_type"] == "adversarial"].copy()
         if df.empty or "probe" not in df.columns or "scanner_triggered" not in df.columns:
-            ax.set_title(f"{domain.replace('_', ' ').title()}\n[missing columns]")
+            ax.set_title(f"{_domain_label(domain)}\n[columnas faltantes]")
             ax.set_visible(False)
             continue
 
@@ -1590,10 +1773,10 @@ def plot_scanner_breakdown_by_probe(artifacts_dir: Path, domains: list, figures_
 
         ax.set_xticks(x_pos)
         ax.set_xticklabels(probes_ord, rotation=35, ha="right", fontsize=8.5)
-        ax.set_xlabel("Probe")
-        ax.set_ylabel("Adversarial prompts (count)")
-        ax.set_title(domain.replace("_", " ").title())
-        ax.legend(title="Scanner triggered", fontsize=7.5, loc="upper right")
+        ax.set_xlabel("Sonda")
+        ax.set_ylabel("Prompts adversariales (cantidad)")
+        ax.set_title(_domain_label(domain))
+        ax.legend(title="Scanner activado", fontsize=7.5, loc="upper right")
         any_data = True
 
     if not any_data:
@@ -1602,11 +1785,193 @@ def plot_scanner_breakdown_by_probe(artifacts_dir: Path, domains: list, figures_
         return
 
     fig.suptitle(
-        "Scanner Triggered Breakdown per Probe\nScenario B — Adversarial Prompts",
+        "Activación de scanners por sonda\nEscenario B — Prompts adversariales",
         fontweight="bold",
     )
     fig.tight_layout()
     _save(fig, figures_dir, "scanner_breakdown_by_probe.png")
+    plt.close(fig)
+
+
+def plot_repetition_variance(figures_dir: Path):
+    """Repetition stability chart — TFA mean/std/min-max per probe, Scenario A.
+
+    Reads ``artifacts/characterization/repetition_variance.csv`` (produced by
+    ``characterizer.py``) and, for each domain, draws one row per probe with a
+    gray min-max range bar and a diamond marker (colored by OWASP suite) at
+    the mean TFA with a ±std error bar. Probes are sorted by mean TFA
+    ascending. Scenario B is excluded.
+
+    Args:
+        figures_dir: Directory where the PNG is saved. The CSV is read from
+            ``figures_dir.parent / "characterization" / "repetition_variance.csv"``.
+
+    Outputs:
+        - artifacts/figures/fig_repetition_variance_stability.png
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.lines as mlines
+    import numpy as np
+
+    csv_path = figures_dir.parent / "characterization" / "repetition_variance.csv"
+    if not csv_path.exists():
+        print(f"  [skip] repetition variance: {csv_path} not found.")
+        return
+    setup_style()
+
+    df   = pd.read_csv(csv_path)
+    df_a = df[df["scenario"] == "A"]
+    domains = sorted(df_a["domain"].unique())
+    if not domains:
+        print("  [skip] repetition variance: no Scenario A rows.")
+        return
+
+    fig, axes = plt.subplots(1, len(domains), figsize=(8 * len(domains), 6))
+    if len(domains) == 1:
+        axes = [axes]
+
+    for ax, domain in zip(axes, domains):
+        sub    = df_a[df_a["domain"] == domain].sort_values("mean")
+        y      = np.arange(len(sub))
+        labels = [PROBE_SHORT.get(p, p) for p in sub["probe"]]
+
+        ax.hlines(y, sub["min"], sub["max"], color="#bbbbbb",
+                  linewidth=3, alpha=0.7, zorder=1)
+        for yi, (_, row) in zip(y, sub.iterrows()):
+            color = SUITE_COLORS.get(row["suite"], "#888888")
+            ax.errorbar(row["mean"], yi, xerr=row["std"], fmt="D",
+                         color=color, ecolor=color, elinewidth=1.5,
+                         capsize=3, markersize=7, zorder=3)
+
+        ax.set_yticks(y)
+        ax.set_yticklabels(labels, fontsize=9)
+        ax.set_xlim(0, 1.05)
+        ax.axvline(1.0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
+        ax.set_xlabel("TFA (media ± desv. est., rango mín–máx)")
+        ax.set_title(_domain_label(domain), fontsize=10)
+
+    axes[0].text(0.02, 0.98, "Toda desv. est. < 0.03\nNo se detectaron sondas de alta varianza",
+                  transform=axes[0].transAxes, fontsize=8.5, va="top", ha="left",
+                  bbox=dict(boxstyle="round,pad=0.4", facecolor="white",
+                            edgecolor="gray", alpha=0.85))
+
+    suite_handles = [mlines.Line2D([], [], color=c, marker="D", linestyle="None",
+                                    markersize=7, label=s)
+                     for s, c in SUITE_COLORS.items()]
+    fig.legend(handles=suite_handles, title="Suite OWASP", loc="lower center",
+               ncol=len(SUITE_COLORS), fontsize=9, bbox_to_anchor=(0.5, -0.05))
+
+    fig.suptitle("Estabilidad de repetición de TFA — Escenario A (5 ejecuciones por sonda)",
+                  fontweight="bold")
+    fig.tight_layout()
+    _save(fig, figures_dir, "fig_repetition_variance_stability.png")
+    plt.close(fig)
+
+
+def plot_las_adv_vs_legit_summary(figures_dir: Path):
+    """Median latency bar chart from the precomputed summary CSV, adv vs legit.
+
+    Reads ``artifacts/characterization/latency_comparison.csv`` (produced by
+    ``characterizer.py``) and draws one bar per (domain, scenario,
+    prompt_type) combination — 8 bars total. Scenario B bars get a dashed
+    border to distinguish them. Annotates the "early blocking" paradox: the
+    adversarial median latency drops in Scenario B (LLM Guard blocks before
+    LLM inference) while the legitimate median rises (full inference + proxy
+    overhead).
+
+    Args:
+        figures_dir: Directory where the PNG is saved. The CSV is read from
+            ``figures_dir.parent / "characterization" / "latency_comparison.csv"``.
+
+    Outputs:
+        - artifacts/figures/fig_las_adv_vs_legit_summary.png
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+    import numpy as np
+
+    csv_path = figures_dir.parent / "characterization" / "latency_comparison.csv"
+    if not csv_path.exists():
+        print(f"  [skip] LAS adv vs legit summary: {csv_path} not found.")
+        return
+    setup_style()
+
+    df = pd.read_csv(csv_path)
+
+    groups = [
+        ("academic_institutional", "A", "adversarial", "Acad A\nadv"),
+        ("academic_institutional", "A", "legitimate",  "Acad A\nleg"),
+        ("academic_institutional", "B", "adversarial", "Acad B\nadv"),
+        ("academic_institutional", "B", "legitimate",  "Acad B\nleg"),
+        ("regulatory_technical",   "A", "adversarial", "Reg A\nadv"),
+        ("regulatory_technical",   "A", "legitimate",  "Reg A\nleg"),
+        ("regulatory_technical",   "B", "adversarial", "Reg B\nadv"),
+        ("regulatory_technical",   "B", "legitimate",  "Reg B\nleg"),
+    ]
+
+    ADV_COLOR, ADV_DARK = "#888780", "#5C5B56"
+    LEG_COLOR, LEG_DARK = "#2471A3", "#1A4F73"
+
+    x = np.arange(len(groups))
+    values, edgecolors, linewidths, linestyles, colors = [], [], [], [], []
+    for domain, scenario, prompt_type, _ in groups:
+        row = df[(df["domain"] == domain) & (df["scenario"] == scenario)
+                 & (df["prompt_type"] == prompt_type)]
+        val = float(row["median"].iloc[0]) if not row.empty else 0.0
+        values.append(val)
+
+        is_adv = prompt_type == "adversarial"
+        colors.append(ADV_COLOR if is_adv else LEG_COLOR)
+        if scenario == "B":
+            edgecolors.append(ADV_DARK if is_adv else LEG_DARK)
+            linewidths.append(1.5)
+            linestyles.append("--")
+        else:
+            edgecolors.append("white")
+            linewidths.append(1.0)
+            linestyles.append("-")
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars = ax.bar(x, values, width=0.6, color=colors, alpha=0.85)
+    for bar, ec, lw, ls in zip(bars, edgecolors, linewidths, linestyles):
+        bar.set_edgecolor(ec)
+        bar.set_linewidth(lw)
+        bar.set_linestyle(ls)
+
+    for bar, val in zip(bars, values):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + max(values) * 0.01,
+                f"{val:.0f}", ha="center", va="bottom", fontsize=8.5, fontweight="bold")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([g[3] for g in groups], fontsize=9)
+    ax.set_ylabel("Latencia mediana (ms)")
+    ax.set_title("LAS — latencia mediana por escenario, dominio y tipo de prompt")
+    ax.set_ylim(0, max(values) * 1.35)
+
+    # Early-blocking paradox annotation: Acad A adv (x=0) vs Acad B adv (x=2)
+    y_arrow = max(values[0], values[2]) * 1.25
+    ax.annotate("", xy=(x[0], y_arrow), xytext=(x[2], y_arrow),
+                arrowprops=dict(arrowstyle="<->", color="black", lw=1.2))
+    ax.text((x[0] + x[2]) / 2, y_arrow * 1.03, "Bloqueo temprano\n↓ mediana adv",
+            ha="center", va="bottom", fontsize=8.5, style="italic")
+
+    note = ("La mediana adversarial baja en el Escenario B: LLM Guard bloquea antes "
+            "de la inferencia del LLM.\n"
+            "La mediana legítima sube: inferencia LLM completa + sobrecarga del proxy.")
+    ax.text(0.98, 0.95, note, transform=ax.transAxes, fontsize=8,
+            ha="right", va="top",
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="white", edgecolor="gray", alpha=0.85))
+
+    handles = [
+        mpatches.Patch(facecolor=ADV_COLOR, alpha=0.85, label="Adversarial"),
+        mpatches.Patch(facecolor=LEG_COLOR, alpha=0.85, label="Legítimo"),
+        mpatches.Patch(facecolor="white", edgecolor=ADV_DARK, linestyle="--",
+                       linewidth=1.5, label="Escenario B (borde discontinuo)"),
+    ]
+    ax.legend(handles=handles, fontsize=8.5, loc="upper left")
+
+    fig.tight_layout()
+    _save(fig, figures_dir, "fig_las_adv_vs_legit_summary.png")
     plt.close(fig)
 
 
@@ -1667,6 +2032,8 @@ def generate_segmented_plots(
     plot_tfa_heatmap_ab_comparison(tfa_by_domain, figures_dir)
     plot_delta_tfa_by_domain(tfa_by_domain, figures_dir)
     plot_scanner_breakdown_by_probe(artifacts_dir, domains, figures_dir)
+    plot_repetition_variance(figures_dir)
+    plot_las_adv_vs_legit_summary(figures_dir)
 
     n = len(list(figures_dir.glob("*.png")))
     print(f"\n  Segmented figures complete. {n} total figures in {figures_dir}.\n")
