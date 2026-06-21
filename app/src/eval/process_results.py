@@ -136,6 +136,15 @@ def main():
 
         print_tfa(tfa_a, tfa_b, domain, tfa_csv_a=tfa_csv_a, tfa_csv_b=tfa_csv_b)
 
+        # Weighted global TFA using the correct per-suite ground truth
+        # (compute_tfa_global), as opposed to the garak_passed-based GLOBAL
+        # block above which is only a valid proxy for LLM01.
+        global_df_a = load_consolidated(artifacts, domain, "unprotected")
+        global_df_b = load_consolidated(artifacts, domain, "protected")
+        global_a = compute_tfa_global(global_df_a)
+        global_b = compute_tfa_global(global_df_b) if not global_df_b.empty else None
+        print_tfa_global(domain, global_a, global_b)
+
     # ── LAS ─────────────────────────────────────────────────
     lat_a = load_latency(latency_dir, "latency_unprotected_direct.csv")
     lat_b = load_latency(latency_dir, "latency_protected.csv")

@@ -15,6 +15,7 @@ chroma_db/
 
 # Artifacts / runs / logs (estado local)
 artifacts/
+*.csv
 *.log
 llm_guard_cache/
 venv/

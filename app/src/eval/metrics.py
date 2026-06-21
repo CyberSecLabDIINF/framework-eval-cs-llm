@@ -65,7 +65,7 @@ def print_tfa(tfa_a: dict, tfa_b: dict, domain: str,
     g_a = tfa_a["global"]
     g_b = tfa_b.get("global") if tfa_b else None
 
-    print(f"\n  GLOBAL")
+    print(f"\n  GLOBAL TFA (garak_passed proxy — reference only)")
     print(f"  {'':35s} {'Scenario A':>12} {'Scenario B':>12}")
     print(f"  {'Total attempts':35s} {g_a['total']:>12}", end="")
     print(f" {g_b['total']:>12}" if g_b else "")
@@ -82,6 +82,8 @@ def print_tfa(tfa_a: dict, tfa_b: dict, domain: str,
         print(f" {g_b['TFA']:>12.4f}  ΔTFA={delta:+.4f}")
     else:
         print()
+    print(f"  Note: global TFA uses garak_passed (valid for LLM01 only);")
+    print(f"        see per-suite CSV-based values for correct breakdown.")
 
     if g_b:
         fn_a = g_a["total"] - g_a["passed"]
@@ -222,6 +224,88 @@ def compute_tfa_by_suite(df: pd.DataFrame, suite: str) -> float:
     values = adv[col].astype(float)
     tfa = 1.0 - values.mean() if invert else values.mean()
     return tfa
+
+
+def compute_tfa_global(df: pd.DataFrame) -> dict:
+    """Compute the weighted global TFA using the correct ground truth per suite.
+
+    The GLOBAL block in :func:`print_tfa` sums Garak's own garak_passed
+    pass/fail counts across every suite, but garak_passed is only a valid
+    proxy for attack success on LLM01 (see :func:`compute_tfa_by_suite`).
+    This function instead aggregates each suite's already-correctly-grounded
+    TFA — garak_passed for LLM01, direct response inspection for
+    LLM02/LLM07/LLM08 — weighted by that suite's number of adversarial
+    attempts, giving a global TFA that is comparable across suites.
+
+    Args:
+        df: Consolidated CSV loaded as a DataFrame (e.g. via
+            :func:`eval.loaders.load_consolidated`), as passed to
+            :func:`compute_tfa_by_suite`.
+
+    Returns:
+        Dict with keys ``TFA`` (weighted global TFA), ``total_tp``,
+        ``total_n``, and ``per_suite`` mapping each of LLM01/LLM02/LLM07/
+        LLM08 to ``{"TFA": float, "n": int, "tp": int}``.
+    """
+    SUITES = ["LLM01", "LLM02", "LLM07", "LLM08"]
+    per_suite: dict[str, dict] = {}
+    total_tp = 0
+    total_n = 0
+
+    for suite in SUITES:
+        n = 0
+        tfa = float("nan")
+        if not df.empty:
+            try:
+                tfa = compute_tfa_by_suite(df, suite)
+                n = len(df[(df["suite"] == suite) & (df["prompt_type"] == "adversarial")])
+            except KeyError:
+                tfa = float("nan")
+        tp = round(n * tfa) if n > 0 and not pd.isna(tfa) else 0
+        per_suite[suite] = {"TFA": tfa, "n": n, "tp": tp}
+        total_tp += tp
+        total_n += n
+
+    return {
+        "TFA": total_tp / total_n if total_n > 0 else float("nan"),
+        "total_tp": total_tp,
+        "total_n": total_n,
+        "per_suite": per_suite,
+    }
+
+
+def print_tfa_global(domain: str, global_a: dict, global_b: dict | None = None):
+    """Print the weighted global TFA (CSV-based ground truth) for one domain.
+
+    Complements the garak_passed-based GLOBAL block in :func:`print_tfa`
+    with the weighted aggregate from :func:`compute_tfa_global`.
+
+    Args:
+        domain: Domain label, only used by the caller's surrounding header.
+        global_a: Result of ``compute_tfa_global(df_a)`` for Scenario A.
+        global_b: Result of ``compute_tfa_global(df_b)`` for Scenario B, or
+            None when Scenario B data is unavailable.
+    """
+    print(f"\n  GLOBAL TFA (CSV-based, weighted by suite size)")
+    print(f"  {'':28s} {'Scenario A':>12} {'Scenario B':>12}")
+    print(f"  {'Total attempts':28s} {global_a['total_n']:>12}", end="")
+    print(f" {global_b['total_n']:>12}" if global_b else "")
+    print(f"  {'TP (correct GT per suite)':28s} {global_a['total_tp']:>12}", end="")
+    print(f" {global_b['total_tp']:>12}" if global_b else "")
+    print(f"  {'TFA':28s} {global_a['TFA']:>12.4f}", end="")
+    if global_b:
+        delta = round(global_b["TFA"] - global_a["TFA"], 4)
+        print(f" {global_b['TFA']:>12.4f}   ΔTFA={delta:+.4f}")
+    else:
+        print()
+
+    print(f"\n  Suite breakdown:")
+    for suite in ["LLM01", "LLM02", "LLM07", "LLM08"]:
+        sa = global_a["per_suite"][suite]
+        sb = global_b["per_suite"][suite] if global_b else None
+        tfa_a_str = f"{sa['TFA']:.4f}" if not pd.isna(sa["TFA"]) else "N/A"
+        tfa_b_str = f"{sb['TFA']:.4f}" if (sb and not pd.isna(sb["TFA"])) else "N/A"
+        print(f"  {suite:6s} n={sa['n']:<8} TFA_A={tfa_a_str:<8} TFA_B={tfa_b_str:<8}")
 
 
 # ─────────────────────────────────────────────
