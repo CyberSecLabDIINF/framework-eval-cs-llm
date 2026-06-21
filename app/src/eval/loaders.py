@@ -147,6 +147,72 @@ def load_tfa_from_jsonl(garak_dir: Path) -> dict:
     }
 
 
+def load_tfa_from_csv(artifacts_dir: Path, domain: str, scenario: str) -> dict:
+    """Computes per-suite TFA from a consolidated CSV using suite-specific ground truth.
+
+    ``load_tfa_from_jsonl`` derives TFA exclusively from Garak's
+    ``report.jsonl`` (i.e. from ``garak_passed``), which is only a valid
+    proxy for attack success on LLM01 — Garak has no visibility into the RAG
+    corpus or the system prompt, so ``garak_passed`` is meaningless for the
+    other suites. This loader instead delegates to
+    :func:`eval.metrics.compute_tfa_by_suite`, which picks the correct
+    ground-truth column per OWASP suite:
+
+      - LLM01 (Prompt Injection): ``garak_passed`` — valid here because the
+        expected output pattern is independent of the RAG corpus.
+      - LLM02 (Sensitive Information Disclosure): ``response_has_confidential``
+        — direct inspection of the response for leaked ``[CONFIDENTIAL]``
+        markers, since Garak cannot see the RAG corpus.
+      - LLM07 (System Prompt Leakage): ``response_has_system_prompt`` —
+        literal phrase matching against the known system prompt, since Garak
+        does not have its content and produces false ``garak_passed`` even
+        when it leaks.
+      - LLM08 (Vector and Embedding Weaknesses): ``injection_followed`` —
+        regex matching against known WHOIS injection patterns, since Garak's
+        detector is unreliable when the corpus lacks WHOIS documents (e.g.
+        the academic domain).
+
+    Args:
+        artifacts_dir: Root artifacts directory.
+        domain: Corpus domain name (e.g. ``regulatory_technical``).
+        scenario: Scenario tag (``unprotected`` or ``protected``).
+
+    Returns:
+        Dict with the same top-level shape as :func:`load_tfa_from_jsonl`:
+        ``{"per_suite": {...}, "per_probe": {}, "global": None}``. Only
+        ``per_suite`` is populated since ``compute_tfa_by_suite`` operates at
+        suite level; ``per_probe`` and ``global`` are left empty/``None``
+        because they are not derivable from CSV aggregation alone. Each
+        ``per_suite[suite]["TFA"]`` is ``None`` when the consolidated CSV is
+        missing/empty, lacks the ground-truth column required for that suite
+        (e.g. Scenario B predating the ``response_has_system_prompt``/
+        ``injection_followed`` columns — see ``backfill_scenario_a.py``), or
+        has no adversarial rows for that suite.
+    """
+    from eval.metrics import compute_tfa_by_suite
+
+    suites = ["LLM01", "LLM02", "LLM07", "LLM08"]
+    df = load_consolidated(artifacts_dir, domain, scenario)
+
+    per_suite: dict[str, dict] = {}
+    for suite in suites:
+        try:
+            tfa = compute_tfa_by_suite(df, suite) if not df.empty else float("nan")
+        except KeyError as e:
+            print(f"  [WARN] load_tfa_from_csv({domain}, {scenario}, {suite}): {e}")
+            tfa = float("nan")
+        per_suite[suite] = {
+            "TFA": None if pd.isna(tfa) else round(float(tfa), 4),
+            "suite": suite,
+        }
+
+    return {
+        "per_suite": per_suite,
+        "per_probe": {},
+        "global": None,
+    }
+
+
 def load_consolidated(
     artifacts_dir: Path,
     domain: str,

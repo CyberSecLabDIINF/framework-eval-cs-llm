@@ -49,6 +49,14 @@ _SUBDIM_LABELS_ES = {
     "LLM08": "D4 — Monitoreo y trazabilidad",
 }
 
+# Ground-truth source per suite, shown as a footnote on suite-level TFA bar
+# charts when CSV-based (compute_tfa_by_suite) values are plotted, since
+# garak_passed alone is only a valid ground truth for LLM01.
+_TFA_GT_SOURCE_NOTE = (
+    "Fuente GT: LLM01=garak_passed | LLM02=response_has_confidential | "
+    "LLM07=response_has_system_prompt | LLM08=injection_followed"
+)
+
 
 def _domain_label(domain: str) -> str:
     """Spanish display label for a domain name (figure titles/ticks)."""
@@ -86,6 +94,13 @@ def _save(fig, figures_dir: Path, filename: str):
 
 def plot_tfa_by_probe(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
     """Bar chart of TFA per probe, coloured by OWASP suite, with optional Scenario B overlay.
+
+    Unlike ``plot_tfa_by_suite``/``plot_tfa_domains_combined``, this chart has
+    no CSV ground-truth equivalent: it always uses ``tfa_a``/``tfa_b``
+    (garak_passed-based, from ``load_tfa_from_jsonl``) because per-probe
+    breakdowns are only meaningful for LLM01, where garak_passed is a valid
+    ground truth. It intentionally has no ``tfa_csv_a``/``tfa_csv_b``
+    parameters.
 
     Args:
         tfa_a: TFA dict for Scenario A.
@@ -135,7 +150,8 @@ def plot_tfa_by_probe(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
     plt.close(fig)
 
 
-def plot_tfa_by_suite(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
+def plot_tfa_by_suite(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path,
+                      tfa_csv_a: dict | None = None, tfa_csv_b: dict | None = None):
     """Bar chart of TFA per OWASP suite with optional Scenario B overlay.
 
     Args:
@@ -143,6 +159,12 @@ def plot_tfa_by_suite(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
         tfa_b: TFA dict for Scenario B, or an empty dict when unavailable.
         domain: Domain name used in the figure title and output filename.
         figures_dir: Directory where the PNG is saved.
+        tfa_csv_a: Optional per-suite TFA dict for Scenario A as returned by
+            ``load_tfa_from_csv``, computed with the correct ground truth per
+            OWASP suite. When provided, its ``per_suite`` values are used
+            instead of ``tfa_a["per_suite"]`` (which is only a valid ground
+            truth for LLM01). Falls back to ``tfa_a["per_suite"]`` when None.
+        tfa_csv_b: Same as tfa_csv_a, for Scenario B.
     """
     import matplotlib.pyplot as plt
     import numpy as np
@@ -150,8 +172,12 @@ def plot_tfa_by_suite(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
 
     suites  = list(VECTOR_MAP.keys())
     labels  = [f"{s}\n{_SUBDIM_LABELS_ES[s].split('—')[1].strip()}" for s in suites]
-    vals_a  = [tfa_a["per_suite"].get(s, {}).get("TFA") or 0 for s in suites]
-    vals_b  = [tfa_b["per_suite"].get(s, {}).get("TFA") or 0 for s in suites] if tfa_b else None
+    per_suite_a = tfa_csv_a["per_suite"] if tfa_csv_a else tfa_a["per_suite"]
+    vals_a = [per_suite_a.get(s, {}).get("TFA") or 0 for s in suites]
+    vals_b = None
+    if tfa_b:
+        per_suite_b = tfa_csv_b["per_suite"] if tfa_csv_b else tfa_b["per_suite"]
+        vals_b = [per_suite_b.get(s, {}).get("TFA") or 0 for s in suites]
 
     x     = np.arange(len(suites))
     width = 0.35 if vals_b else 0.5
@@ -172,17 +198,27 @@ def plot_tfa_by_suite(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
     ax.axhline(1.0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
     if vals_b:
         ax.legend(fontsize=9)
+    if tfa_csv_a:
+        fig.text(0.5, -0.04, _TFA_GT_SOURCE_NOTE, ha="center", va="top",
+                 fontsize=7.5, style="italic", color="#555555")
 
     _save(fig, figures_dir, f"tfa_by_suite_{domain}.png")
     plt.close(fig)
 
 
-def plot_tfa_domains_combined(tfa_by_domain: dict, figures_dir: Path):
+def plot_tfa_domains_combined(tfa_by_domain: dict, figures_dir: Path,
+                              tfa_csv_by_domain: dict | None = None):
     """Side-by-side per-suite TFA bar chart for all domains in a single figure.
 
     Args:
         tfa_by_domain: Mapping of ``{domain: {"A": tfa_dict, "B": tfa_dict}}``.
         figures_dir: Directory where the PNG is saved.
+        tfa_csv_by_domain: Optional mapping with the same shape, sourced from
+            ``load_tfa_from_csv``, computed with the correct ground truth per
+            OWASP suite. When provided, a domain's ``per_suite`` values are
+            used instead of ``tfa_by_domain[domain]["A"/"B"]["per_suite"]``
+            (which is only a valid ground truth for LLM01). Falls back to
+            ``tfa_by_domain`` per domain when None or when a domain is absent.
     """
     import matplotlib.pyplot as plt
     import numpy as np
@@ -196,9 +232,13 @@ def plot_tfa_domains_combined(tfa_by_domain: dict, figures_dir: Path):
     if len(domains) == 1:
         axes = [axes]
 
+    used_csv_gt = False
     for ax, domain in zip(axes, domains):
         tfa_a = tfa_by_domain[domain]["A"]
         tfa_b = tfa_by_domain[domain]["B"]
+        csv_d = (tfa_csv_by_domain or {}).get(domain, {})
+        tfa_csv_a = csv_d.get("A")
+        tfa_csv_b = csv_d.get("B")
 
         if not tfa_a:
             # No Scenario A data for this domain yet: render a placeholder so
@@ -209,8 +249,14 @@ def plot_tfa_domains_combined(tfa_by_domain: dict, figures_dir: Path):
             ax.set_xticks([])
             continue
 
-        vals_a = [tfa_a["per_suite"].get(s, {}).get("TFA") or 0 for s in suites]
-        vals_b = [tfa_b["per_suite"].get(s, {}).get("TFA") or 0 for s in suites] if tfa_b else None
+        per_suite_a = tfa_csv_a["per_suite"] if tfa_csv_a else tfa_a["per_suite"]
+        vals_a = [per_suite_a.get(s, {}).get("TFA") or 0 for s in suites]
+        vals_b = None
+        if tfa_b:
+            per_suite_b = tfa_csv_b["per_suite"] if tfa_csv_b else tfa_b["per_suite"]
+            vals_b = [per_suite_b.get(s, {}).get("TFA") or 0 for s in suites]
+        if tfa_csv_a:
+            used_csv_gt = True
 
         x     = np.arange(n_suites)
         width = 0.35 if vals_b else 0.5
@@ -238,6 +284,9 @@ def plot_tfa_domains_combined(tfa_by_domain: dict, figures_dir: Path):
     else:
         title = "TFA por suite OWASP — Todos los dominios"
     fig.suptitle(title, fontweight="bold")
+    if used_csv_gt:
+        fig.text(0.5, -0.02, _TFA_GT_SOURCE_NOTE, ha="center", va="top",
+                 fontsize=7.5, style="italic", color="#555555")
     fig.tight_layout()
     _save(fig, figures_dir, "tfa_by_suite_combined.png")
     plt.close(fig)
@@ -1147,7 +1196,24 @@ def plot_tfa_suite_all_combos(tfa_by_domain: dict, figures_dir: Path):
 
 
 def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
-                       lat_b: pd.DataFrame, artifacts_dir: Path, runs_dir: Path, figures_dir: Path):
+                       lat_b: pd.DataFrame, artifacts_dir: Path, runs_dir: Path, figures_dir: Path,
+                       tfa_csv_by_domain: dict | None = None):
+    """Generate all primary figures and save them to ``figures_dir``.
+
+    Args:
+        tfa_by_domain: Mapping of ``{domain: {"A": tfa_dict, "B": tfa_dict}}``
+            as returned by ``load_tfa_from_jsonl`` (garak_passed-based).
+        lat_a: Latency DataFrame for Scenario A.
+        lat_b: Latency DataFrame for Scenario B.
+        artifacts_dir: Root artifacts directory.
+        runs_dir: Root runs directory (``artifacts_dir / "runs"``).
+        figures_dir: Directory where all output PNGs are saved.
+        tfa_csv_by_domain: Optional mapping with the same shape as
+            ``tfa_by_domain``, sourced from ``load_tfa_from_csv``, used by the
+            suite-level TFA charts (``plot_tfa_by_suite``,
+            ``plot_tfa_domains_combined``) in place of the garak_passed-based
+            values, which are only a valid ground truth for LLM01.
+    """
     print(f"\n{'='*70}")
     print(f"  GENERATING FIGURES → {figures_dir}")
     print(f"{'='*70}")
@@ -1165,10 +1231,12 @@ def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
         tfa_a, tfa_b = data["A"], data["B"]
         if not tfa_a:
             continue
+        csv_d = (tfa_csv_by_domain or {}).get(domain, {})
         plot_tfa_by_probe(tfa_a, tfa_b, domain, figures_dir)
-        plot_tfa_by_suite(tfa_a, tfa_b, domain, figures_dir)
+        plot_tfa_by_suite(tfa_a, tfa_b, domain, figures_dir,
+                          tfa_csv_a=csv_d.get("A"), tfa_csv_b=csv_d.get("B"))
 
-    plot_tfa_domains_combined(tfa_by_domain, figures_dir)
+    plot_tfa_domains_combined(tfa_by_domain, figures_dir, tfa_csv_by_domain=tfa_csv_by_domain)
     plot_tfa_heatmap(tfa_by_domain, figures_dir)
     plot_delta_tfa(tfa_by_domain, figures_dir)
     plot_pvalue_by_suite(tfa_by_domain, figures_dir)
@@ -1976,7 +2044,8 @@ def plot_las_adv_vs_legit_summary(figures_dir: Path):
 
 
 def generate_segmented_plots(
-    artifacts_dir: Path, domains: list, tfa_by_domain: dict, figures_dir: Path
+    artifacts_dir: Path, domains: list, tfa_by_domain: dict, figures_dir: Path,
+    tfa_csv_by_domain: dict | None = None,
 ):
     """Generate all six supplementary segmented-analysis figures and save them to disk.
 
@@ -2000,6 +2069,13 @@ def generate_segmented_plots(
         by ``load_tfa_from_jsonl``, used by the TFA heatmap and ΔTFA chart.
     figures_dir : Path
         Directory where all output PNGs are saved (created if absent).
+    tfa_csv_by_domain : dict, optional
+        Mapping with the same shape as ``tfa_by_domain``, sourced from
+        ``load_tfa_from_csv``. Accepted for signature symmetry with
+        ``generate_all_plots`` and forwarded from ``process_results.py``, but
+        currently unused here: none of this function's plots render
+        suite-level bars (they use per-probe data, valid only for LLM01, or
+        CSV columns directly), so there is nothing to substitute yet.
 
     Outputs
     -------

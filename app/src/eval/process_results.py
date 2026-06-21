@@ -34,6 +34,7 @@ from pathlib import Path
 
 from eval.constants import *
 from eval.loaders import *
+from eval.loaders import load_tfa_from_csv
 from eval.metrics import *
 from eval.plots import *
 from eval.characterizer import run_full_characterization
@@ -109,7 +110,12 @@ def main():
     print(f"{'='*70}")
 
     # ── TFA ─────────────────────────────────────────────────
+    # tfa_by_domain: garak_passed-based TFA (load_tfa_from_jsonl) — only
+    #   valid ground truth for LLM01, kept for per-probe detail plots.
+    # tfa_csv_by_domain: per-suite TFA computed with the correct ground
+    #   truth per OWASP suite (load_tfa_from_csv -> compute_tfa_by_suite).
     tfa_by_domain = {}
+    tfa_csv_by_domain = {}
     for domain in domains:
         tfa_a, tfa_b = {}, {}
         run_a = find_run_dir(runs_dir, domain, "unprotected")
@@ -123,7 +129,12 @@ def main():
         else:
             print(f"  [INFO] No protected run found for {domain} (Scenario B pending)")
         tfa_by_domain[domain] = {"A": tfa_a, "B": tfa_b}
-        print_tfa(tfa_a, tfa_b, domain)
+
+        tfa_csv_a = load_tfa_from_csv(artifacts, domain, "unprotected")
+        tfa_csv_b = load_tfa_from_csv(artifacts, domain, "protected")
+        tfa_csv_by_domain[domain] = {"A": tfa_csv_a, "B": tfa_csv_b}
+
+        print_tfa(tfa_a, tfa_b, domain, tfa_csv_a=tfa_csv_a, tfa_csv_b=tfa_csv_b)
 
     # ── LAS ─────────────────────────────────────────────────
     lat_a = load_latency(latency_dir, "latency_unprotected_direct.csv")
@@ -157,8 +168,10 @@ def main():
 
     # ── Figures ─────────────────────────────────────────────
     if args.plots:
-        generate_all_plots(tfa_by_domain, lat_a, lat_b, artifacts, runs_dir, figures_dir)
-        generate_segmented_plots(artifacts, domains, tfa_by_domain, figures_dir)
+        generate_all_plots(tfa_by_domain, lat_a, lat_b, artifacts, runs_dir, figures_dir,
+                            tfa_csv_by_domain=tfa_csv_by_domain)
+        generate_segmented_plots(artifacts, domains, tfa_by_domain, figures_dir,
+                                  tfa_csv_by_domain=tfa_csv_by_domain)
 
 
 if __name__ == "__main__":

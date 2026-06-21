@@ -31,7 +31,8 @@ from eval.loaders import (
 # TFA — print
 # ─────────────────────────────────────────────
 
-def print_tfa(tfa_a: dict, tfa_b: dict, domain: str):
+def print_tfa(tfa_a: dict, tfa_b: dict, domain: str,
+              tfa_csv_a: dict | None = None, tfa_csv_b: dict | None = None):
     """Print a formatted TFA report for one domain, comparing Scenario A and B.
 
     Outputs global totals, per-suite table with Fisher exact p-values, and a
@@ -42,6 +43,16 @@ def print_tfa(tfa_a: dict, tfa_b: dict, domain: str):
         tfa_a: TFA dict for Scenario A as returned by :func:`load_tfa_from_jsonl`.
         tfa_b: TFA dict for Scenario B, or an empty dict when unavailable.
         domain: Domain label used in the section header.
+        tfa_csv_a: Optional per-suite TFA dict for Scenario A as returned by
+            :func:`eval.loaders.load_tfa_from_csv`, computed with the correct
+            ground truth per OWASP suite (see :func:`compute_tfa_by_suite`).
+            When provided, its ``per_suite`` values replace
+            ``tfa_a["per_suite"]`` in the PER OWASP SUITE section, annotated
+            with "(GT: CSV)". Falls back to ``tfa_a["per_suite"]`` when None.
+            Fisher exact p-values are only computed when the underlying dict
+            carries ``passed``/``total`` counts (i.e. when not CSV-sourced),
+            since per-suite CSV ground truth does not provide those counts.
+        tfa_csv_b: Same as tfa_csv_a, for Scenario B.
     """
     print(f"\n{'='*70}")
     print(f"  TFA — {domain.upper()}")
@@ -84,20 +95,29 @@ def print_tfa(tfa_a: dict, tfa_b: dict, domain: str):
     print(f"\n  PER OWASP SUITE")
     print(f"  {'Suite':6s} {'Description':28s} {'TFA_A':>8} {'TFA_B':>8} {'ΔTFA':>8} {'p-value':>10}")
     print(f"  {'-'*68}")
+    per_suite_a = tfa_csv_a["per_suite"] if tfa_csv_a else tfa_a["per_suite"]
+    per_suite_b = (tfa_csv_b["per_suite"] if tfa_csv_b else tfa_b["per_suite"]) if tfa_b else None
     for suite, desc in VECTOR_MAP.items():
-        va = tfa_a["per_suite"].get(suite)
-        vb = tfa_b["per_suite"].get(suite) if tfa_b else None
+        va = per_suite_a.get(suite)
+        vb = per_suite_b.get(suite) if per_suite_b else None
         if va is None:
             continue
         tfa_a_str = f"{va['TFA']:.4f}" if va["TFA"] is not None else "N/A"
+        if tfa_csv_a:
+            tfa_a_str += " (GT: CSV)"
         tfa_b_str = f"{vb['TFA']:.4f}" if (vb and vb["TFA"] is not None) else "N/A"
+        if tfa_csv_b and vb:
+            tfa_b_str += " (GT: CSV)"
         delta_str = p_str = ""
         if vb and va["TFA"] is not None and vb["TFA"] is not None:
-            fn_a = va["total"] - va["passed"]
-            fn_b = vb["total"] - vb["passed"]
-            _, p = fisher_exact([[va["passed"], fn_a], [vb["passed"], fn_b]], alternative="less")
             delta_str = f"{vb['TFA'] - va['TFA']:+.4f}"
-            p_str = f"{p:.6f}"
+            # Fisher exact requires passed/total counts, only present on
+            # jsonl-sourced per_suite entries, not on CSV-sourced ones.
+            if "passed" in va and "passed" in vb:
+                fn_a = va["total"] - va["passed"]
+                fn_b = vb["total"] - vb["passed"]
+                _, p = fisher_exact([[va["passed"], fn_a], [vb["passed"], fn_b]], alternative="less")
+                p_str = f"{p:.6f}"
         print(f"  {suite:6s} {desc[:28]:28s} {tfa_a_str:>8} {tfa_b_str:>8} {delta_str:>8} {p_str:>10}")
 
     print(f"\n  PER PROBE DETAIL")
