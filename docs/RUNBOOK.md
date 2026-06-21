@@ -319,11 +319,12 @@ Antes de iniciar, verificar los env files:
 grep GARAK_TARGET .env.regulatory_technical
 grep GARAK_TARGET .env.academic_institutional
 # Ambos deben mostrar: GARAK_TARGET=protected
-
-grep ENABLE_OUTPUT_GUARD .env.regulatory_technical
-grep ENABLE_OUTPUT_GUARD .env.academic_institutional
-# Ambos deben mostrar: ENABLE_OUTPUT_GUARD=1
 ```
+
+> El escaneo de LLM Guard (input y output) se ejecuta de forma incondicional
+> en `shield_api` — no depende de ninguna variable de entorno. El Escenario B
+> se activa dirigiendo las pruebas de Garak al endpoint de `shield_api` en
+> lugar del de `rag_api` (ver `GARAK_TARGET` arriba).
 
 ### 5.1 Levantar stack
 

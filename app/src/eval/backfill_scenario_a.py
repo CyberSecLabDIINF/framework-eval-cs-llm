@@ -2,10 +2,11 @@
 backfill_scenario_a.py
 ======================
 One-time backfill of response_has_system_prompt and injection_followed
-columns into existing Scenario A (unprotected) consolidated CSVs.
+columns into existing consolidated CSVs (both Scenario A/unprotected and
+Scenario B/protected) that predate these columns being computed inline.
 
-Must only be run on *_unprotected.csv files. Scenario B CSVs are
-generated fresh with these columns already populated by shield.py.
+CSVs produced by a shield.py/rag.py run after the columns were added
+already contain them and are skipped automatically.
 
 Usage:
     python eval/backfill_scenario_a.py --artifacts artifacts/
@@ -116,10 +117,15 @@ def main() -> None:
     args = parser.parse_args()
 
     artifacts_dir: Path = args.artifacts
-    csv_paths = sorted(artifacts_dir.glob("consolidated_*_unprotected.csv"))
+    csv_paths = sorted(artifacts_dir.glob("consolidated_*_unprotected.csv")) + sorted(
+        artifacts_dir.glob("consolidated_*_protected.csv")
+    )
 
     if not csv_paths:
-        print(f"[WARN] No consolidated_*_unprotected.csv files found in {artifacts_dir}")
+        print(
+            f"[WARN] No consolidated_*_unprotected.csv or consolidated_*_protected.csv "
+            f"files found in {artifacts_dir}"
+        )
         return
 
     for path in csv_paths:

@@ -98,8 +98,6 @@ app.add_middleware(LatencyCSVLogger,
     domain=DATASET_TAG, 
     csv_path=LATENCY_CSV)
 
-ENABLE_LLM_GUARD = os.getenv("ENABLE_LLM_GUARD", "1") == "1"
-
 RAG_BASE_URL = os.getenv("RAG_BASE_URL", f"http://127.0.0.1:{s.rag_port}")
 RAG_GENERATE_URL = f"{RAG_BASE_URL}/generate"
 RAG_HEALTH_URL = f"{RAG_BASE_URL}/health"
@@ -174,8 +172,8 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
     """Validate and sanitize the input prompt using LLM Guard input scanners.
 
     Applies controls in order: C2 (control-character sanitization), C1
-    (TokenLimit), and C3 (PromptInjection).  Scanners are skipped when
-    ``ENABLE_LLM_GUARD`` is False.
+    (TokenLimit), and C3 (PromptInjection). Scanning runs unconditionally on
+    every request.
 
     Args:
         user_prompt: Raw user-supplied prompt string.
@@ -195,9 +193,6 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
     LLM-Sec Control C3: Blocks input prompts classified as prompt injection attempts by the PromptInjection scanner
     """
     p = user_prompt.strip()
-    if not ENABLE_LLM_GUARD:
-        return p, None, None
-
     p = _sanitize_control_chars(p)
 
     pi_cfg = _input_cfg.get("prompt_injection", {})
@@ -255,8 +250,9 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
     The two scanners are evaluated in sequence. Sensitive runs first because it
     covers cases where PII is paraphrased and lacks a recognizable structure;
     OutputRegex acts as a deterministic safety net for structured PII that may
-    fall below the Sensitive threshold.
- 
+    fall below the Sensitive threshold. Scanning runs unconditionally on
+    every request.
+
     Returns (sanitized_output, None, sens_score) if allowed.
     Returns (blocked_message, scanner_name, sens_score) if blocked.
 
@@ -271,9 +267,6 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
     LLM-Sec Control C19: Blocks model output matching deterministic regex patterns for structured PII / confidential markers
     LLM-Sec Control C20: Scores/blocks model output containing sensitive information via the Sensitive scanner
     """
-    if not ENABLE_LLM_GUARD:
-        return text, None, None
-
     text = _sanitize_control_chars(text)
 
     sens_cfg = _output_cfg.get("sensitive", {})
@@ -424,10 +417,7 @@ async def generate(query: Query, request: Request):
     rag_blocked = bool(data.get("blocked_by_rag", False))
     rag_block_reason = data.get("block_reason")
 
-    # C18/C19/C20: output scanning is always active when ENABLE_LLM_GUARD=1.
-    # ENABLE_OUTPUT_GUARD has been removed from this codebase; guard_output()
-    # executes unconditionally in Scenario B. The internal ENABLE_LLM_GUARD
-    # check inside guard_output() handles Scenario A (returns text unchanged).
+    # C18/C19/C20: output scanning runs unconditionally on every request.
     out_guarded, output_scanner, output_score = guard_output(query.prompt, out)
     response_has_system_prompt = int(any(
         phrase.lower() in out_guarded.lower()
@@ -493,7 +483,6 @@ async def health():
     return {
         "status": "ok",
         "mode": "proxy",
-        "enable_llm_guard": ENABLE_LLM_GUARD,
         "upstream_rag": RAG_BASE_URL,
         "upstream_ok": upstream_ok,
     }

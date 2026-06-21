@@ -144,7 +144,7 @@ This document describes each module in `app/src/`, the Docker Compose services, 
 | C19 | `OutputRegex` | Output |
 | C20 | `Sensitive` | Output |
 
-**Environment variables read.** `SCENARIO`, `DATASET_TAG`, `CONSOLIDATED_CSV`, `RUN_KIND`, `ENABLE_LLM_GUARD`, `RAG_BASE_URL`, `UPSTREAM_TIMEOUT_S`, plus all `Settings` fields.
+**Environment variables read.** `SCENARIO`, `DATASET_TAG`, `CONSOLIDATED_CSV`, `RUN_KIND`, `RAG_BASE_URL`, `UPSTREAM_TIMEOUT_S`, plus all `Settings` fields. LLM Guard input/output scanning runs unconditionally and is not gated by any environment variable.
 
 **Files read/written.**
 - Reads: `app/config/global/llm_guard_config.yaml`.
@@ -493,7 +493,7 @@ response_has_confidential, run_id
 
 - Runs `api.shield:app` via uvicorn on port 8001 (exposed on host).
 - Depends on `ollama_core` and `rag_api`.
-- **Key env vars:** `SCENARIO=protected`, `ENABLE_LLM_GUARD=1`, `RAG_BASE_URL=http://rag_api:8000`, `CONSOLIDATED_CSV`, `LLM_GUARD_CONFIG_PATH`, `LLM_GUARD_LOG_FILE`.
+- **Key env vars:** `SCENARIO=protected`, `RAG_BASE_URL=http://rag_api:8000`, `CONSOLIDATED_CSV`, `LLM_GUARD_CONFIG_PATH`, `LLM_GUARD_LOG_FILE`. LLM Guard scanning is unconditional; Scenario B is selected by directing Garak probes at this service instead of `rag_api`.
 
 #### `ollama_core` (profile: `lab`)
 
