@@ -312,19 +312,27 @@ def print_tfa_global(domain: str, global_a: dict, global_b: dict | None = None):
 # LAS — compute and print
 # ─────────────────────────────────────────────
 
-def _print_las_block(label: str, a_vals, b_vals):
-    """Print one LAS block (median, IQR, Mann-Whitney U) for a single prompt_type."""
+def _print_las_block(label: str, a_vals, b_vals, alternative: str, hypothesis: str):
+    """Print one LAS block (median, IQR, Mann-Whitney U) for a single prompt_type.
+
+    Args:
+        alternative: passed through to ``mannwhitneyu`` — direction differs by
+            prompt_type (adversarial: ``"greater"`` for early blocking;
+            legitimate: ``"less"`` for shield overhead).
+        hypothesis: human-readable H₁ description printed alongside the test.
+    """
     med_a = pd.Series(a_vals).median()
     med_b = pd.Series(b_vals).median()
     q25_a, q75_a = pd.Series(a_vals).quantile([0.25, 0.75])
     q25_b, q75_b = pd.Series(b_vals).quantile([0.25, 0.75])
     las = med_b - med_a
 
-    stat, p_val = mannwhitneyu(a_vals, b_vals, alternative="less")
+    stat, p_val = mannwhitneyu(a_vals, b_vals, alternative=alternative)
     sig = "✅ significant (α=0.05)" if p_val < 0.05 else "⚠️  not significant"
 
     print(f"\n  LAS — {label}")
     print(f"  {'-'*50}")
+    print(f"  H₁: {hypothesis}")
     print(f"  n requests (/generate): A={len(a_vals)}  B={len(b_vals)}")
     print(f"  Median A: {med_a:.3f} ms  IQR: [{q25_a:.3f}-{q75_a:.3f}]")
     print(f"  Median B: {med_b:.3f} ms  IQR: [{q25_b:.3f}-{q75_b:.3f}]")
@@ -355,15 +363,20 @@ def compute_las(lat_a: pd.DataFrame, lat_b: pd.DataFrame):
     print(f"  LAS — Security Latency (split by prompt_type)")
     print(f"{'='*70}")
 
-    for prompt_type, label in [("adversarial", "ADVERSARIAL PROMPTS"),
-                                ("legitimate", "LEGITIMATE PROMPTS")]:
+    las_specs = {
+        "adversarial": ("ADVERSARIAL PROMPTS", "greater",
+                         "latency_A > latency_B (LLM Guard blocks early in B)"),
+        "legitimate": ("LEGITIMATE PROMPTS", "less",
+                        "latency_A < latency_B (LLM Guard adds overhead in B)"),
+    }
+    for prompt_type, (label, alternative, hypothesis) in las_specs.items():
         sub_a = lat_a[lat_a["prompt_type"] == prompt_type]["latency_ms"]
         sub_b = lat_b[lat_b["prompt_type"] == prompt_type]["latency_ms"]
         if sub_a.empty or sub_b.empty:
             print(f"\n  LAS — {label}")
             print(f"  [WARN] Insufficient data (A={len(sub_a)}, B={len(sub_b)}).")
             continue
-        _print_las_block(label, sub_a.values, sub_b.values)
+        _print_las_block(label, sub_a.values, sub_b.values, alternative, hypothesis)
 
     domains = set(lat_a["domain"].dropna().unique()) | set(lat_b["domain"].dropna().unique())
     if domains:
