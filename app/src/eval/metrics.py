@@ -312,44 +312,62 @@ def print_tfa_global(domain: str, global_a: dict, global_b: dict | None = None):
 # LAS — compute and print
 # ─────────────────────────────────────────────
 
+def _print_las_block(label: str, a_vals, b_vals):
+    """Print one LAS block (median, IQR, Mann-Whitney U) for a single prompt_type."""
+    med_a = pd.Series(a_vals).median()
+    med_b = pd.Series(b_vals).median()
+    q25_a, q75_a = pd.Series(a_vals).quantile([0.25, 0.75])
+    q25_b, q75_b = pd.Series(b_vals).quantile([0.25, 0.75])
+    las = med_b - med_a
+
+    stat, p_val = mannwhitneyu(a_vals, b_vals, alternative="less")
+    sig = "✅ significant (α=0.05)" if p_val < 0.05 else "⚠️  not significant"
+
+    print(f"\n  LAS — {label}")
+    print(f"  {'-'*50}")
+    print(f"  n requests (/generate): A={len(a_vals)}  B={len(b_vals)}")
+    print(f"  Median A: {med_a:.3f} ms  IQR: [{q25_a:.3f}-{q75_a:.3f}]")
+    print(f"  Median B: {med_b:.3f} ms  IQR: [{q25_b:.3f}-{q75_b:.3f}]")
+    print(f"  LAS (Δmedian) = {las:+.3f} ms")
+    print(f"  Mann-Whitney U = {stat:.1f}  p = {p_val:.6f}  {sig}")
+
+
 def compute_las(lat_a: pd.DataFrame, lat_b: pd.DataFrame):
     """Print the Latency Added by Shield (LAS) summary comparing Scenario A and B.
 
-    Computes median latency per scenario, the Δmedian (LAS), a Mann-Whitney U
-    test, and a per-domain breakdown.
+    Runs the Mann-Whitney U test separately for adversarial and legitimate
+    prompts rather than pooling them, because in Scenario B adversarial
+    prompts blocked early by LLM Guard (~600ms) and legitimate prompts that
+    go through full inference (~4000ms) have fundamentally different latency
+    distributions — pooling them produces a bimodal mixture that confounds
+    the test and makes the aggregate LAS meaningless.
 
     Args:
-        lat_a: Latency DataFrame for Scenario A (unprotected).
+        lat_a: Latency DataFrame for Scenario A (unprotected), with a
+            ``prompt_type`` column (``adversarial``/``legitimate``).
         lat_b: Latency DataFrame for Scenario B (protected / LLM Guard).
     """
     if lat_a.empty or lat_b.empty:
         print("  [WARN] Insufficient latency data.")
         return
 
-    a_vals = lat_a["latency_ms"].values
-    b_vals = lat_b["latency_ms"].values
-    med_a  = pd.Series(a_vals).median()
-    med_b  = pd.Series(b_vals).median()
-    std_a  = pd.Series(a_vals).std()
-    std_b  = pd.Series(b_vals).std()
-    las    = med_b - med_a
-
-    stat, p_val = mannwhitneyu(a_vals, b_vals, alternative="less")
-    sig = "✅ significant (α=0.05)" if p_val < 0.05 else "⚠️  not significant"
-
     print(f"\n{'='*70}")
-    print(f"  LAS — Aggregate Security Latency")
+    print(f"  LAS — Security Latency (split by prompt_type)")
     print(f"{'='*70}")
-    print(f"\n  {'':35s} {'Scenario A':>12} {'Scenario B':>12}")
-    print(f"  {'n requests (/generate)':35s} {len(a_vals):>12} {len(b_vals):>12}")
-    print(f"  {'Median (ms)':35s} {med_a:>12.3f} {med_b:>12.3f}")
-    print(f"  {'Std deviation (ms)':35s} {std_a:>12.3f} {std_b:>12.3f}")
-    print(f"\n  LAS (Δmedian B - A) = {las:+.3f} ms")
-    print(f"  Mann-Whitney U = {stat:.1f}  p = {p_val:.6f}  {sig}")
+
+    for prompt_type, label in [("adversarial", "ADVERSARIAL PROMPTS"),
+                                ("legitimate", "LEGITIMATE PROMPTS")]:
+        sub_a = lat_a[lat_a["prompt_type"] == prompt_type]["latency_ms"]
+        sub_b = lat_b[lat_b["prompt_type"] == prompt_type]["latency_ms"]
+        if sub_a.empty or sub_b.empty:
+            print(f"\n  LAS — {label}")
+            print(f"  [WARN] Insufficient data (A={len(sub_a)}, B={len(sub_b)}).")
+            continue
+        _print_las_block(label, sub_a.values, sub_b.values)
 
     domains = set(lat_a["domain"].dropna().unique()) | set(lat_b["domain"].dropna().unique())
     if domains:
-        print(f"\n  BY DOMAIN (exploratory)")
+        print(f"\n  BY DOMAIN (exploratory, adversarial + legitimate pooled)")
         print(f"  {'Domain':35s} {'Med_A':>8} {'Med_B':>8} {'Δ':>8}")
         print(f"  {'-'*60}")
         for domain in sorted(domains):
