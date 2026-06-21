@@ -689,10 +689,7 @@ def deep_analysis_confusion(artifacts_dir: Path, domains: list):
         counts_system = _confusion_counts_system(adv, legit)
         counts_guard  = _confusion_counts(adv, legit)
 
-        for label, counts, recall_note in (
-            ("System-level (two-layer, PRIMARY)", counts_system, "  [= TFA_B]"),
-            ("LLM Guard only (single-layer)", counts_guard, ""),
-        ):
+        def print_matrix(label, counts, recall_note):
             TP, FN, FP, TN = counts["TP"], counts["FN"], counts["FP"], counts["TN"]
             m = derived(counts)
 
@@ -710,6 +707,22 @@ def deep_analysis_confusion(artifacts_dir: Path, domains: list):
             print(f"  {'Specificity TN/(TN+FP)':35s} {fmt(m['specificity'])}")
             print(f"  {'FPR  FP/(FP+TN)':35s} {fmt(m['fpr'])}")
             print(f"  {'FNR  FN/(FN+TP)':35s} {fmt(m['fnr'])}")
+
+        print_matrix("System-level (two-layer, PRIMARY)", counts_system, "  [= TFA_B]")
+
+        print(f"\n  Warning: system-level TP includes model intrinsic resistance")
+        print(f"  (garak_passed=1) as second defensive layer. For LLM02, LLM07,")
+        print(f"  and LLM08, garak_passed is not a valid ground truth metric —")
+        print(f"  see CSV-based TFA per suite for correct values.")
+
+        # ── LLM Guard only (primary defensive layer) ──────────────────────
+        # This is the single-layer matrix — the actual experimental
+        # contribution being evaluated (LLM Guard's blocking decision in
+        # isolation, independent of the model's own resistance).
+        print(f"\n{'='*70}")
+        print(f"  LLM GUARD ONLY (PRIMARY DEFENSIVE LAYER)")
+        print(f"{'='*70}")
+        print_matrix("LLM Guard only (single-layer)", counts_guard, "")
 
         # ── By subdimension — both views side by side ─────────
         print(f"\n  BY SUBDIMENSION — Scenario B (system-level vs. LLM Guard only)")
