@@ -433,6 +433,8 @@ def _blocked_response(
             prompt_type=prompt_type,
             block_reason=block_reason,
             grounding_ratio=grounding_ratio,
+            response_has_system_prompt=0,
+            injection_followed=0,
         )
     return {
         "response": message,
@@ -548,6 +550,8 @@ Question:
             garak_tag=garak_tag,
             prompt_type=prompt_type,
             grounding_ratio=grounding_ratio,
+            response_has_system_prompt=0,
+            injection_followed=0,
         )
 
     return {"response": out, "blocked_by_rag": False, "grounding_ratio": grounding_ratio}

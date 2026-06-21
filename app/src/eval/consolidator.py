@@ -12,6 +12,7 @@ import threading
 # Thread-safe lock for concurrent writes
 _csv_lock = threading.Lock()
 
+# 23 columns total — canonical order for all consolidated CSVs.
 COLUMNS = [
     "timestamp",
     "scenario",
@@ -36,6 +37,8 @@ COLUMNS = [
     "response_has_confidential",
     "grounding_ratio",
     "run_id",
+    "response_has_system_prompt",
+    "injection_followed",
 ]
 
 # Mapping suite → subdimension
@@ -97,6 +100,8 @@ def log_request(
     input_scanner_score: Optional[float] = None,
     output_scanner_score: Optional[float] = None,
     grounding_ratio: Optional[float] = None,
+    response_has_system_prompt: int = 0,
+    injection_followed: int = 0,
 ) -> None:
     """Append one row to the consolidated CSV.
 
@@ -156,6 +161,8 @@ def log_request(
         "response_has_confidential": 1 if "[CONFIDENTIAL]" in response else 0,
         "grounding_ratio": round(grounding_ratio, 4) if grounding_ratio is not None else "",
         "run_id": run_id,
+        "response_has_system_prompt": response_has_system_prompt,
+        "injection_followed": injection_followed,
     }
 
     _ensure_header(csv_path)
