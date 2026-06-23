@@ -30,7 +30,7 @@ from eval.loaders import (
     load_consolidated,
     load_tfa_from_jsonl,
 )
-from eval.metrics import print_tfa
+from eval.metrics import compute_tfa_global, print_tfa
 
 
 # ─────────────────────────────────────────────
@@ -145,6 +145,11 @@ def plot_tfa_by_probe(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
     ax.add_artist(legend1)
     if vals_b:
         ax.legend(loc="lower right", fontsize=8)
+
+    fig.text(0.5, -0.04,
+             "Nota: TFA por sonda usa garak_passed como proxy. "
+             "Válido solo para LLM01; ver TFA por suite para LLM02/LLM07/LLM08.",
+             ha="center", va="top", fontsize=7.5, style="italic", color="#555555")
 
     _save(fig, figures_dir, f"tfa_by_probe_{domain}.png")
     plt.close(fig)
@@ -290,6 +295,180 @@ def plot_tfa_domains_combined(tfa_by_domain: dict, figures_dir: Path,
     fig.tight_layout()
     _save(fig, figures_dir, "tfa_by_suite_combined.png")
     plt.close(fig)
+
+
+def plot_tfa_csv_by_suite_grouped(
+    tfa_csv_by_domain: dict,
+    figures_dir: Path,
+    color_a: str = "#e07b39",
+    color_b: str = "#1e5eff",
+):
+    """Grouped bar chart of CSV-based per-suite TFA, one subplot per domain.
+
+    Unlike ``plot_tfa_by_suite``/``plot_tfa_domains_combined`` (which fall
+    back to the garak_passed-based ``per_suite`` when no CSV TFA is given),
+    this function is CSV-only: every value plotted comes from
+    ``tfa_csv_by_domain``, i.e. from ``load_tfa_from_csv`` /
+    ``compute_tfa_by_suite``, which picks the correct ground-truth column
+    per OWASP suite (``garak_passed`` for LLM01, direct response inspection
+    for LLM02/LLM07/LLM08).
+
+    Args:
+        tfa_csv_by_domain: Mapping of ``{domain: {"A": tfa_csv_dict,
+            "B": tfa_csv_dict}}``, where each ``tfa_csv_dict`` has the shape
+            returned by ``load_tfa_from_csv`` (``{"per_suite": {suite:
+            {"TFA": float | None, "suite": suite}}, ...}``). Suites plotted
+            are exactly the keys present in ``tfa_csv_dict["per_suite"]``,
+            in their given order — no suite names are hardcoded.
+        figures_dir: Directory where the PNG is saved.
+        color_a: Bar color for Scenario A.
+        color_b: Bar color for Scenario B.
+
+    Outputs:
+        - artifacts/figures/tfa_csv_by_suite_both_domains.png
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    setup_style()
+
+    domains = list(tfa_csv_by_domain.keys())
+    fig, axes = plt.subplots(1, len(domains), figsize=(7 * len(domains), 5), sharey=True)
+    if len(domains) == 1:
+        axes = [axes]
+
+    for ax, domain in zip(axes, domains):
+        tfa_csv_a = tfa_csv_by_domain[domain].get("A") or {}
+        tfa_csv_b = tfa_csv_by_domain[domain].get("B") or {}
+        per_suite_a = tfa_csv_a.get("per_suite", {})
+        per_suite_b = tfa_csv_b.get("per_suite", {})
+        suites = list(per_suite_a.keys()) or list(per_suite_b.keys())
+        if not suites:
+            ax.set_title(f"{_domain_label(domain)}\n[sin datos]", fontsize=10)
+            ax.set_xticks([])
+            continue
+
+        vals_a = [per_suite_a.get(s, {}).get("TFA") or 0 for s in suites]
+        vals_b = [per_suite_b.get(s, {}).get("TFA") or 0 for s in suites]
+        has_b  = any(per_suite_b.get(s, {}).get("TFA") is not None for s in suites)
+
+        x     = np.arange(len(suites))
+        width = 0.35 if has_b else 0.5
+
+        bars_a = ax.bar(x - width/2 if has_b else x, vals_a, width, label="Escenario A",
+                         color=color_a, alpha=0.85, edgecolor="white")
+        for bar, val in zip(bars_a, vals_a):
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.015,
+                    f"{val:.3f}", ha="center", va="bottom", fontsize=7.5)
+
+        if has_b:
+            bars_b = ax.bar(x + width/2, vals_b, width, label="Escenario B",
+                             color=color_b, alpha=0.85, edgecolor="white")
+            for bar, val in zip(bars_b, vals_b):
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.015,
+                        f"{val:.3f}", ha="center", va="bottom", fontsize=7.5)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(suites, fontsize=9)
+        ax.set_ylim(0, 1.12)
+        ax.set_title(_domain_label(domain), fontsize=10)
+        ax.axhline(1.0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
+        ax.legend(fontsize=8)
+
+    axes[0].set_ylabel("TFA (Tasa de Filtrado de Ataques, base CSV)")
+    fig.suptitle("TFA por suite OWASP (base CSV) — Escenario A vs B", fontweight="bold")
+    fig.text(0.5, -0.02, _TFA_GT_SOURCE_NOTE, ha="center", va="top",
+             fontsize=7.5, style="italic", color="#555555")
+    fig.tight_layout()
+    _save(fig, figures_dir, "tfa_csv_by_suite_both_domains.png")
+    plt.close(fig)
+
+
+def plot_tfa_global_weighted(
+    global_tfa_by_domain: dict,
+    figures_dir: Path,
+    color_a: str = "#e07b39",
+    color_b: str = "#1e5eff",
+):
+    """Grouped bar chart of weighted global TFA per domain, Scenario A vs B.
+
+    One bar group per domain, with bars for ``TFA_A``/``TFA_B`` taken from
+    the top-level ``"TFA"`` key of each ``global_dict`` (the output of
+    :func:`eval.metrics.compute_tfa_global`), i.e. the suite-weighted
+    aggregate that uses the correct ground-truth column per OWASP suite
+    rather than raw ``garak_passed``. ΔTFA (B − A) is annotated above each
+    domain's bar pair when both scenarios are present.
+
+    Args:
+        global_tfa_by_domain: Mapping of ``{domain: {"A": global_dict,
+            "B": global_dict}}``, where each ``global_dict`` is the output
+            of ``compute_tfa_global(df)``: ``{"TFA": float, "total_tp": int,
+            "total_n": int, "per_suite": {...}}``. ``"B"`` may be ``None`` or
+            an empty dict when Scenario B data is unavailable for a domain.
+        figures_dir: Directory where the PNG is saved.
+        color_a: Bar color for Scenario A.
+        color_b: Bar color for Scenario B.
+
+    Outputs:
+        - artifacts/figures/tfa_global_weighted.png
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    setup_style()
+
+    domains = list(global_tfa_by_domain.keys())
+    if not domains:
+        print("  [skip] tfa_global_weighted: no domains.")
+        return
+
+    vals_a, vals_b, has_b_flags = [], [], []
+    for domain in domains:
+        g_a = global_tfa_by_domain[domain].get("A") or {}
+        g_b = global_tfa_by_domain[domain].get("B") or {}
+        tfa_a = g_a.get("TFA")
+        tfa_b = g_b.get("TFA")
+        vals_a.append(tfa_a if tfa_a is not None and not pd.isna(tfa_a) else 0)
+        has_b = tfa_b is not None and not pd.isna(tfa_b)
+        vals_b.append(tfa_b if has_b else 0)
+        has_b_flags.append(has_b)
+
+    x     = np.arange(len(domains))
+    width = 0.35
+    fig, ax = plt.subplots(figsize=(4 + 2.5 * len(domains), 5.5))
+
+    bars_a = ax.bar(x - width/2, vals_a, width, label="Escenario A",
+                     color=color_a, alpha=0.85, edgecolor="white")
+    bars_b = ax.bar(x + width/2, vals_b, width, label="Escenario B",
+                     color=color_b, alpha=0.85, edgecolor="white")
+
+    for bar, val in zip(bars_a, vals_a):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01,
+                f"{val:.4f}", ha="center", va="bottom", fontsize=8)
+    for bar, val, has_b in zip(bars_b, vals_b, has_b_flags):
+        label = f"{val:.4f}" if has_b else "N/D"
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01,
+                label, ha="center", va="bottom", fontsize=8)
+
+    for xi, va, vb, has_b in zip(x, vals_a, vals_b, has_b_flags):
+        if has_b:
+            delta = vb - va
+            y_top = max(va, vb) + 0.06
+            ax.text(xi, y_top, f"ΔTFA={delta:+.4f}", ha="center", va="bottom",
+                    fontsize=8.5, fontweight="bold", color="#333333")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([_domain_label(d) for d in domains], fontsize=10)
+    ax.set_ylim(0, 1.18)
+    ax.set_ylabel("TFA global ponderado por suite")
+    ax.set_title("TFA global ponderado por suite — Escenario A vs B")
+    ax.axhline(1.0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
+    ax.legend(fontsize=9)
+    fig.text(0.5, -0.03, _TFA_GT_SOURCE_NOTE, ha="center", va="top",
+             fontsize=7.5, style="italic", color="#555555")
+
+    fig.tight_layout()
+    _save(fig, figures_dir, "tfa_global_weighted.png")
+    plt.close(fig)
+
 
 def plot_tfa_heatmap(tfa_by_domain: dict, figures_dir: Path):
     """Heatmap: TFA_A per probe × domain."""
@@ -1212,7 +1391,10 @@ def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
             ``tfa_by_domain``, sourced from ``load_tfa_from_csv``, used by the
             suite-level TFA charts (``plot_tfa_by_suite``,
             ``plot_tfa_domains_combined``) in place of the garak_passed-based
-            values, which are only a valid ground truth for LLM01.
+            values, which are only a valid ground truth for LLM01. When
+            provided, also triggers ``plot_tfa_csv_by_suite_grouped`` and
+            ``plot_tfa_global_weighted`` (the latter computed here from
+            ``load_consolidated`` + ``compute_tfa_global`` per domain).
     """
     print(f"\n{'='*70}")
     print(f"  GENERATING FIGURES → {figures_dir}")
@@ -1237,6 +1419,19 @@ def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
                           tfa_csv_a=csv_d.get("A"), tfa_csv_b=csv_d.get("B"))
 
     plot_tfa_domains_combined(tfa_by_domain, figures_dir, tfa_csv_by_domain=tfa_csv_by_domain)
+
+    if tfa_csv_by_domain:
+        plot_tfa_csv_by_suite_grouped(tfa_csv_by_domain, figures_dir)
+
+        global_tfa_by_domain = {}
+        for domain in domains:
+            df_a = load_consolidated(artifacts_dir, domain, "unprotected")
+            df_b = load_consolidated(artifacts_dir, domain, "protected")
+            global_a = compute_tfa_global(df_a) if not df_a.empty else None
+            global_b = compute_tfa_global(df_b) if not df_b.empty else None
+            global_tfa_by_domain[domain] = {"A": global_a, "B": global_b}
+        plot_tfa_global_weighted(global_tfa_by_domain, figures_dir)
+
     plot_tfa_heatmap(tfa_by_domain, figures_dir)
     plot_delta_tfa(tfa_by_domain, figures_dir)
     plot_pvalue_by_suite(tfa_by_domain, figures_dir)
