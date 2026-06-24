@@ -373,6 +373,19 @@ run_scenario() {
     ef="$(env_file_for "$domain")"
     local label="Escenario $([[ "$target" == unprotected ]] && echo A || echo B)"
 
+    # Sync GARAK_TARGET in env file with the requested target
+    local current_target
+    current_target="$(grep '^GARAK_TARGET=' "$ef" | cut -d= -f2)"
+    if [[ -z "$current_target" ]]; then
+        echo "GARAK_TARGET=${target}" >> "$ef"
+        log_fix "GARAK_TARGET no existía — agregado '$target' en $ef"
+    elif [[ "$current_target" == "$target" ]]; then
+        log_info "GARAK_TARGET ya estaba en '$target' — sin cambios en $ef"
+    else
+        sed -i "s/^GARAK_TARGET=.*/GARAK_TARGET=${target}/" "$ef"
+        log_fix "GARAK_TARGET actualizado: '$current_target' → '$target' en $ef"
+    fi
+
     log_hdr "$label — $domain"
 
     # 1. Verificar salud del target ofensivo
