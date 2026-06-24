@@ -433,9 +433,9 @@ process_results() {
     log_step "process_results.py --deep --plots"
     local rc=0
     python3 app/src/eval/process_results.py \
-        --artifacts artifacts/ --deep --plots || rc=$?
+        --artifacts artifacts/ --deep --plots --exfiltration --characterize || rc=$?
     if [[ $rc -eq 0 ]]; then
-        log_ok "Procesamiento completado: figuras en artifacts/figures/"
+        log_ok "Procesamiento completado: figuras en artifacts/figures/ — segmented en artifacts/segmented/ — characterization en artifacts/characterization/"
     else
         log_err "process_results.py rc=$rc"
     fi
