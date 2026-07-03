@@ -90,14 +90,16 @@ def main():
             print("  [WARN] No adversarial rows found in consolidated CSVs.")
         else:
             print(f"\n{'='*70}")
-            print(f"  RUN DURATION (adversarial rows only)")
+            print(f"  RUN DURATION")
             print(f"{'='*70}")
-            print(f"\n  {'Domain':30s} {'Scenario':12s} {'Start':28s} {'End':28s} {'Hours':>8}")
-            print(f"  {'-'*110}")
+            print(f"\n  {'Domain':22s} {'Scenario':12s} {'Adv (h)':>8} {'Legit (h)':>10} "
+                  f"{'Total (h)':>10} {'Inference (h)':>14} {'Requests':>9}")
+            print(f"  {'-'*90}")
             for _, row in df_dur.iterrows():
-                start = str(row["start_time"])
-                end   = str(row["end_time"])
-                print(f"  {row['domain']:30s} {row['scenario']:12s} {start:28s} {end:28s} {row['duration_hours']:>8.2f}")
+                legit_h = f"{row['legit_hours']:.2f}" if row["legit_hours"] is not None else "N/A"
+                print(f"  {row['domain']:22s} {row['scenario']:12s} {row['adv_hours']:>8.2f} "
+                      f"{legit_h:>10} {row['total_hours']:>10.2f} "
+                      f"{row['inference_hours']:>14.2f} {row['num_requests']:>9}")
             print(f"\n{'='*70}\n")
         return
 

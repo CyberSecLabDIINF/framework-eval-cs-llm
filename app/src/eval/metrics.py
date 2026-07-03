@@ -1825,10 +1825,11 @@ def analyze_sensitivity_thresholds(artifacts_dir: Path, domains: list, config_di
 def compute_run_duration(artifacts_dir: Path) -> pd.DataFrame:
     """Compute wall-clock execution time of each experiment run.
 
-    Reads every ``consolidated_<domain>_<scenario>.csv`` in ``artifacts_dir``,
-    filters to adversarial rows only, and derives the run window from the
-    ``timestamp`` column.  Legitimate prompts are excluded because they are run
-    separately and would skew the adversarial time window.
+    Reads every ``consolidated_<domain>_<scenario>.csv`` in ``artifacts_dir``
+    and computes separate time windows for adversarial and legitimate rows
+    (they are run separately, so pooling their timestamps would produce a
+    window spanning the gap between the two runs), then sums the two windows
+    for the total wall-clock time.
 
     Parameters
     ----------
@@ -1838,10 +1839,13 @@ def compute_run_duration(artifacts_dir: Path) -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        Columns: domain, scenario, start_time, end_time, duration,
-        duration_hours.  Sorted by domain then scenario.  ``duration`` is a
-        ``pd.Timedelta``; ``duration_hours`` is a float rounded to 2 decimals.
-        Rows where no adversarial timestamps are found are omitted.
+        Columns: domain, scenario, adv_start, adv_end, adv_hours,
+        legit_start, legit_end, legit_hours, total_hours, inference_hours,
+        num_requests.  Sorted by domain then scenario.  All ``*_hours``
+        values are floats rounded to 2 decimals.  When no legitimate rows
+        are present, ``legit_start``/``legit_end``/``legit_hours`` are None
+        and ``total_hours`` equals ``adv_hours``.  Rows where no adversarial
+        timestamps are found are omitted.
     """
     rows = []
     pattern = re.compile(r"^consolidated_(.+)_(unprotected|protected)\.csv$")
@@ -1852,33 +1856,51 @@ def compute_run_duration(artifacts_dir: Path) -> pd.DataFrame:
             continue
         domain, scenario = m.group(1), m.group(2)
 
-        df = pd.read_csv(path, usecols=["timestamp", "prompt_type"])
-        adv = df[df["prompt_type"] == "adversarial"].copy()
+        df = pd.read_csv(path, usecols=["timestamp", "prompt_type", "latency_ms"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+
+        adv = df[df["prompt_type"] == "adversarial"].dropna(subset=["timestamp"])
         if adv.empty:
             continue
 
-        adv["timestamp"] = pd.to_datetime(adv["timestamp"], utc=True, errors="coerce")
-        adv = adv.dropna(subset=["timestamp"])
-        if adv.empty:
-            continue
+        adv_start = adv["timestamp"].min()
+        adv_end   = adv["timestamp"].max()
+        adv_hours = round((adv_end - adv_start).total_seconds() / 3600, 2)
 
-        start_time = adv["timestamp"].min()
-        end_time   = adv["timestamp"].max()
-        duration   = end_time - start_time
-        duration_hours = round(duration.total_seconds() / 3600, 2)
+        legit = df[df["prompt_type"] == "legitimate"].dropna(subset=["timestamp"])
+        if legit.empty:
+            legit_start = legit_end = legit_hours = None
+            total_hours = adv_hours
+        else:
+            legit_start = legit["timestamp"].min()
+            legit_end   = legit["timestamp"].max()
+            legit_hours = round((legit_end - legit_start).total_seconds() / 3600, 2)
+            total_hours = round(adv_hours + legit_hours, 2)
+
+        inference_hours = round(
+            pd.to_numeric(df["latency_ms"], errors="coerce").sum() / 3_600_000, 2
+        )
 
         rows.append({
-            "domain":         domain,
-            "scenario":       scenario,
-            "start_time":     start_time,
-            "end_time":       end_time,
-            "duration":       duration,
-            "duration_hours": duration_hours,
+            "domain":          domain,
+            "scenario":        scenario,
+            "adv_start":       adv_start,
+            "adv_end":         adv_end,
+            "adv_hours":       adv_hours,
+            "legit_start":     legit_start,
+            "legit_end":       legit_end,
+            "legit_hours":     legit_hours,
+            "total_hours":     total_hours,
+            "inference_hours": inference_hours,
+            "num_requests":    len(df),
         })
 
     if not rows:
-        return pd.DataFrame(columns=["domain", "scenario", "start_time",
-                                     "end_time", "duration", "duration_hours"])
+        return pd.DataFrame(columns=[
+            "domain", "scenario", "adv_start", "adv_end", "adv_hours",
+            "legit_start", "legit_end", "legit_hours",
+            "total_hours", "inference_hours", "num_requests",
+        ])
 
     return (
         pd.DataFrame(rows)
