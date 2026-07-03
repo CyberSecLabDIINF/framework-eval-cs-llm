@@ -495,9 +495,15 @@ def run_garak(
         suite_ids = [suite]
 
     # Patch the RestGenerator URI with the active target's /generate endpoint.
+    # Also inject X-Run-Id/X-Run-Kind as static headers: tesis_rag/tesis_shield
+    # run in separate, long-lived containers from this one, so RUN_ID/RUN_KIND
+    # set on os.environ here never reach them directly — they must travel on
+    # every HTTP request Garak sends, the same way X-Garak-Tag already does.
     tmp_cfg = run_paths.config_used_dir / "garak_rest_used.json"
     base_cfg = json.loads(s.garak_rest_base_path.read_text(encoding="utf-8"))
     base_cfg["rest"]["RestGenerator"]["uri"] = generate_url
+    base_cfg["rest"]["RestGenerator"]["headers"]["X-Run-Id"] = run_paths.run_dir.name
+    base_cfg["rest"]["RestGenerator"]["headers"]["X-Run-Kind"] = run_kind_label
     tmp_cfg.write_text(json.dumps(base_cfg), encoding="utf-8")
 
     logger.info(f"Garak runs dir: {s.garak_runs_dir}")
@@ -704,6 +710,10 @@ def continue_run(
         logger.error(f"garak/ subdirectory not found in: {run_dir}")
         raise typer.Exit(code=1)
 
+    # Resumed runs are always full experiments (no smoke-test resume path).
+    os.environ["RUN_ID"] = run_dir.name
+    os.environ["RUN_KIND"] = "experiment"
+
     # Extract runid from dir name: 20260411_221628_regulatory_technical_unprotected_garak
     # → first two underscore-separated parts = timestamp
     parts = run_dir.name.split("_")
@@ -740,6 +750,8 @@ def continue_run(
     tmp_cfg = run_paths.config_used_dir / "garak_rest_used.json"
     base_cfg = json.loads(s.garak_rest_base_path.read_text(encoding="utf-8"))
     base_cfg["rest"]["RestGenerator"]["uri"] = generate_url
+    base_cfg["rest"]["RestGenerator"]["headers"]["X-Run-Id"] = os.environ["RUN_ID"]
+    base_cfg["rest"]["RestGenerator"]["headers"]["X-Run-Kind"] = os.environ["RUN_KIND"]
     tmp_cfg.write_text(json.dumps(base_cfg), encoding="utf-8")
 
     errors = 0
@@ -819,9 +831,16 @@ def run_legitimate(
 
     _legitimate_run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S") + f"_{s.dataset_tag}_{t}_legitimate"
     os.environ["RUN_ID"] = _legitimate_run_id
-
-    _csv_name = f"consolidated_{s.dataset_tag}_{t}.csv"
     _run_kind = os.getenv("RUN_KIND", "experiment")
+
+    # This call runs entirely inside this process (unlike run_garak(), which
+    # only triggers HTTP traffic against separate tesis_rag/tesis_shield
+    # containers), so RUN_ID/RUN_KIND are already correct via os.environ here.
+    # They're still passed explicitly below so run_legitimate_prompts() can
+    # forward them as X-Run-Id/X-Run-Kind headers on its own HTTP calls —
+    # needed because those calls also trigger a *second*, independent
+    # log_request() inside rag.py/shield.py's own /generate handler.
+    _csv_name = f"consolidated_{s.dataset_tag}_{t}.csv"
     if _run_kind == "smoke_test":
         _default_csv = str(s.artifacts_dir / "smoke_test" / _csv_name)
     else:
@@ -836,6 +855,8 @@ def run_legitimate(
         dataset_tag=s.dataset_tag,
         consolidated_csv=consolidated_csv,
         repetitions=repetitions,
+        run_id=_legitimate_run_id,
+        run_kind=_run_kind,
     )
 
     typer.echo(f"✅ Legitimate prompts completed")

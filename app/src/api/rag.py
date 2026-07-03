@@ -30,18 +30,17 @@ IS_PROTECTED = SCENARIO == "protected"
 LATENCY_CSV = str(s.latency_dir / "latency_unprotected.csv")
 
 def _resolve_consolidated_csv() -> Path:
-    """Return the consolidated CSV path, honouring RUN_KIND isolation.
+    """Return the base (non-smoke-test) consolidated CSV path.
 
-    - ``RUN_KIND=smoke_test``  → ``artifacts/smoke_test/consolidated_<tag>_<scenario>.csv``
-    - ``RUN_KIND=experiment`` (or unset) → ``artifacts/consolidated_<tag>_<scenario>.csv``
+    RUN_KIND-based smoke_test isolation is applied per-request by
+    ``consolidator.log_request()``, driven by the ``X-Run-Kind`` header on
+    each incoming request — not here. This process is a long-lived container
+    shared across many runs, so any RUN_KIND baked in at import time would go
+    stale as soon as a different run_kind is used without restarting it.
 
-    The ``CONSOLIDATED_CSV`` env var can still override the default path for
-    experiment runs (backward-compatible with existing tooling).
+    The ``CONSOLIDATED_CSV`` env var can still override the default path.
     """
     _csv_name = f"consolidated_{DATASET_TAG}_{SCENARIO}.csv"
-    _run_kind = os.getenv("RUN_KIND", "experiment")
-    if _run_kind == "smoke_test":
-        return s.artifacts_dir / "smoke_test" / _csv_name
     return Path(os.getenv("CONSOLIDATED_CSV", str(s.artifacts_dir / _csv_name)))
 
 CONSOLIDATED_CSV = _resolve_consolidated_csv()
@@ -398,6 +397,8 @@ def _blocked_response(
     prompt_type: str,
     message: str,
     block_reason: str,
+    run_id: str,
+    run_kind: str,
     log: bool = True,
     grounding_ratio: float | None = None,
 ) -> dict:
@@ -411,6 +412,8 @@ def _blocked_response(
         prompt_type: ``"adversarial"`` or ``"legitimate"``.
         message: Human-readable block message returned to the caller.
         block_reason: Short code identifying the control that triggered the block.
+        run_id: Value of the ``X-Run-Id`` header (see :func:`generate`).
+        run_kind: Value of the ``X-Run-Kind`` header (see :func:`generate`).
         log: When False, skips writing to the consolidated CSV (used to avoid
             double-logging requests forwarded through Shield).
         grounding_ratio: C17 grounding ratio of the response, if computed.
@@ -435,6 +438,8 @@ def _blocked_response(
             grounding_ratio=grounding_ratio,
             response_has_system_prompt=0,
             injection_followed=0,
+            run_id=run_id,
+            run_kind=run_kind,
         )
     return {
         "response": message,
@@ -466,6 +471,11 @@ async def generate(query: Query, request: Request):
     garak_tag = request.headers.get("X-Garak-Tag", "")
     prompt_type = "adversarial" if garak_tag else "legitimate"
     forwarded_by_shield = request.headers.get("x-forwarded-by", "") == "shield"
+    # RUN_ID/RUN_KIND live in the garak_runner/legitimate-orchestrator
+    # process, not this container's environment — they must arrive per
+    # request via header (rag.py's own os.getenv would always read empty).
+    run_id = request.headers.get("X-Run-Id", "")
+    run_kind = request.headers.get("X-Run-Kind", "experiment")
 
     # Pre-retrieval checks: C32 and C4 act on the prompt before the vector store is touched.
     if IS_PROTECTED:
@@ -474,6 +484,7 @@ async def generate(query: Query, request: Request):
                 request, query, start, garak_tag, prompt_type,
                 message="System prompt integrity check failed.",
                 block_reason="system_prompt_integrity_failed",
+                run_id=run_id, run_kind=run_kind,
                 log=not forwarded_by_shield,
             )
         if not is_on_domain(query.prompt):
@@ -481,6 +492,7 @@ async def generate(query: Query, request: Request):
                 request, query, start, garak_tag, prompt_type,
                 message="Query is outside the authorized domain.",
                 block_reason="domain_validation_failed",
+                run_id=run_id, run_kind=run_kind,
                 log=not forwarded_by_shield,
             )
         if not is_coherent_query(query.prompt):
@@ -488,6 +500,7 @@ async def generate(query: Query, request: Request):
                 request, query, start, garak_tag, prompt_type,
                 message="Query does not meet minimum semantic coherence requirements.",
                 block_reason="query_coherence_failed",
+                run_id=run_id, run_kind=run_kind,
                 log=not forwarded_by_shield,
             )
         if not is_safe_from_reconnaissance(query.prompt):
@@ -495,6 +508,7 @@ async def generate(query: Query, request: Request):
                 request, query, start, garak_tag, prompt_type,
                 message="Query flagged as potential corpus reconnaissance attempt.",
                 block_reason="corpus_reconnaissance_detected",
+                run_id=run_id, run_kind=run_kind,
                 log=not forwarded_by_shield,
             )
 
@@ -508,6 +522,7 @@ async def generate(query: Query, request: Request):
                 request, query, start, garak_tag, prompt_type,
                 message="Corpus integrity check failed.",
                 block_reason="corpus_integrity_failed",
+                run_id=run_id, run_kind=run_kind,
                 log=not forwarded_by_shield,
             )
 
@@ -530,6 +545,7 @@ Question:
             request, query, start, garak_tag, prompt_type,
             message="Response could not be grounded in the retrieved context.",
             block_reason="response_not_grounded",
+            run_id=run_id, run_kind=run_kind,
             log=not forwarded_by_shield,
             grounding_ratio=grounding_ratio,
         )
@@ -552,6 +568,8 @@ Question:
             grounding_ratio=grounding_ratio,
             response_has_system_prompt=0,
             injection_followed=0,
+            run_id=run_id,
+            run_kind=run_kind,
         )
 
     return {"response": out, "blocked_by_rag": False, "grounding_ratio": grounding_ratio}

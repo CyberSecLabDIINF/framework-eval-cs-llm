@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 import threading
+
+logger = logging.getLogger(__name__)
 
 # Thread-safe lock for concurrent writes
 _csv_lock = threading.Lock()
@@ -56,9 +59,45 @@ PRIMARY_DETECTOR = {
 }
 
 
+def _resolve_csv_path(csv_path: Path, run_kind: str) -> Path:
+    """Redirect to artifacts/smoke_test/ when run_kind == "smoke_test".
+
+    ``run_kind`` must reflect the run that produced *this specific request*,
+    not process-wide state: rag.py/shield.py run as long-lived containers
+    separate from the process that knows RUN_KIND (garak_runner), so a
+    module-level/import-time value would go stale across runs. Callers pass
+    ``run_kind`` sourced from a per-request HTTP header (falling back to
+    ``os.getenv`` only when the caller has no header to read).
+    """
+    if run_kind == "smoke_test" and csv_path.parent.name != "smoke_test":
+        return csv_path.parent / "smoke_test" / csv_path.name
+    return csv_path
+
+
 def _ensure_header(csv_path: Path) -> None:
-    """Create CSV with header if it does not exist or is empty."""
+    """Create CSV with header if it does not exist or is empty.
+
+    If the file exists with a different header than the current COLUMNS
+    (e.g. a run predating a column addition/removal), csv.DictWriter would
+    silently misalign every subsequent row against the wrong field names. To
+    avoid corrupting the file, the mismatched CSV is renamed aside and a
+    fresh one is started with the current header.
+    """
     csv_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if csv_path.exists() and csv_path.stat().st_size > 0:
+        with csv_path.open("r", newline="", encoding="utf-8") as f:
+            existing_header = next(csv.reader(f), [])
+        if existing_header != COLUMNS:
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            backup_path = csv_path.with_name(f"{csv_path.stem}_backup_{ts}.csv")
+            csv_path.rename(backup_path)
+            logger.warning(
+                "Schema mismatch in %s (expected %d columns, found %d). "
+                "Old file backed up to %s; starting a fresh CSV with the current header.",
+                csv_path, len(COLUMNS), len(existing_header), backup_path,
+            )
+
     if not csv_path.exists() or csv_path.stat().st_size == 0:
         with csv_path.open("w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(COLUMNS)
@@ -102,6 +141,8 @@ def log_request(
     grounding_ratio: Optional[float] = None,
     response_has_system_prompt: int = 0,
     injection_followed: int = 0,
+    run_id: Optional[str] = None,
+    run_kind: Optional[str] = None,
 ) -> None:
     """Append one row to the consolidated CSV.
 
@@ -119,6 +160,17 @@ def log_request(
         was_blocked: Whether the request was blocked by any guard layer.
         scanner_triggered: Name of the scanner that triggered the block, if any.
         block_reason: Short reason code for the block, if any.
+        run_id: Identifier of the run that produced this request. rag.py/
+            shield.py run in separate containers from the process (garak_runner)
+            that knows RUN_ID, so callers there should source this from the
+            ``X-Run-Id`` request header, not from their own environment.
+            Falls back to ``os.getenv("RUN_ID", "")`` when omitted, for
+            callers that share a process with the run orchestrator (e.g. the
+            CLI's own ``legitimate`` command).
+        run_kind: ``"experiment"`` or ``"smoke_test"`` for the run that
+            produced this request; same cross-container caveat as ``run_id``.
+            Determines whether this row lands under ``artifacts/smoke_test/``.
+            Falls back to ``os.getenv("RUN_KIND", "experiment")`` when omitted.
         garak_tag: Value of the ``X-Garak-Tag`` header (``SUITE|probe``), empty for
             non-Garak requests.
         prompt_type: ``"adversarial"`` or ``"legitimate"``.
@@ -137,7 +189,8 @@ def log_request(
     if should_block is None:
         should_block = 1 if prompt_type == "adversarial" else 0
 
-    run_id = os.getenv("RUN_ID", "")
+    resolved_run_id = run_id if run_id is not None else os.getenv("RUN_ID", "")
+    resolved_run_kind = run_kind if run_kind is not None else os.getenv("RUN_KIND", "experiment")
 
     row = {
         "timestamp": _utc_now(),
@@ -160,13 +213,14 @@ def log_request(
         "garak_passed": "",  # filled post-experiment by patch_garak_passed()
         "response_has_confidential": 1 if "[CONFIDENTIAL]" in response else 0,
         "grounding_ratio": round(grounding_ratio, 4) if grounding_ratio is not None else "",
-        "run_id": run_id,
+        "run_id": resolved_run_id,
         "response_has_system_prompt": response_has_system_prompt,
         "injection_followed": injection_followed,
     }
 
-    _ensure_header(csv_path)
+    csv_path = _resolve_csv_path(csv_path, resolved_run_kind)
     with _csv_lock:
+        _ensure_header(csv_path)
         with csv_path.open("a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=COLUMNS)
             writer.writerow(row)

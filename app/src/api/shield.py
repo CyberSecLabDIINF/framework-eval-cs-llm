@@ -77,18 +77,17 @@ SCENARIO = os.getenv("SCENARIO", "protected")
 DATASET_TAG = os.getenv("DATASET_TAG", s.dataset_tag)
 
 def _resolve_consolidated_csv() -> Path:
-    """Return the consolidated CSV path, honouring RUN_KIND isolation.
+    """Return the base (non-smoke-test) consolidated CSV path.
 
-    - ``RUN_KIND=smoke_test``  → ``artifacts/smoke_test/consolidated_<tag>_<scenario>.csv``
-    - ``RUN_KIND=experiment`` (or unset) → ``artifacts/consolidated_<tag>_<scenario>.csv``
+    RUN_KIND-based smoke_test isolation is applied per-request by
+    ``consolidator.log_request()``, driven by the ``X-Run-Kind`` header on
+    each incoming request — not here. This process is a long-lived container
+    shared across many runs, so any RUN_KIND baked in at import time would go
+    stale as soon as a different run_kind is used without restarting it.
 
-    The ``CONSOLIDATED_CSV`` env var can still override the default path for
-    experiment runs (backward-compatible with existing tooling).
+    The ``CONSOLIDATED_CSV`` env var can still override the default path.
     """
     _csv_name = f"consolidated_{DATASET_TAG}_{SCENARIO}.csv"
-    _run_kind = os.getenv("RUN_KIND", "experiment")
-    if _run_kind == "smoke_test":
-        return s.artifacts_dir / "smoke_test" / _csv_name
     return Path(os.getenv("CONSOLIDATED_CSV", str(s.artifacts_dir / _csv_name)))
 
 CONSOLIDATED_CSV = _resolve_consolidated_csv()
@@ -331,7 +330,8 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
 
 
 def _extract_forward_headers(req: Request) -> Dict[str, str]:
-    """Build headers to forward to the upstream RAG, preserving the Garak probe tag."""
+    """Build headers to forward to the upstream RAG, preserving the Garak probe tag
+    and the run_id/run_kind that identify the run this request belongs to."""
     h: Dict[str, str] = {}
     rid = req.headers.get("x-request-id")
     if rid:
@@ -340,6 +340,14 @@ def _extract_forward_headers(req: Request) -> Dict[str, str]:
     garak_tag = req.headers.get("x-garak-tag")
     if garak_tag:
         h["x-garak-tag"] = garak_tag
+
+    run_id = req.headers.get("x-run-id")
+    if run_id:
+        h["x-run-id"] = run_id
+
+    run_kind = req.headers.get("x-run-kind")
+    if run_kind:
+        h["x-run-kind"] = run_kind
 
     h["x-forwarded-by"] = "shield"
     return h
@@ -370,6 +378,11 @@ async def generate(query: Query, request: Request):
 
     garak_tag = request.headers.get("X-Garak-Tag", "")
     prompt_type = "adversarial" if garak_tag else "legitimate"
+    # RUN_ID/RUN_KIND live in the garak_runner/legitimate-orchestrator
+    # process, not this container's environment — they must arrive per
+    # request via header (this container's own os.getenv would read empty).
+    run_id = request.headers.get("X-Run-Id", "")
+    run_kind = request.headers.get("X-Run-Kind", "experiment")
 
     safe_prompt, input_scanner, input_score = guard_input(query.prompt)
     if safe_prompt is None:
@@ -393,6 +406,8 @@ async def generate(query: Query, request: Request):
             # higher = more likely an injection), regardless of block outcome.
             input_scanner_score=input_score,
             output_scanner_score=None,
+            run_id=run_id,
+            run_kind=run_kind,
         )
         return {"response": out}
 
@@ -464,6 +479,8 @@ async def generate(query: Query, request: Request):
         grounding_ratio=grounding_ratio,
         response_has_system_prompt=response_has_system_prompt,
         injection_followed=injection_followed,
+        run_id=run_id,
+        run_kind=run_kind,
     )
 
     return {"response": out_guarded}

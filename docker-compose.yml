@@ -35,6 +35,8 @@ services:
       - LATENCY_CSV_DIRECT=/root/proyecto_tesis/artifacts/latency/latency_unprotected_direct.csv
       - LATENCY_CSV_VIA_SHIELD=/root/proyecto_tesis/artifacts/latency/latency_unprotected_via_shield.csv
       - CONSOLIDATED_CSV=/root/proyecto_tesis/artifacts/consolidated_${DATASET_TAG}_unprotected.csv
+      - RUN_ID=${RUN_ID:-}
+      - RUN_KIND=${RUN_KIND:-experiment}
 
     volumes:
       - ./data:/root/proyecto_tesis/data
@@ -81,6 +83,8 @@ services:
       - CONSOLIDATED_CSV=/root/proyecto_tesis/artifacts/consolidated_${DATASET_TAG}_protected.csv
       - LLM_GUARD_CONFIG_PATH=/root/proyecto_tesis/app/config/global/llm_guard_config.yaml
       - LLM_GUARD_LOG_FILE=/root/proyecto_tesis/artifacts/llm_guard.log
+      - RUN_ID=${RUN_ID:-}
+      - RUN_KIND=${RUN_KIND:-experiment}
 
     volumes:
       - ./data:/root/proyecto_tesis/data
@@ -129,6 +133,8 @@ services:
       - CONFIG_DIR=/root/proyecto_tesis/app/config
       - DATASET_TAG=${DATASET_TAG}
       - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/global/owasp_suites.json
+      - RUN_ID=${RUN_ID:-}
+      - RUN_KIND=${RUN_KIND:-experiment}
 
     volumes:
       - ./artifacts:/root/proyecto_tesis/artifacts
@@ -137,7 +143,7 @@ services:
       - ./app/scripts:/root/proyecto_tesis/app/scripts:ro
       - ./garak_runs:/root/.local/share/garak/garak_runs
       - ./data:/root/proyecto_tesis/data
-      - ./chroma_db:/root/proyecto_tesis/chroma_db   
+      - ./chroma_db:/root/proyecto_tesis/chroma_db
 
     networks: [red_internal]
 

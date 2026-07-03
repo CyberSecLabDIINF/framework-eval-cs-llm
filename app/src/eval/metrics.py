@@ -1816,3 +1816,72 @@ def analyze_sensitivity_thresholds(artifacts_dir: Path, domains: list, config_di
     print(f"\n  NOTE: scores may be binarized in current CSVs — re-run Scenario B with extended logging for continuous scores")
     print(f"\n{'='*70}")
     return results
+
+
+# ─────────────────────────────────────────────
+# Run duration from consolidated CSVs
+# ─────────────────────────────────────────────
+
+def compute_run_duration(artifacts_dir: Path) -> pd.DataFrame:
+    """Compute wall-clock execution time of each experiment run.
+
+    Reads every ``consolidated_<domain>_<scenario>.csv`` in ``artifacts_dir``,
+    filters to adversarial rows only, and derives the run window from the
+    ``timestamp`` column.  Legitimate prompts are excluded because they are run
+    separately and would skew the adversarial time window.
+
+    Parameters
+    ----------
+    artifacts_dir : Path
+        Directory containing ``consolidated_<domain>_<scenario>.csv`` files.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: domain, scenario, start_time, end_time, duration,
+        duration_hours.  Sorted by domain then scenario.  ``duration`` is a
+        ``pd.Timedelta``; ``duration_hours`` is a float rounded to 2 decimals.
+        Rows where no adversarial timestamps are found are omitted.
+    """
+    rows = []
+    pattern = re.compile(r"^consolidated_(.+)_(unprotected|protected)\.csv$")
+
+    for path in sorted(artifacts_dir.glob("consolidated_*.csv")):
+        m = pattern.match(path.name)
+        if not m:
+            continue
+        domain, scenario = m.group(1), m.group(2)
+
+        df = pd.read_csv(path, usecols=["timestamp", "prompt_type"])
+        adv = df[df["prompt_type"] == "adversarial"].copy()
+        if adv.empty:
+            continue
+
+        adv["timestamp"] = pd.to_datetime(adv["timestamp"], utc=True, errors="coerce")
+        adv = adv.dropna(subset=["timestamp"])
+        if adv.empty:
+            continue
+
+        start_time = adv["timestamp"].min()
+        end_time   = adv["timestamp"].max()
+        duration   = end_time - start_time
+        duration_hours = round(duration.total_seconds() / 3600, 2)
+
+        rows.append({
+            "domain":         domain,
+            "scenario":       scenario,
+            "start_time":     start_time,
+            "end_time":       end_time,
+            "duration":       duration,
+            "duration_hours": duration_hours,
+        })
+
+    if not rows:
+        return pd.DataFrame(columns=["domain", "scenario", "start_time",
+                                     "end_time", "duration", "duration_hours"])
+
+    return (
+        pd.DataFrame(rows)
+        .sort_values(["domain", "scenario"])
+        .reset_index(drop=True)
+    )

@@ -20,6 +20,8 @@ def run_legitimate_prompts(
     repetitions: int = 5,
     timeout_s: float = 120.0,
     logger: Optional[logging.Logger] = None,
+    run_id: str = "",
+    run_kind: str = "experiment",
 ) -> dict:
     """
     Execute legitimate prompts against the target endpoint and log results
@@ -32,6 +34,12 @@ def run_legitimate_prompts(
         repetitions: Number of times each prompt is executed.
         timeout_s: Per-request HTTP timeout in seconds.
         logger: Optional logger instance; a default logger is used when ``None``.
+        run_id: Identifier of the current run, recorded on every row this
+            function logs directly, and also sent as the ``X-Run-Id`` header
+            on each HTTP call so the target's own /generate handler (which
+            logs its own row for the same request) tags it consistently.
+        run_kind: ``"experiment"`` or ``"smoke_test"``; forwarded the same way
+            as ``run_id``, via the ``X-Run-Kind`` header.
 
     Returns:
         A dict summarising the run with keys ``target``, ``domain``,
@@ -90,6 +98,7 @@ def run_legitimate_prompts(
                     generate_url,
                     json={"prompt": prompt_text},
                     timeout=timeout_s,
+                    headers={"X-Run-Id": run_id, "X-Run-Kind": run_kind},
                 )
                 elapsed_ms = (time.perf_counter() - start) * 1000.0
                 data = resp.json()
@@ -124,6 +133,8 @@ def run_legitimate_prompts(
                 prompt_type="legitimate",
                 repetition=rep,
                 should_block=0,
+                run_id=run_id,
+                run_kind=run_kind,
             )
             total += 1
 

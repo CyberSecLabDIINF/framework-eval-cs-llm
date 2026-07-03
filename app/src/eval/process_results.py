@@ -73,11 +73,32 @@ def main():
                              "scores ([-1,1]) to raw probabilities (see "
                              "eval.consolidator.backfill_raw_scores). Only run on CSVs generated "
                              "before the _raw_score_from_risk() fix in api/shield.py.")
+    parser.add_argument("--duration", action="store_true",
+                        help="Compute and print wall-clock execution time for each experiment run "
+                             "(adversarial rows only, from consolidated CSVs)")
     args = parser.parse_args()
 
     # ── Backfill scanner scores (one-time fix) ───────────────
     if args.backfill_scores:
         run_backfill_scores(args.artifacts)
+        return
+
+    # ── Run duration ─────────────────────────────────────────
+    if args.duration:
+        df_dur = compute_run_duration(args.artifacts)
+        if df_dur.empty:
+            print("  [WARN] No adversarial rows found in consolidated CSVs.")
+        else:
+            print(f"\n{'='*70}")
+            print(f"  RUN DURATION (adversarial rows only)")
+            print(f"{'='*70}")
+            print(f"\n  {'Domain':30s} {'Scenario':12s} {'Start':28s} {'End':28s} {'Hours':>8}")
+            print(f"  {'-'*110}")
+            for _, row in df_dur.iterrows():
+                start = str(row["start_time"])
+                end   = str(row["end_time"])
+                print(f"  {row['domain']:30s} {row['scenario']:12s} {start:28s} {end:28s} {row['duration_hours']:>8.2f}")
+            print(f"\n{'='*70}\n")
         return
 
     # ── Artifact characterization ────────────────────────────
