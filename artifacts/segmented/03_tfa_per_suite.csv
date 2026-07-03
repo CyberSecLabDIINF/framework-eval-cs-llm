@@ -2,4 +2,4 @@ domain,scenario,scenario_label,suite,n,passed,failed,TFA
 academic_institutional,unprotected,A,UNKNOWN,56425,43625,12800,0.7732
 academic_institutional,protected,B,UNKNOWN,56425,56425,0,1.0
 regulatory_technical,unprotected,A,UNKNOWN,56425,39425,17000,0.6987
-regulatory_technical,protected,B,UNKNOWN,56425,56425,0,1.0
+regulatory_technical,protected,B,UNKNOWN,56435,56435,0,1.0

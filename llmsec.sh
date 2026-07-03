@@ -686,6 +686,15 @@ run_single_scenario() {
     require_env_file "$domain" || return 1
     ef="$(env_file_for "$domain")"
 
+    # Verificar que el stack corresponde al dominio solicitado.
+    # Si DATASET_TAG dentro de tesis_rag no coincide, bajar y re-levantar.
+    local active_domain
+    active_domain="$(docker exec tesis_rag printenv DATASET_TAG 2>/dev/null || echo '')"
+    if [[ -n "$active_domain" && "$active_domain" != "$domain" ]]; then
+        log_fix "Stack activo es '$active_domain', se necesita '$domain' — bajando y re-levantando"
+        docker compose --env-file "$(env_file_for "$active_domain")" --profile lab down
+    fi
+
     log_hdr "Escenario único $scenario — dominio: $domain (target: $target)"
 
     # Rebuild de imagen: solo si el usuario lo pide explícitamente con

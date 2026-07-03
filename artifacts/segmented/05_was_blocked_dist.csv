@@ -2,4 +2,4 @@ domain,scenario,total,blocked,not_blocked,pct_blocked
 academic_institutional,unprotected,56425,0,56425,0.0
 academic_institutional,protected,56425,30885,25540,0.5474
 regulatory_technical,unprotected,56425,0,56425,0.0
-regulatory_technical,protected,56425,38680,17745,0.6855
+regulatory_technical,protected,59651,41606,18045,0.6975
