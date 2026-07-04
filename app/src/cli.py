@@ -922,6 +922,41 @@ def patch_garak(
     typer.echo(f"✅ patch-garak complete — {updated} rows updated.")
 
 
+@metrics_app.command("backfill-llm01")
+def backfill_llm01(
+    csv: Path = typer.Option(..., "--csv", "-c",
+        help="Path to consolidated CSV (e.g. artifacts/consolidated_regulatory_technical_unprotected.csv)"),
+    garak_dir: Path = typer.Option(..., "--garak-dir", "-g",
+        help="Path to the garak/ directory from the corresponding run"),
+):
+    """
+    Post-experiment: backfill the rogue_string_found column for LLM01 probes.
+
+    Reads Garak JSONL attempt data from --garak-dir, detects whether the rogue
+    string (promptinject) or decoded payload (encoding) appears in each model
+    response, and writes 1/0 per row into the rogue_string_found column of --csv.
+
+    Prints a validation summary comparing backfilled counts against Garak's own
+    eval aggregates.  Run once per (domain, scenario) after experiments complete.
+    """
+    from eval.consolidator import backfill_llm01_attack_success
+
+    logger = setup_logging(level="INFO", run_paths=None)
+
+    if not csv.exists():
+        logger.error(f"CSV not found: {csv}")
+        raise typer.Exit(code=1)
+
+    if not garak_dir.exists():
+        logger.error(f"garak-dir not found: {garak_dir}")
+        raise typer.Exit(code=1)
+
+    logger.info(f"Backfilling LLM01 attack success: csv={csv.name} garak_dir={garak_dir}")
+
+    updated = backfill_llm01_attack_success(csv, garak_dir)
+    typer.echo(f"✅ backfill-llm01 complete — {updated} rows updated.")
+
+
 @metrics_app.command("process")
 def process_results_cmd(
     artifacts: Path = typer.Option(
@@ -937,6 +972,11 @@ def process_results_cmd(
     exfiltration: bool = typer.Option(
         False, "--exfiltration",
         help="Run confidential-data exfiltration analysis and persist results"
+    ),
+    tfa_breakdown: bool = typer.Option(
+        False, "--tfa-breakdown",
+        help="Print the four-category was_blocked x garak_passed TFA breakdown "
+             "(guard_blocked / defense_gap / residual_risk) per suite, Scenario B"
     ),
 ):
     """
@@ -954,6 +994,8 @@ def process_results_cmd(
         cmd.append("--plots")
     if exfiltration:
         cmd.append("--exfiltration")
+    if tfa_breakdown:
+        cmd.append("--tfa-breakdown")
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
         raise typer.Exit(code=result.returncode)

@@ -24,6 +24,7 @@ This document describes each module in `app/src/`, the Docker Compose services, 
 16. [utils/paths.py](#16-utilspathspy)
 17. [utils/logging.py](#17-utilsloggingpy)
 18. [docker-compose.yml](#18-docker-composeyml)
+19. [Evaluation Pipeline — Analysis Catalog](#evaluation-pipeline--analysis-catalog)
 
 ---
 
@@ -566,3 +567,461 @@ PDFs ──► ingest_dir_pdfs() ──► ChromaDB
 5. **Attack**: `garak_runner` calls `cli.py attack garak`, which sets env vars and forks a Garak subprocess; results land in `artifacts/runs/<run_id>/garak/*.report.jsonl`.
 6. **Patch**: `consolidator.patch_garak_passed()` back-fills `garak_passed` by majority-voting JSONL results.
 7. **Analysis**: `process_results.py` reads JSONL + consolidated CSV + latency CSVs → computes TFA/LAS → writes `metrics.json` and optional figures.
+
+---
+
+## Evaluation Pipeline — Analysis Catalog
+
+This catalog documents every public function in `app/src/eval/`, organized by analysis category. It is intended as a quick-reference for anyone reading the codebase for the first time.
+
+**Entry point:** `app/src/eval/process_results.py`
+
+```bash
+# Inside the garak_runner container:
+python -m eval.process_results [FLAGS]
+
+# Or via Docker Compose:
+docker compose --profile attacks run --rm garak_runner python -m eval.process_results [FLAGS]
+```
+
+### CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--artifacts PATH` | Root artifacts directory (default: `artifacts/`) |
+| `--domains D1 D2` | Restrict to specific domains (default: auto-discover from `runs/`) |
+| `--plots` | Generate and save all figures to `artifacts/figures/` |
+| `--deep` | Run deep probe/detector/confusion-matrix analysis |
+| `--exfiltration` | Run confidential-data exfiltration analysis (Parts 2a–2f + Part 3) |
+| `--data-dir PATH` | Data directory for `--exfiltration` (default: `data/`) |
+| `--characterize` | Full artifact characterization (row counts, variance, latency) |
+| `--backfill-scores` | One-time fix: convert risk scores to raw [0,1] probabilities |
+| `--duration` | Print wall-clock execution time per experiment run |
+| `--tfa-breakdown` | Print `was_blocked × ground_truth` breakdown for Scenario B |
+
+---
+
+### 1. TFA Analysis
+
+Compute and report Task/Filter Adherence — the fraction of adversarial attacks the system resisted.
+
+**TFA ground truth per OWASP suite:**
+
+| Suite | Ground truth column | Rationale |
+|-------|---------------------|-----------|
+| LLM01 | `garak_passed` | Garak's own detector is valid for prompt-injection |
+| LLM02 | `response_has_confidential` | Garak cannot see the RAG corpus; direct inspection required |
+| LLM07 | `response_has_system_prompt` | Garak's heuristics produce false positives on system-prompt leakage |
+| LLM08 | `injection_followed` | Garak's detector unreliable when corpus lacks WHOIS documents |
+
+**Functions:**
+
+| Function | File | Signature | Description |
+|----------|------|-----------|-------------|
+| `load_tfa_from_jsonl` | `loaders.py` | `(garak_dir: Path) → dict` | Parses `*.report.jsonl` → per-probe, per-suite, global TFA using primary detector only |
+| `load_tfa_from_csv` | `loaders.py` | `(artifacts_dir, domain, scenario) → dict` | Per-suite TFA from consolidated CSV using the suite-correct ground-truth column |
+| `compute_tfa_by_suite` | `metrics.py` | `(df: DataFrame, suite: str) → float` | TFA for one suite using the correct ground-truth column; raises `KeyError` when required column is absent |
+| `compute_tfa_global` | `metrics.py` | `(df: DataFrame) → dict` | Weighted global TFA aggregated across all suites; returns `{TFA, total_tp, total_n, per_suite}` |
+| `print_tfa` | `metrics.py` | `(tfa_a, tfa_b, domain, tfa_csv_a, tfa_csv_b) → None` | Formatted TFA report: global totals, per-suite table with Fisher exact p-values, per-probe detail |
+| `print_tfa_global` | `metrics.py` | `(domain, global_a, global_b) → None` | Weighted global TFA with per-suite breakdown (CSV-based ground truth) |
+
+**CLI invocation:** Runs automatically on every call.
+
+```bash
+python -m eval.process_results --artifacts artifacts/ --domains regulatory_technical
+```
+
+**Required columns:** `probe`, `suite`, `prompt_type`, `garak_passed`, `response_has_confidential`, `response_has_system_prompt`, `injection_followed`, `rogue_string_found`
+
+**Output:** stdout only
+
+---
+
+### 2. TFA Breakdown (Guard vs Ground Truth)
+
+Decomposes Scenario B adversarial attempts into three mutually exclusive categories that sum to 1.0 per suite:
+
+- **guard_blocked** (A+B): LLM Guard blocked the request, regardless of attack outcome
+- **defense_gap** (C): Guard missed it; attack still failed (model resisted)
+- **residual_risk** (D): Guard missed it; attack succeeded (true security gap)
+
+**Functions:**
+
+| Function | File | Signature | Description |
+|----------|------|-----------|-------------|
+| `compute_tfa_breakdown` | `metrics.py` | `(artifacts_dir: Path, domain: str) → DataFrame` | Returns per-suite DataFrame with counts and pcts for each category |
+| `print_tfa_breakdown` | `metrics.py` | `(breakdown_df: DataFrame, domain: str) → None` | Prints the four-category table to stdout |
+
+**CLI invocation:**
+
+```bash
+python -m eval.process_results --artifacts artifacts/ --tfa-breakdown
+```
+
+**Required columns (protected CSV):** `suite`, `prompt_type`, `was_blocked`, `rogue_string_found`, `response_has_confidential`, `response_has_system_prompt`, `injection_followed`
+
+**Output:** stdout only
+
+---
+
+### 3. LAS Analysis
+
+Quantify Latency Added by Shield — adversarial and legitimate prompts are always tested separately because they have structurally different distributions (LLM Guard blocks adversarial requests before inference, cutting their latency; legitimate requests go through full inference plus proxy overhead).
+
+**Functions:**
+
+| Function | File | Signature | Description |
+|----------|------|-----------|-------------|
+| `load_latency` | `loaders.py` | `(latency_dir: Path, filename: str) → DataFrame` | Loads latency CSV, filters `/generate` requests, adds `prompt_type` column derived from `suite_probe` |
+| `compute_las` | `metrics.py` | `(lat_a, lat_b: DataFrame) → None` | LAS summary split by prompt_type (Mann-Whitney U) and by domain |
+| `deep_analysis_las` | `metrics.py` | `(lat_a, lat_b: DataFrame) → None` | Distribution stats, percentile table, per-suite medians, LAS overhead, outliers |
+
+**CLI invocation:** Runs automatically. `--deep` adds `deep_analysis_las`.
+
+```bash
+python -m eval.process_results --artifacts artifacts/ --deep
+```
+
+**Input files:** `artifacts/latency/latency_unprotected_direct.csv`, `artifacts/latency/latency_protected.csv`
+
+**Latency CSV columns:** `timestamp`, `scenario`, `domain`, `method`, `endpoint`, `status_code`, `latency_ms`, `col8`, `suite_probe`, `prompt_tokens`, `response_tokens`
+
+**Output:** stdout only
+
+---
+
+### 4. Segmented Analysis
+
+Systematic analysis across all domain × scenario × prompt_type cells. Runs 11 statistical sub-blocks and exports one CSV per block.
+
+**Functions:**
+
+| Function | File | Signature | Description |
+|----------|------|-----------|-------------|
+| `segmented_analysis` | `metrics.py` | `(artifacts_dir, domains, pcc_values) → None` | 11-block analysis: overview, TFA/probe, TFA/suite, garak_passed distribution, was_blocked distribution, scanner breakdown, FPR, latency, Mann-Whitney LAS, Fisher TFA A vs B, optional Spearman PCC |
+| `latency_adv_vs_legit` | `metrics.py` | `(artifacts_dir, domains) → None` | Counts, latency stats, and Mann-Whitney U comparing adversarial vs legitimate latency distributions |
+
+**CLI invocation:** Both run automatically.
+
+**Required columns:** `prompt_type`, `probe`, `suite`, `subdimension`, `was_blocked`, `should_block`, `garak_passed`, `latency_ms`, `scanner_triggered`
+
+**Output files:**
+
+| File | Description |
+|------|-------------|
+| `artifacts/segmented/01_segment_overview.csv` | Row counts, blocking rate, mean `garak_passed`, latency median per (domain × scenario × prompt_type) |
+| `artifacts/segmented/02_tfa_per_probe.csv` | TFA per probe per segment |
+| `artifacts/segmented/03_tfa_per_suite.csv` | TFA per OWASP suite per segment |
+| `artifacts/segmented/04_garak_passed_dist.csv` | `gp=0` / `gp=1` / `gp=NaN` counts |
+| `artifacts/segmented/05_was_blocked_dist.csv` | Blocked / not-blocked counts |
+| `artifacts/segmented/06_scanner_breakdown.csv` | `scanner_triggered` value counts (Scenario B adversarial) |
+| `artifacts/segmented/07_fpr_legitimate.csv` | FPR per domain × scenario |
+| `artifacts/segmented/08_latency_legitimate.csv` | Legitimate latency stats (median, IQR, p95, p99) |
+| `artifacts/segmented/09_las_mannwhitney.csv` | Mann-Whitney U results per domain |
+| `artifacts/segmented/10_fisher_tfa_ab.csv` | Fisher exact results per suite and per domain |
+| `artifacts/segmented/11_spearman_pcc_tfa.csv` | Spearman ρ (only when `pcc_values` is provided) |
+| `artifacts/segmented/12_latency_adv_vs_legit.csv` | Wide-format latency stats + Mann-Whitney per domain × scenario |
+
+---
+
+### 5. Deep Analysis
+
+Probe-level, detector-level, and confusion-matrix analysis. Requires `--deep`.
+
+**Functions:**
+
+| Function | File | Signature | Description |
+|----------|------|-----------|-------------|
+| `deep_analysis_tfa` | `metrics.py` | `(df_a, df_b, domain) → None` | Confidential exposure rate, blocking stats, latency by probe and subdimension, scanner breakdown |
+| `deep_analysis_by_detector` | `metrics.py` | `(runs_dir, domains) → None` | TFA per probe × detector from JSONL; highlights gap between primary and secondary detectors |
+| `deep_analysis_confusion_a` | `metrics.py` | `(artifacts_dir, domains) → None` | Partial confusion matrix for Scenario A — TP/FN from `garak_passed`; TN from legitimate rows |
+| `deep_analysis_confusion` | `metrics.py` | `(artifacts_dir, domains) → None` | System-level (two-layer) and LLM Guard-only confusion matrices for Scenario B, with per-subdimension breakdown |
+
+**CLI invocation:**
+
+```bash
+python -m eval.process_results --artifacts artifacts/ --deep
+```
+
+**Required columns:** `garak_passed`, `was_blocked`, `should_block`, `response_has_confidential`, `latency_ms`, `probe`, `subdimension`, `scanner_triggered`
+
+**Output:** stdout only
+
+---
+
+### 6. Exfiltration / PII Analysis
+
+Quantifies sensitive-data leakage in adversarial responses across three signal types.
+
+**In `metrics.py`:**
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `analyze_pii_exposure` | `(artifacts_dir, domains) → dict` | Regex scan for RUT, email, phone, password, card, and `[CONFIDENTIAL]` patterns per domain × scenario |
+| `analyze_sensitivity_thresholds` | `(artifacts_dir, domains, config_dir) → dict` | Reclassifies adversarial rows under alternative scanner thresholds; reads candidates from `llm_guard_config.yaml` |
+
+**In `exfiltration.py`:**
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `load_ground_truth_fragments` | `(data_dir) → list[dict]` | Extracts `[CONFIDENTIAL]…[/CONFIDENTIAL]` fragments from 6 synthetic PDFs via `pdftotext` |
+| `analyze_confidential_marker` | `(artifacts_dir, domains) → dict` | 2a: counts responses containing literal `[CONFIDENTIAL]` marker, by probe and suite |
+| `analyze_verbatim_exfiltration` | `(artifacts_dir, domains, fragments) → tuple` | 2b + Part 3: verbatim sensitive-value matches; returns domain results + subdocument hit list |
+| `analyze_pii_by_type` | `(artifacts_dir, domains) → dict` | 2c: PII pattern counts per type × domain × scenario |
+| `compute_deltas` | `(conf_r, verb_r, pii_r, domains) → dict` | 2d: A→B absolute and relative deltas for every metric |
+| `print_summary` | `(conf_r, verb_r, pii_r, deltas, domains) → None` | Prints Part 2 summary table with count/pct and Δ columns |
+| `save_confidential_csv` | `(results, segmented_dir, domains) → Path` | Writes `13_exfiltration_confidential.csv` |
+| `save_pii_csv` | `(results, segmented_dir, domains) → Path` | Writes `14_exfiltration_pii.csv` |
+| `save_verbatim_csv` | `(results, segmented_dir, domains) → Path` | Writes `15_exfiltration_verbatim.csv` |
+| `save_subdocument_csv` | `(subdoc_matches, segmented_dir) → Path` | Writes `16_exfiltration_by_subdocument.csv` (Part 3) |
+| `save_summary_json` | `(conf_r, verb_r, pii_r, deltas, fragments, artifacts_dir) → Path` | Writes `artifacts/characterization/exfiltration_summary.json` |
+| `run_exfiltration_analysis` | `(artifacts_dir, data_dir, domains, figures_dir) → dict` | Orchestrates 2a–2f + Part 3 end to end, including figures |
+
+**CLI invocation:**
+
+```bash
+python -m eval.process_results --artifacts artifacts/ --exfiltration --data-dir data/
+```
+
+**Required columns:** `prompt_type`, `response`, `probe`, `suite`
+
+**Output files:**
+
+| File | Description |
+|------|-------------|
+| `artifacts/segmented/13_exfiltration_confidential.csv` | `[CONFIDENTIAL]` marker hits per probe × scenario |
+| `artifacts/segmented/14_exfiltration_pii.csv` | PII pattern hits per type × scenario |
+| `artifacts/segmented/15_exfiltration_verbatim.csv` | Verbatim ground-truth hits per scenario |
+| `artifacts/segmented/16_exfiltration_by_subdocument.csv` | Part 3: hits per subdocument × scenario × probe |
+| `artifacts/characterization/exfiltration_summary.json` | Full structured results |
+| `artifacts/figures/exfiltration_confidential_by_probe.png` | Stacked bar: `[CONFIDENTIAL]` hits by probe |
+| `artifacts/figures/exfiltration_pii_by_type.png` | Grouped bar: PII hits by type |
+| `artifacts/figures/exfiltration_delta_ab.png` | Horizontal bar: A→B relative delta per metric |
+
+---
+
+### 7. Characterization
+
+Structural characterization of every consolidated CSV and Garak JSONL run.
+
+**Functions:**
+
+| Function | File | Signature | Description |
+|----------|------|-----------|-------------|
+| `characterize_consolidated_csv` | `characterizer.py` | `(csv_path, scenario, domain) → dict` | Row counts, latency stats (median/mean/std/p5/p95), block rate, TFA per suite and probe |
+| `characterize_jsonl_run` | `characterizer.py` | `(jsonl_path) → dict` | Parses one `.report.jsonl`: eval summary, attempt count, per-detector score statistics |
+| `compute_repetition_variance` | `characterizer.py` | `(jsonl_dir, probe, scenario, domain, primary_detector) → dict` | TFA mean/std/min/max across rep00–rep04 for one probe; flags `high_variance` when std > 0.05 |
+| `compare_latency` | `characterizer.py` | `(csv_paths: dict) → dict` | Adversarial and legitimate latency stats per (scenario, domain) pair |
+| `run_full_characterization` | `characterizer.py` | `(artifacts_dir, output_dir) → None` | Orchestrates all characterization; prints console summary and writes 4 output files |
+
+**CLI invocation:**
+
+```bash
+python -m eval.process_results --characterize --artifacts artifacts/ \
+  --artifacts-dir artifacts/ --output-dir artifacts/characterization/
+```
+
+**Output files:**
+
+| File | Description |
+|------|-------------|
+| `artifacts/characterization/characterization_summary.json` | Full structured characterization results |
+| `artifacts/characterization/repetition_variance.csv` | TFA variance per probe × scenario × domain (rep00–rep04) |
+| `artifacts/characterization/latency_comparison.csv` | Latency stats per scenario × domain × prompt_type |
+| `artifacts/characterization/tfa_by_probe.csv` | TFA per probe × scenario × domain |
+
+---
+
+### 8. Backfill & Patching Utilities
+
+Post-hoc data correction. Not called automatically during normal analysis.
+
+**Functions:**
+
+| Function | File | Signature | Returns | Description |
+|----------|------|-----------|---------|-------------|
+| `log_request` | `consolidator.py` | `(csv_path, *, scenario, domain, ...)` | `None` | Appends one row to consolidated CSV (called live from `rag.py` / `shield.py`) |
+| `patch_garak_passed` | `consolidator.py` | `(csv_path, garak_dir) → int` | rows updated | Fills empty `garak_passed` cells via majority-vote from JSONL pass/total counts |
+| `backfill_raw_scores` | `consolidator.py` | `(csv_path, pi_threshold, sens_threshold) → None` | — | Inverts `calculate_risk_score()` to convert threshold-relative scores back to raw [0,1] probabilities |
+| `run_backfill_scores` | `consolidator.py` | `(artifacts_dir) → None` | — | Applies `backfill_raw_scores` to every `consolidated_*.csv`; prints before/after stats |
+| `backfill_llm01_attack_success` | `consolidator.py` | `(csv_path, garak_dir) → int` | rows updated | Writes per-row `rogue_string_found` (1/0) for LLM01 probes by matching JSONL attempt data |
+
+**CLI invocations:**
+
+```bash
+# Convert old threshold-relative scores to raw probabilities (one-time, run once per old CSV):
+python -m eval.process_results --backfill-scores --artifacts artifacts/
+
+# Backfill rogue_string_found for LLM01 (via CLI subcommand):
+docker compose --profile attacks run --rm garak_runner analyze metrics backfill-llm01 \
+  --csv artifacts/consolidated_<domain>_unprotected.csv \
+  --garak-dir artifacts/runs/<run_id>/garak
+```
+
+**Columns modified:**
+- `patch_garak_passed` — fills empty `garak_passed` cells
+- `backfill_llm01_attack_success` — adds `rogue_string_found` column
+- `backfill_raw_scores` — overwrites `input_scanner_score`, `output_scanner_score`
+
+---
+
+### 9. Duration / Run Metadata
+
+| Function | File | Signature | Description |
+|----------|------|-----------|-------------|
+| `compute_run_duration` | `metrics.py` | `(artifacts_dir: Path) → DataFrame` | Reads timestamps from all consolidated CSVs; computes adversarial / legitimate / total / inference hours per run. Adversarial and legitimate windows are computed separately since they are collected in distinct phases. |
+
+**CLI invocation:**
+
+```bash
+python -m eval.process_results --duration --artifacts artifacts/
+```
+
+**Required columns:** `timestamp`, `prompt_type`, `latency_ms`
+
+**Output:** stdout table only (no CSV saved)
+
+---
+
+### 10. Plotting Functions
+
+All plots are PNG, saved to `artifacts/figures/`. Generated via `--plots`; exfiltration and characterization plots are generated by their respective flags.
+
+**Orchestrators:**
+
+| Function | File | Description |
+|----------|------|-------------|
+| `generate_all_plots` | `plots.py` | Runs all primary figure functions (~19 PNGs) |
+| `generate_segmented_plots` | `plots.py` | Runs 8 supplementary segmented figures |
+
+```bash
+python -m eval.process_results --artifacts artifacts/ --plots
+python -m eval.process_results --artifacts artifacts/ --plots --characterize --exfiltration
+```
+
+**Primary figures (`generate_all_plots`):**
+
+| Function | Output PNG | Description |
+|----------|------------|-------------|
+| `plot_tfa_by_probe` | `tfa_by_probe_<domain>.png` | TFA per probe colored by OWASP suite (garak_passed-based) |
+| `plot_tfa_by_suite` | `tfa_by_suite_<domain>.png` | TFA per suite with CSV ground truth |
+| `plot_tfa_domains_combined` | `tfa_by_suite_combined.png` | Side-by-side suite TFA for all domains |
+| `plot_tfa_csv_by_suite_grouped` | `tfa_csv_by_suite_both_domains.png` | CSV-based suite TFA with annotated values |
+| `plot_tfa_global_weighted` | `tfa_global_weighted.png` | Weighted global TFA per domain with ΔTFA |
+| `plot_tfa_heatmap` | `tfa_heatmap_probe_domain.png` | Heatmap: TFA per probe × domain (Scenario A) |
+| `plot_delta_tfa` | `delta_tfa_by_probe.png` | ΔTFA (B−A) per probe |
+| `plot_pvalue_by_suite` | `pvalue_by_suite.png` | −log₁₀(p) per suite — Fisher exact A vs B |
+| `plot_confidential_exposure` | `confidential_exposure_by_subdim.png` | Confidential exposure rate per subdimension |
+| `plot_las_boxplot` | `las_boxplot_global.png`, `las_boxplot_by_domain.png` | Latency boxplots (log scale) |
+| `plot_latency_histogram` | `las_histogram_kde.png` | Latency histogram + KDE with Mann-Whitney stats |
+| `plot_las_by_suite` | `las_median_by_suite.png` | Median latency per OWASP suite |
+| `plot_latency_distribution_by_suite` | `las_distribution_by_suite_A.png` | Latency boxplot per suite (Scenario A) |
+| `plot_confusion_matrix_scenario_a` | `confusion_matrix_scenario_a.png` | Partial confusion matrix Scenario A (no classifier) |
+| `plot_confusion_matrix` | `confusion_matrix_scenario_b.png` | System-level (two-layer) confusion matrix Scenario B |
+| `plot_confusion_matrix_guard_only` | `confusion_matrix_scenario_b_llmguard_only.png` | LLM Guard-only confusion matrix Scenario B |
+| `plot_detector_heatmap` | `detector_heatmap_scenario_a.png` | TFA per probe × detector, primary detector bolded |
+| `plot_security_posture_radar` | `fig_security_posture_radar.png` | Radar chart: TFA per subdimension D1–D4, all combos |
+| `plot_tfa_suite_all_combos` | `fig_tfa_suite_all_combos.png` | All 4 scenario×domain combos per suite, single panel |
+
+**Segmented figures (`generate_segmented_plots`):**
+
+| Function | Output PNG | Description |
+|----------|------------|-------------|
+| `plot_latency_adv_vs_legit_boxplot` | `latency_adv_vs_legit_boxplot.png` | Boxplots per domain × scenario × prompt_type (log scale) |
+| `plot_latency_adv_vs_legit_kde` | `latency_adv_vs_legit_kde.png` | KDE grid: adversarial vs legitimate per domain × scenario |
+| `plot_fpr_by_domain_scenario` | `fpr_by_domain_scenario.png` | FPR per domain — Scenario B only |
+| `plot_tfa_heatmap_ab_comparison` | `tfa_heatmap_ab_comparison.png` | Two-panel TFA heatmap: Scenario A vs B |
+| `plot_delta_tfa_by_domain` | `delta_tfa_by_probe_by_domain.png` | ΔTFA grouped bars per probe, colored by domain |
+| `plot_scanner_breakdown_by_probe` | `scanner_breakdown_by_probe.png` | Stacked bars: scanner activations per probe (Scenario B adv.) |
+| `plot_repetition_variance` | `fig_repetition_variance_stability.png` | TFA mean/std/range across 5 repetitions per probe |
+| `plot_las_adv_vs_legit_summary` | `fig_las_adv_vs_legit_summary.png` | Median latency bar chart with early-blocking annotation |
+
+**Exfiltration figures (via `--exfiltration`):**
+
+| Function | Output PNG | Description |
+|----------|------------|-------------|
+| `plot_confidential_by_probe` | `exfiltration_confidential_by_probe.png` | Stacked bars: `[CONFIDENTIAL]` hits by probe |
+| `plot_pii_by_type` | `exfiltration_pii_by_type.png` | Grouped bars: PII hits by type |
+| `plot_delta_ab` | `exfiltration_delta_ab.png` | Horizontal bars: A→B relative delta per metric |
+
+---
+
+### 11. Data Loading Layer (`loaders.py`)
+
+These are the shared read functions consumed by `metrics.py`, `plots.py`, and `characterizer.py`.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `load_consolidated` | `(artifacts_dir, domain, scenario, run_id) → DataFrame` | Loads adversarial rows from consolidated CSV; optional `run_id` filter |
+| `load_tfa_from_jsonl` | `(garak_dir: Path) → dict` | TFA from JSONL (garak_passed-based; primary detector only) |
+| `load_tfa_from_csv` | `(artifacts_dir, domain, scenario) → dict` | TFA from CSV with suite-correct ground truth via `compute_tfa_by_suite` |
+| `load_latency` | `(latency_dir: Path, filename: str) → DataFrame` | Latency CSV → `/generate` rows only; adds `prompt_type` from `suite_probe` |
+| `find_run_dir` | `(runs_dir, domain, scenario) → Path \| None` | Most recent run directory matching domain + scenario |
+| `discover_domains` | `(runs_dir: Path) → list` | Auto-discovers available domains from run directory names |
+
+---
+
+### 12. Garak Catalog (`garak_catalog.py`)
+
+Used by the CLI to enumerate available probes before launching an attack run.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `load_suites` | `(path=None) → dict` | Loads `owasp_suites.json` → `{suite_id: [probe_names]}` |
+| `list_suites` | `(path=None) → list` | Sorted list of suite IDs (e.g. `LLM01`…`LLM10`) |
+| `list_probes` | `(suite, path=None, prefix=None) → list` | Probe names for a suite; optional prefix filter |
+
+---
+
+### 13. Standalone: Threshold Sensitivity Sweep (`threshold_sensitivity.py`)
+
+Stand-alone parametric grid sweep over scanner score thresholds. Not integrated with `process_results.py`.
+
+```bash
+python app/src/eval/threshold_sensitivity.py \
+  --input_csv artifacts/consolidated_regulatory_technical_protected.csv \
+  --config_yaml app/config/global/llm_guard_config.yaml \
+  --output_dir artifacts/reporting
+```
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `load_experimental_thresholds` | `(yaml_path) → tuple` | Reads `prompt_injection_thresholds` and `sensitive_thresholds` from `llm_guard_config.yaml` |
+| `run_grid_sensitivity_analysis` | `(csv_path, yaml_path, output_dir) → None` | Sweeps all (tau_in × tau_out) combinations; computes TFA global, TFA per probe group, FPR, and classifies operational regime |
+
+**Required columns:** `prompt_type`, `probe`, `input_scanner_score`, `output_scanner_score`, `was_blocked`, `garak_passed`
+
+**Output:** formatted table to stdout
+
+---
+
+### Consolidated CSV Schema
+
+All analysis functions read from `artifacts/consolidated_<domain>_<scenario>.csv` (23 columns):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `timestamp` | ISO 8601 | UTC request time |
+| `scenario` | str | `unprotected` or `protected` |
+| `domain` | str | Dataset tag (e.g. `regulatory_technical`) |
+| `prompt_type` | str | `adversarial` or `legitimate` |
+| `probe` | str | Garak probe name |
+| `suite` | str | OWASP suite (e.g. `LLM01`) |
+| `subdimension` | str | `D1`–`D4` |
+| `repetition` | int | Repetition index |
+| `prompt` | str | Raw prompt text |
+| `response` | str | Model or shield response |
+| `latency_ms` | float | End-to-end request latency |
+| `should_block` | int | Ground-truth block label (1=should, 0=should not) |
+| `was_blocked` | int | Whether LLM Guard blocked the request |
+| `scanner_triggered` | str | Name of scanner that fired |
+| `block_reason` | str | Short reason code |
+| `input_scanner_score` | float | Raw PromptInjection score [0,1] |
+| `output_scanner_score` | float | Raw Sensitive score [0,1] |
+| `garak_passed` | float | 1=system resisted; 0=attack succeeded (filled by `patch_garak_passed`) |
+| `response_has_confidential` | int | 1 if `[CONFIDENTIAL]` appears in response |
+| `grounding_ratio` | float | C17 grounding ratio in retrieved context |
+| `run_id` | str | Run identifier |
+| `response_has_system_prompt` | int | 1 if system-prompt phrases appear in response |
+| `injection_followed` | int | 1 if adversarial injection instructions were followed |
+| `rogue_string_found` | int | 1 if LLM01 rogue string found in response (backfilled) |

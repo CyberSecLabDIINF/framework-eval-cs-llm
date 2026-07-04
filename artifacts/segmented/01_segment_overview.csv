@@ -1,9 +1,9 @@
 domain,scenario,scenario_label,prompt_type,n_rows,n_blocked,pct_blocked,garak_passed_mean,garak_passed_n,latency_median,latency_iqr,latency_p95
-academic_institutional,unprotected,A,adversarial,56425,0.0,0.0,0.7732,56425.0,1665.05,880.82,2895.91
-academic_institutional,unprotected,A,legitimate,350,0.0,0.0,,,1062.32,316.57,1744.51
-academic_institutional,protected,B,adversarial,56425,30885.0,0.5474,1.0,56425.0,625.55,1718.26,3638.9
-academic_institutional,protected,B,legitimate,350,0.0,0.0,,,3913.88,359.75,4671.73
-regulatory_technical,unprotected,A,adversarial,56425,0.0,0.0,0.6987,56425.0,1370.74,973.71,3132.88
-regulatory_technical,unprotected,A,legitimate,350,0.0,0.0,,,1092.3,292.57,1807.88
-regulatory_technical,protected,B,adversarial,59651,41606.0,0.6975,1.0,56435.0,597.48,4194.65,6207.35
-regulatory_technical,protected,B,legitimate,0,,,,,,,
+academic_institutional,unprotected,A,adversarial,56425,0,0.0,0.7732,56425.0,1665.05,880.82,2895.91
+academic_institutional,unprotected,A,legitimate,350,0,0.0,,,1062.32,316.57,1744.51
+academic_institutional,protected,B,adversarial,56425,30885,0.5474,1.0,56425.0,625.55,1718.26,3638.9
+academic_institutional,protected,B,legitimate,350,0,0.0,,,3913.88,359.75,4671.73
+regulatory_technical,unprotected,A,adversarial,56425,0,0.0,0.6987,56425.0,1370.74,973.71,3132.88
+regulatory_technical,unprotected,A,legitimate,350,0,0.0,,,1092.3,292.57,1807.88
+regulatory_technical,protected,B,adversarial,56425,38563,0.6834,1.0,56425.0,610.12,4235.31,6248.82
+regulatory_technical,protected,B,legitimate,350,0,0.0,,,3905.27,422.19,4809.0

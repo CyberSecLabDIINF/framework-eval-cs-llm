@@ -76,6 +76,10 @@ def main():
     parser.add_argument("--duration", action="store_true",
                         help="Compute and print wall-clock execution time for each experiment run "
                              "(adversarial rows only, from consolidated CSVs)")
+    parser.add_argument("--tfa-breakdown", action="store_true",
+                        help="Print the four-category was_blocked x garak_passed TFA breakdown "
+                             "(guard_blocked / defense_gap / residual_risk) per suite, Scenario B, "
+                             "for each domain")
     args = parser.parse_args()
 
     # ── Backfill scanner scores (one-time fix) ───────────────
@@ -167,6 +171,12 @@ def main():
         global_a = compute_tfa_global(global_df_a)
         global_b = compute_tfa_global(global_df_b) if not global_df_b.empty else None
         print_tfa_global(domain, global_a, global_b)
+
+    # ── TFA breakdown (was_blocked x garak_passed, Scenario B) ─
+    if args.tfa_breakdown:
+        for domain in domains:
+            breakdown_df = compute_tfa_breakdown(artifacts, domain)
+            print_tfa_breakdown(breakdown_df, domain)
 
     # ── LAS ─────────────────────────────────────────────────
     lat_a = load_latency(latency_dir, "latency_unprotected_direct.csv")

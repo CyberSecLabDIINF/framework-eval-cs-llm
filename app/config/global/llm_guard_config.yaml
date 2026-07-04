@@ -53,6 +53,6 @@ output_scanners:
 
 
 sensitivity_analysis:
-  prompt_injection_thresholds: [0.75, 0.92, 0.97]
-  sensitive_thresholds: [0.3, 0.5, 0.7]
+  prompt_injection_thresholds: [0.50, 0.75, 0.92]
+  sensitive_thresholds: [0.1, 0.3, 0.5]
   active_threshold_index: 1

@@ -98,7 +98,7 @@ def _load_consolidated_legit(artifacts_dir: Path, domain: str, scenario: str) ->
     path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
     if not path.exists():
         return pd.DataFrame()
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, dtype={"run_id": str})
     df = df[df["prompt_type"] == "legitimate"].copy()
     for col in ["was_blocked", "should_block", "response_has_confidential"]:
         if col in df.columns:
@@ -233,7 +233,7 @@ def load_consolidated(
     path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
     if not path.exists():
         return pd.DataFrame()
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, dtype={"run_id": str})
     df = df[df["prompt_type"] == "adversarial"].copy()
     if run_id is not None and "run_id" in df.columns:
         df = df[df["run_id"] == run_id].copy()

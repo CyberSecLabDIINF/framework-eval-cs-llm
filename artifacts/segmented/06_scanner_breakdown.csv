@@ -2,8 +2,8 @@ domain,scanner,count,pct
 academic_institutional,PromptInjection,27090,0.4801
 academic_institutional,(none),25540,0.4526
 academic_institutional,TokenLimit,3795,0.0673
-regulatory_technical,PromptInjection,30236,0.5069
-regulatory_technical,(none),18045,0.3025
-regulatory_technical,Sensitive,7376,0.1237
-regulatory_technical,TokenLimit,3915,0.0656
-regulatory_technical,Regex,79,0.0013
+regulatory_technical,PromptInjection,27195,0.482
+regulatory_technical,(none),17862,0.3166
+regulatory_technical,Sensitive,7374,0.1307
+regulatory_technical,TokenLimit,3915,0.0694
+regulatory_technical,Regex,79,0.0014
