@@ -30,7 +30,7 @@ from eval.loaders import (
     load_consolidated,
     load_tfa_from_jsonl,
 )
-from eval.metrics import compute_tfa_global, print_tfa
+from eval.metrics import compute_tfa_global, compute_probe_timings, print_tfa
 
 
 # ─────────────────────────────────────────────
@@ -675,7 +675,7 @@ def plot_las_boxplot(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Path
         for ax, domain in zip(axes, domains):
             sub_a = lat_a[lat_a["domain"] == domain]["latency_ms"].values
             sub_b = lat_b[lat_b["domain"] == domain]["latency_ms"].values
-            bp = ax.boxplot([sub_a, sub_b], labels=["Escenario A", "Escenario B"],
+            bp = ax.boxplot([sub_a, sub_b], tick_labels=["Escenario A", "Escenario B"],
                             patch_artist=True,
                             medianprops={"color": "black", "linewidth": 2},
                             flierprops={"marker": ".", "markersize": 3, "alpha": 0.3})
@@ -696,7 +696,7 @@ def plot_las_boxplot(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Path
         data   = [lat_a["latency_ms"].values, lat_b["latency_ms"].values]
         labels = ["Escenario A\n(sin protección)", "Escenario B\n(LLM Guard)"]
         colors = [SCENARIO_COLORS["A"], SCENARIO_COLORS["B"]]
-        bp = ax.boxplot(data, labels=labels, patch_artist=True,
+        bp = ax.boxplot(data, tick_labels=labels, patch_artist=True,
                         medianprops={"color": "black", "linewidth": 2},
                         flierprops={"marker": ".", "markersize": 3, "alpha": 0.3})
         for patch, color in zip(bp["boxes"], colors):
@@ -848,7 +848,7 @@ def plot_latency_distribution_by_suite(lat_a: pd.DataFrame, figures_dir: Path):
     data   = [lat_a[lat_a["suite"] == s]["latency_ms"].values for s in suites]
 
     fig, ax = plt.subplots(figsize=(9, 5))
-    bp = ax.boxplot(data, labels=suites, patch_artist=True,
+    bp = ax.boxplot(data, tick_labels=suites, patch_artist=True,
                     medianprops={"color": "black", "linewidth": 2},
                     flierprops={"marker": ".", "markersize": 2, "alpha": 0.3})
     for patch, suite in zip(bp["boxes"], suites):
@@ -1447,6 +1447,11 @@ def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
     plot_detector_heatmap(runs_dir, domains, figures_dir)
     plot_security_posture_radar(tfa_by_domain, figures_dir)
     plot_tfa_suite_all_combos(tfa_by_domain, figures_dir)
+
+    timings_df = compute_probe_timings(artifacts_dir)
+    if not timings_df.empty:
+        plot_probe_timings(timings_df, figures_dir)
+    plot_probe_execution_time_total(artifacts_dir, domains, figures_dir)
 
     n = len(list(figures_dir.glob("*.png")))
     print(f"\n  Done. {n} figures saved.\n")
@@ -2308,4 +2313,381 @@ def generate_segmented_plots(
 
     n = len(list(figures_dir.glob("*.png")))
     print(f"\n  Segmented figures complete. {n} total figures in {figures_dir}.\n")
+
+
+# ─────────────────────────────────────────────
+# Probe execution timing chart
+# ─────────────────────────────────────────────
+
+def plot_probe_timings(df: pd.DataFrame, output_dir: Path) -> None:
+    """Plot median probe execution times as horizontal grouped bar charts, one per domain.
+
+    For each domain present in ``df``, generates one figure with two bar groups
+    per probe — Scenario A (unprotected, ``#e07b39``) and Scenario B (protected,
+    ``#1e5eff``) — where the bar length is the median execution time in minutes
+    across the five repetitions and error bars span the interquartile range (IQR).
+
+    Probes are ordered from top to bottom by OWASP suite
+    (LLM01 → LLM02 → LLM07 → LLM08) then alphabetically within each suite.
+    Suite boundaries are marked with a dashed horizontal separator and a
+    colour-coded suite label on the right margin.  Probe labels use the short
+    display names from :data:`PROBE_SHORT`.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Per-repetition timing data as returned by
+        :func:`eval.metrics.compute_probe_timings`.  Required columns:
+        ``domain``, ``scenario``, ``suite``, ``probe``, ``repetition``,
+        ``duration_seconds``.
+    output_dir : Path
+        Directory where output PDF files are saved (created if absent).
+        One file per domain: ``probe_timings_<domain>.pdf``.
+
+    Notes
+    -----
+    Duration values are converted from seconds to minutes before plotting.
+    Rows with ``duration_seconds = NaN`` (the first file of each run, which has
+    no preceding file to delta from) are dropped before aggregation so they do
+    not bias the median or IQR estimates.
+
+    The function is generic: it derives domains, scenarios, and probe sets from
+    ``df`` rather than from any hardcoded list, so it adapts automatically to
+    whatever runs are present in ``artifacts/runs/``.
+
+    Outputs
+    -------
+    ``<output_dir>/probe_timings_<domain>.pdf`` for every domain in ``df``.
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+    import numpy as np
+
+    _SUITE_ORDER     = ["LLM01", "LLM02", "LLM07", "LLM08"]
+    _SCENARIO_COLORS = {"unprotected": "#e07b39", "protected": "#1e5eff"}
+    _SCENARIO_LABELS = {
+        "unprotected": "Escenario A (sin protección)",
+        "protected":   "Escenario B (LLM Guard)",
+    }
+    _BAR_HEIGHT = 0.35
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    setup_style()
+
+    # Drop NaN durations (first rep of each run) and convert to minutes.
+    df_valid = df.dropna(subset=["duration_seconds"]).copy()
+    df_valid["duration_minutes"] = df_valid["duration_seconds"] / 60.0
+
+    domains = sorted(df_valid["domain"].unique())
+    if not domains:
+        print("  [skip] probe timings: no valid duration data found.")
+        return
+
+    for domain in domains:
+        df_dom    = df_valid[df_valid["domain"] == domain]
+        scenarios = [s for s in ("unprotected", "protected")
+                     if s in df_dom["scenario"].unique()]
+        if not scenarios:
+            continue
+
+        # Probe ordering: suite rank first, then alphabetical within suite.
+        all_probes = df_dom["probe"].unique().tolist()
+
+        def _sort_key(p: str) -> tuple:
+            suite_vals = df_dom.loc[df_dom["probe"] == p, "suite"]
+            suite      = suite_vals.iloc[0] if len(suite_vals) > 0 else "ZZZ"
+            rank       = _SUITE_ORDER.index(suite) if suite in _SUITE_ORDER else len(_SUITE_ORDER)
+            return (rank, p)
+
+        ordered_probes = sorted(all_probes, key=_sort_key)
+        n_probes = len(ordered_probes)
+        if n_probes == 0:
+            continue
+
+        y_base  = np.arange(n_probes, dtype=float)
+        n_scen  = len(scenarios)
+        offsets = np.linspace(
+            -_BAR_HEIGHT * (n_scen - 1) / 2,
+             _BAR_HEIGHT * (n_scen - 1) / 2,
+            n_scen,
+        )
+
+        fig_height = max(5.0, n_probes * 0.85 + 1.5)
+        fig, ax    = plt.subplots(figsize=(11, fig_height))
+
+        for idx, scenario in enumerate(scenarios):
+            df_s  = df_dom[df_dom["scenario"] == scenario]
+            color = _SCENARIO_COLORS.get(scenario, "#888888")
+            label = _SCENARIO_LABELS.get(scenario, scenario)
+
+            medians: list[float] = []
+            xerr_lo: list[float] = []
+            xerr_hi: list[float] = []
+
+            for probe in ordered_probes:
+                vals = df_s.loc[df_s["probe"] == probe, "duration_minutes"].dropna()
+                if vals.empty:
+                    medians.append(0.0)
+                    xerr_lo.append(0.0)
+                    xerr_hi.append(0.0)
+                    continue
+                med = float(vals.median())
+                q1  = float(vals.quantile(0.25))
+                q3  = float(vals.quantile(0.75))
+                medians.append(med)
+                xerr_lo.append(max(med - q1, 0.0))
+                xerr_hi.append(max(q3 - med, 0.0))
+
+            ax.barh(
+                y_base + offsets[idx], medians,
+                height=_BAR_HEIGHT,
+                color=color, alpha=0.85, edgecolor="white",
+                xerr=[xerr_lo, xerr_hi],
+                error_kw={"ecolor": "#555555", "capsize": 3, "elinewidth": 1.2},
+                label=label,
+                zorder=3,
+            )
+
+        # Suite group separators and right-margin labels.
+        blended        = ax.get_yaxis_transform()
+        prev_suite     = None
+        suite_first_y: dict[str, float] = {}
+
+        for i, probe in enumerate(ordered_probes):
+            suite_vals = df_dom.loc[df_dom["probe"] == probe, "suite"]
+            suite      = suite_vals.iloc[0] if len(suite_vals) > 0 else ""
+            if suite != prev_suite:
+                if prev_suite is not None:
+                    ax.axhline(
+                        y=y_base[i] - 0.5, color="#bbbbbb",
+                        linewidth=0.8, linestyle="--", alpha=0.7, zorder=1,
+                    )
+                suite_first_y[suite] = y_base[i]
+            prev_suite = suite
+
+        for suite, y_pos in suite_first_y.items():
+            ax.text(
+                1.01, y_pos, suite,
+                transform=blended,
+                fontsize=8, color=SUITE_COLORS.get(suite, "#888888"),
+                va="center", ha="left", fontweight="bold",
+            )
+
+        y_labels = [PROBE_SHORT.get(p, p.split(".")[-1]) for p in ordered_probes]
+        ax.set_yticks(y_base)
+        ax.set_yticklabels(y_labels, fontsize=9)
+        ax.invert_yaxis()
+        ax.set_xlabel(
+            "Duración mediana (minutos)\n"
+            "Barras de error: IQR (Q1–Q3) sobre las 5 repeticiones",
+            fontsize=9,
+        )
+        ax.set_title(
+            f"Tiempo de ejecución por sonda — {_domain_label(domain)}\n"
+            "Mediana ± IQR sobre 5 repeticiones",
+            fontweight="bold",
+        )
+        ax.legend(fontsize=9, loc="lower right")
+        ax.grid(axis="x", alpha=0.3)
+
+        fig.tight_layout()
+
+        out_path = output_dir / f"probe_timings_{domain}.pdf"
+        fig.savefig(str(out_path), format="pdf", bbox_inches="tight")
+        print(f"  [saved] {out_path}")
+        _save(fig, output_dir, f"probe_execution_time_median_{domain}.png")
+        plt.close(fig)
+
+
+def plot_probe_execution_time_total(
+    artifacts_dir: Path, domains: list, figures_dir: Path,
+) -> None:
+    """Plot total probe execution times as horizontal grouped bar charts, one per domain.
+
+    For each domain, generates one figure with two bar groups per probe —
+    Scenario A (unprotected, orange ``#e07b39``) and Scenario B (protected,
+    blue ``#1e5eff``) — where the bar length is the mean of per-repetition
+    totals (sum of all latency_ms for that probe within each repetition,
+    averaged across the five repetitions, then converted to minutes).  Error
+    bars span ``[mean − min_rep_total, max_rep_total − mean]`` to show the
+    variability of the total across repetitions.
+
+    Probes are ordered top-to-bottom by OWASP suite (LLM01→LLM02→LLM07→LLM08)
+    then alphabetically within each suite.  Suite boundaries are marked with a
+    dashed horizontal separator and a colour-coded suite label on the right
+    margin.  Probe labels use the short display names from :data:`PROBE_SHORT`.
+
+    Only ``prompt_type == "adversarial"`` rows are included in the sum so
+    that legitimate-prompt overhead is excluded, matching the intent of the
+    chart (attack-surface timing).
+
+    Parameters
+    ----------
+    artifacts_dir : Path
+        Root artifacts directory containing ``consolidated_<domain>_<scenario>.csv``
+        files.
+    domains : list
+        Ordered list of domain names; one figure per domain.
+    figures_dir : Path
+        Directory where output PNG files are saved (created if absent).
+
+    Outputs
+    -------
+    ``<figures_dir>/probe_execution_time_total_<domain>.png`` for every domain.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    _SUITE_ORDER     = ["LLM01", "LLM02", "LLM07", "LLM08"]
+    _SCENARIO_COLORS = {"unprotected": "#e07b39", "protected": "#1e5eff"}
+    _SCENARIO_LABELS = {
+        "unprotected": "Escenario A (sin protección)",
+        "protected":   "Escenario B (LLM Guard)",
+    }
+    _BAR_HEIGHT = 0.35
+
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    setup_style()
+
+    for domain in domains:
+        # Build probe→suite mapping from whichever CSVs are available.
+        probe_suite: dict[str, str] = {}
+        for scenario_key in ("unprotected", "protected"):
+            path = artifacts_dir / f"consolidated_{domain}_{scenario_key}.csv"
+            if not path.exists():
+                continue
+            df_tmp = pd.read_csv(path, usecols=lambda c: c in ("probe", "suite", "prompt_type"))
+            if "prompt_type" in df_tmp.columns:
+                df_tmp = df_tmp[df_tmp["prompt_type"] == "adversarial"]
+            df_tmp = df_tmp[["probe", "suite"]].dropna(subset=["probe"]).drop_duplicates()
+            for _, row in df_tmp.iterrows():
+                probe_suite.setdefault(str(row["probe"]), str(row["suite"]))
+
+        if not probe_suite:
+            print(f"  [skip] probe_execution_time_total: no data for {domain}")
+            continue
+
+        def _sort_key(p: str) -> tuple:
+            suite = probe_suite.get(p, "ZZZ")
+            rank  = _SUITE_ORDER.index(suite) if suite in _SUITE_ORDER else len(_SUITE_ORDER)
+            return (rank, p)
+
+        ordered_probes = sorted(probe_suite.keys(), key=_sort_key)
+        n_probes       = len(ordered_probes)
+
+        scenarios_present = [
+            s for s in ("unprotected", "protected")
+            if (artifacts_dir / f"consolidated_{domain}_{s}.csv").exists()
+        ]
+        if not scenarios_present:
+            continue
+
+        y_base  = np.arange(n_probes, dtype=float)
+        n_scen  = len(scenarios_present)
+        offsets = np.linspace(
+            -_BAR_HEIGHT * (n_scen - 1) / 2,
+             _BAR_HEIGHT * (n_scen - 1) / 2,
+            n_scen,
+        )
+
+        fig_height = max(5.0, n_probes * 0.85 + 1.5)
+        fig, ax    = plt.subplots(figsize=(11, fig_height))
+
+        for idx, scenario in enumerate(scenarios_present):
+            path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
+            df   = pd.read_csv(path)
+            if "latency_ms" not in df.columns or "probe" not in df.columns:
+                continue
+
+            if "prompt_type" in df.columns:
+                df = df[df["prompt_type"] == "adversarial"].copy()
+
+            df["latency_ms"] = pd.to_numeric(df["latency_ms"], errors="coerce")
+
+            color = _SCENARIO_COLORS.get(scenario, "#888888")
+            label = _SCENARIO_LABELS.get(scenario, scenario)
+
+            medians: list[float] = []
+            xerr_lo: list[float] = []
+            xerr_hi: list[float] = []
+
+            for probe in ordered_probes:
+                sub = df[df["probe"] == probe].reset_index(drop=True)
+                if sub.empty:
+                    medians.append(0.0)
+                    xerr_lo.append(0.0)
+                    xerr_hi.append(0.0)
+                    continue
+
+                rep_col = sub.get("repetition") if "repetition" in sub.columns else None
+                if rep_col is not None and rep_col.notna().any():
+                    rep_totals = sub.groupby("repetition")["latency_ms"].sum() / 60_000
+                else:
+                    # repetition not recorded for adversarial rows — split rows into
+                    # 5 equal consecutive groups (rows are in execution order)
+                    n = len(sub)
+                    rep_idx = (sub.index * 5) // n
+                    rep_totals = sub.groupby(rep_idx)["latency_ms"].sum() / 60_000
+
+                med_val = float(rep_totals.median())
+                min_val = float(rep_totals.min())
+                max_val = float(rep_totals.max())
+                medians.append(med_val)
+                xerr_lo.append(max(med_val - min_val, 0.0))
+                xerr_hi.append(max(max_val - med_val, 0.0))
+
+            ax.barh(
+                y_base + offsets[idx], medians,
+                height=_BAR_HEIGHT,
+                color=color, alpha=0.85, edgecolor="white",
+                xerr=[xerr_lo, xerr_hi],
+                error_kw={"ecolor": "#555555", "capsize": 3, "elinewidth": 1.2},
+                label=label,
+                zorder=3,
+            )
+
+        # Suite separators and right-margin labels.
+        blended        = ax.get_yaxis_transform()
+        prev_suite     = None
+        suite_first_y: dict[str, float] = {}
+
+        for i, probe in enumerate(ordered_probes):
+            suite = probe_suite.get(probe, "")
+            if suite != prev_suite:
+                if prev_suite is not None:
+                    ax.axhline(
+                        y=y_base[i] - 0.5, color="#bbbbbb",
+                        linewidth=0.8, linestyle="--", alpha=0.7, zorder=1,
+                    )
+                suite_first_y[suite] = y_base[i]
+            prev_suite = suite
+
+        for suite, y_pos in suite_first_y.items():
+            ax.text(
+                1.01, y_pos, suite,
+                transform=blended,
+                fontsize=8, color=SUITE_COLORS.get(suite, "#888888"),
+                va="center", ha="left", fontweight="bold",
+            )
+
+        y_labels = [PROBE_SHORT.get(p, p.split(".")[-1]) for p in ordered_probes]
+        ax.set_yticks(y_base)
+        ax.set_yticklabels(y_labels, fontsize=9)
+        ax.invert_yaxis()
+        ax.set_xlabel(
+            "Duración total (minutos) — mediana de 5 repeticiones\n"
+            "Barras de error: rango mín–máx sobre las 5 repeticiones",
+            fontsize=9,
+        )
+        ax.set_title(
+            f"Tiempo total de ejecución por sonda — {_domain_label(domain)}\n"
+            "Suma de latencias/rep → mediana (mín–máx sobre 5 rep.)",
+            fontweight="bold",
+        )
+        ax.legend(fontsize=9, loc="lower right")
+        ax.grid(axis="x", alpha=0.3)
+
+        fig.tight_layout()
+        _save(fig, figures_dir, f"probe_execution_time_total_{domain}.png")
+        plt.close(fig)
 

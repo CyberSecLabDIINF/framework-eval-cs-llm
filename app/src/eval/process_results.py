@@ -80,6 +80,10 @@ def main():
                         help="Print the four-category was_blocked x garak_passed TFA breakdown "
                              "(guard_blocked / defense_gap / residual_risk) per suite, Scenario B, "
                              "for each domain")
+    parser.add_argument("--probe-timings", action="store_true",
+                        help="Compute probe wall-clock execution times from JSONL file mtimes "
+                             "and save one horizontal-bar PDF per domain to artifacts/figures/ "
+                             "(uses compute_probe_timings + plot_probe_timings)")
     args = parser.parse_args()
 
     # ── Backfill scanner scores (one-time fix) ───────────────
@@ -214,6 +218,15 @@ def main():
                             tfa_csv_by_domain=tfa_csv_by_domain)
         generate_segmented_plots(artifacts, domains, tfa_by_domain, figures_dir,
                                   tfa_csv_by_domain=tfa_csv_by_domain)
+
+    # ── Probe execution timings ──────────────────────────────
+    if args.probe_timings:
+        timings_df = compute_probe_timings(artifacts)
+        if timings_df.empty:
+            print("  [WARN] --probe-timings: no _garak run directories found under runs/")
+        else:
+            figures_dir.mkdir(parents=True, exist_ok=True)
+            plot_probe_timings(timings_df, figures_dir)
 
 
 if __name__ == "__main__":

@@ -282,7 +282,7 @@ def is_coherent_query(query: str) -> bool:
         return distance <= QUERY_COHERENCE_THRESHOLD
     except Exception as e:
         logger.exception("Coherence validation failed", exc_info=e)
-        return True  # fail-open: do not block on error
+        return True 
 
 def is_safe_from_reconnaissance(query: str) -> bool:
     """

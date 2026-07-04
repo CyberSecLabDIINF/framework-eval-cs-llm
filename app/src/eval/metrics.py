@@ -2048,3 +2048,125 @@ def compute_run_duration(artifacts_dir: Path) -> pd.DataFrame:
         .sort_values(["domain", "scenario"])
         .reset_index(drop=True)
     )
+
+
+# ─────────────────────────────────────────────
+# Probe execution timing from JSONL mtimes
+# ─────────────────────────────────────────────
+
+def compute_probe_timings(artifacts_dir: Path) -> pd.DataFrame:
+    """Compute wall-clock execution time per probe repetition from Garak JSONL mtimes.
+
+    For each run directory under ``artifacts_dir/runs/`` ending in ``_garak``,
+    all ``*.report.jsonl`` files in the ``garak/`` subdirectory are sorted
+    chronologically by their file modification time (mtime).  The mtime of each
+    file marks the moment Garak finished writing the repetition's results, so the
+    elapsed time since the immediately preceding file's mtime is a faithful
+    estimate of that repetition's wall-clock duration.
+
+    Repetitions within a probe run consecutively: for rep01–rep04 the delta is
+    relative to the same probe's previous rep.  For rep00 (the first repetition
+    of each probe) the delta is relative to the last file written by the previous
+    probe, introducing a negligible cross-probe transition overhead that is
+    acceptable at the probe-level granularity this function targets.
+
+    Run directories are processed independently: the very first file in each run
+    always receives ``duration_seconds = NaN`` because there is no preceding file
+    to compute a delta from, avoiding spurious cross-run deltas.
+
+    Parameters
+    ----------
+    artifacts_dir : Path
+        Root artifacts directory containing a ``runs/`` subdirectory.  Each run
+        directory must follow the naming convention
+        ``<date>_<time>_<domain>_<scenario>_garak``
+        (e.g. ``20260624_131252_regulatory_technical_protected_garak``).
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per ``(domain, scenario, suite, probe, repetition)`` with columns:
+
+        - ``domain`` — corpus domain derived from the run directory name
+          (e.g. ``regulatory_technical``).
+        - ``scenario`` — ``"unprotected"`` or ``"protected"``.
+        - ``suite`` — OWASP suite identifier parsed from the filename
+          (e.g. ``"LLM01"``).
+        - ``probe`` — full Garak probe name parsed from the filename
+          (e.g. ``"promptinject.HijackKillHumans"``).
+        - ``repetition`` — integer repetition index (0–4).
+        - ``duration_seconds`` — elapsed seconds; ``NaN`` for the first file
+          in each run directory.
+
+        Returns an empty DataFrame with the above columns when no ``_garak``
+        run directories are found or none contain parseable JSONL files.
+
+    Notes
+    -----
+    The expected filename pattern for each JSONL file is::
+
+        <scenario>_<suite>_<probe>_<YYYYMMDD>_<HHMMSS>_rep<NN>.report.jsonl
+
+    Files that do not match this pattern are silently skipped.
+    """
+    _JSONL_RE = re.compile(
+        r"^(unprotected|protected)_(LLM\d+)_(.+)_(\d{8})_(\d{6})_rep(\d{2})\.report\.jsonl$"
+    )
+    _EMPTY_COLS = ["domain", "scenario", "suite", "probe", "repetition", "duration_seconds"]
+
+    runs_dir = artifacts_dir / "runs"
+    if not runs_dir.exists():
+        return pd.DataFrame(columns=_EMPTY_COLS)
+
+    all_rows: list[dict] = []
+
+    for run_dir in sorted(runs_dir.iterdir()):
+        if not run_dir.is_dir() or not run_dir.name.endswith("_garak"):
+            continue
+
+        # Parse domain and scenario from the run directory name.
+        # Expected format: <date>_<time>_<domain_part1>_..._<scenario>_garak
+        parts = run_dir.name.split("_")
+        if len(parts) < 5 or parts[-1] != "garak":
+            continue
+        scenario = parts[-2]
+        if scenario not in ("unprotected", "protected"):
+            continue
+        domain = "_".join(parts[2:-2])
+        if not domain:
+            continue
+
+        garak_dir = run_dir / "garak"
+        if not garak_dir.exists():
+            continue
+
+        # Collect and sort all .report.jsonl files by mtime ascending.
+        jsonl_files = [f for f in garak_dir.iterdir() if f.name.endswith(".report.jsonl")]
+        if not jsonl_files:
+            continue
+        jsonl_files.sort(key=lambda f: f.stat().st_mtime)
+        mtime_seq = [f.stat().st_mtime for f in jsonl_files]
+
+        for i, f in enumerate(jsonl_files):
+            m = _JSONL_RE.match(f.name)
+            if not m:
+                continue
+
+            suite     = m.group(2)
+            probe     = m.group(3)
+            rep       = int(m.group(6))
+            duration  = (mtime_seq[i] - mtime_seq[i - 1]) if i > 0 else float("nan")
+
+            all_rows.append({
+                "domain":           domain,
+                "scenario":         scenario,
+                "suite":            suite,
+                "probe":            probe,
+                "repetition":       rep,
+                "duration_seconds": duration,
+            })
+
+    if not all_rows:
+        return pd.DataFrame(columns=_EMPTY_COLS)
+
+    return pd.DataFrame(all_rows)
