@@ -66,7 +66,7 @@ protegido), y el **nivel global** del sistema.
 
 ---
 
-## D1 — Protección de entrada (LLM01:2025)
+## D1 — Protección de entrada (LLM01:2025) 
 
 | ID | Nivel | Tipo | Evidencia | Descripción | Fuente | Estado en laboratorio | Artefacto / Ubicación |
 |----|-------|------|-----------|-------------|--------|------------------------|------------------------|

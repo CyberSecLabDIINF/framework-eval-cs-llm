@@ -15,6 +15,7 @@ from scipy.stats import fisher_exact, mannwhitneyu
 from eval.constants import (
     PRIMARY_DETECTOR,
     PROBE_SHORT,
+    PROBE_TO_SUITE,
     SCENARIO_COLORS,
     SUITE_COLORS,
     SUITE_TO_SUBDIM,
@@ -30,7 +31,13 @@ from eval.loaders import (
     load_consolidated,
     load_tfa_from_jsonl,
 )
-from eval.metrics import compute_tfa_global, compute_probe_timings, print_tfa
+from eval.metrics import (
+    compute_tfa_by_suite,
+    compute_tfa_global,
+    compute_tfa_per_probe,
+    compute_probe_timings,
+    print_tfa,
+)
 
 
 # ─────────────────────────────────────────────
@@ -92,15 +99,101 @@ def _save(fig, figures_dir: Path, filename: str):
     print(f"  [saved] {path}")
 
 
+_SUITE_GT_COL = {
+    "LLM01": "rogue_string_found",
+    "LLM02": "response_has_confidential",
+    "LLM07": "response_has_system_prompt",
+    "LLM08": "injection_followed",
+}
+
+
+def _build_corrected_tfa(artifacts_dir: Path, tfa_by_domain: dict) -> dict:
+    """Build a tfa_by_domain-shaped dict with per-probe and per-suite TFA values
+    sourced from consolidated CSVs using the correct ground-truth column per suite.
+
+    The JSONL-based tfa_by_domain uses garak_passed as TFA proxy. This is wrong
+    for non-LLM01 suites (Garak lacks corpus/system-prompt access) and also wrong
+    for Scenario B LLM01 (LLM Guard blocks produce garak_passed=0 but the absence
+    of a rogue string means the attack failed, so TFA=1). This function replaces
+    those values with correct CSV-based computations via compute_tfa_per_probe and
+    compute_tfa_by_suite, preserving the same nested dict structure so callers
+    need no structural changes.
+
+    Returns:
+        {domain: {"A": corrected_tfa_dict, "B": corrected_tfa_dict}} where each
+        corrected_tfa_dict has per_probe, per_suite (with total/passed counts for
+        Fisher tests), and global=None.
+    """
+    corrected: dict = {}
+    scenario_map = {"A": "unprotected", "B": "protected"}
+
+    for domain, data in tfa_by_domain.items():
+        corrected[domain] = {}
+        for scenario_key, scenario_tag in scenario_map.items():
+            jsonl_d = data.get(scenario_key) or {}
+            if not jsonl_d:
+                corrected[domain][scenario_key] = {}
+                continue
+
+            df = load_consolidated(artifacts_dir, domain, scenario_tag)
+
+            # Per-probe TFA with correct GT column per suite
+            per_probe: dict = {}
+            for probe in jsonl_d.get("per_probe", {}):
+                if df.empty:
+                    tfa_val = float("nan")
+                else:
+                    tfa_val = compute_tfa_per_probe(df, probe)
+                per_probe[probe] = {
+                    "TFA": round(float(tfa_val), 4) if not pd.isna(tfa_val) else None,
+                    "suite": PROBE_TO_SUITE.get(probe, "UNKNOWN"),
+                }
+
+            # Per-suite TFA with exact TP/FN counts for Fisher tests
+            per_suite: dict = {}
+            for suite, gt_col in _SUITE_GT_COL.items():
+                if df.empty or gt_col not in df.columns:
+                    per_suite[suite] = {"TFA": None, "total": 0, "passed": 0, "suite": suite}
+                    continue
+                adv = df[df["suite"] == suite] if "suite" in df.columns else pd.DataFrame()
+                total = len(adv)
+                if total == 0:
+                    per_suite[suite] = {"TFA": None, "total": 0, "passed": 0, "suite": suite}
+                    continue
+                try:
+                    tfa_val = compute_tfa_by_suite(df, suite)
+                except (KeyError, ValueError):
+                    tfa_val = float("nan")
+                if pd.isna(tfa_val):
+                    per_suite[suite] = {"TFA": None, "total": total, "passed": 0, "suite": suite}
+                else:
+                    # Exact TP count: 1 - mean(gt_col) → passed = total - sum(gt_col)
+                    passed = int(total - adv[gt_col].astype(float).fillna(0).sum())
+                    per_suite[suite] = {
+                        "TFA": round(float(tfa_val), 4),
+                        "total": total,
+                        "passed": passed,
+                        "suite": suite,
+                    }
+
+            corrected[domain][scenario_key] = {
+                "per_probe": per_probe,
+                "per_suite": per_suite,
+                "global": None,
+            }
+
+    return corrected
+
+
 def plot_tfa_by_probe(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
     """Bar chart of TFA per probe, coloured by OWASP suite, with optional Scenario B overlay.
 
-    Unlike ``plot_tfa_by_suite``/``plot_tfa_domains_combined``, this chart has
-    no CSV ground-truth equivalent: it always uses ``tfa_a``/``tfa_b``
-    (garak_passed-based, from ``load_tfa_from_jsonl``) because per-probe
-    breakdowns are only meaningful for LLM01, where garak_passed is a valid
-    ground truth. It intentionally has no ``tfa_csv_a``/``tfa_csv_b``
-    parameters.
+    Receives corrected per-probe TFA values (computed via ``compute_tfa_per_probe``
+    from consolidated CSVs) rather than the JSONL-based garak_passed proxy. The
+    corrected values use suite-specific ground truth columns so that Scenario B
+    values are accurate even when LLM Guard blocks requests before they reach the
+    model (blocking → garak_passed=0 but TFA=1 for LLM01; non-LLM01 suites also
+    require their own GT columns).
 
     Args:
         tfa_a: TFA dict for Scenario A.
@@ -147,8 +240,8 @@ def plot_tfa_by_probe(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
         ax.legend(loc="lower right", fontsize=8)
 
     fig.text(0.5, -0.04,
-             "Nota: TFA por sonda usa garak_passed como proxy. "
-             "Válido solo para LLM01; ver TFA por suite para LLM02/LLM07/LLM08.",
+             "Nota: TFA por sonda usa la columna de verdad-terreno correcta por suite OWASP "
+             "(rogue_string_found / response_has_confidential / response_has_system_prompt / injection_followed).",
              ha="center", va="top", fontsize=7.5, style="italic", color="#555555")
 
     _save(fig, figures_dir, f"tfa_by_probe_{domain}.png")
@@ -1409,12 +1502,19 @@ def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
 
     domains = list(tfa_by_domain.keys())
 
+    # Corrected TFA dict: per-probe and per-suite values use suite-specific GT columns
+    # from consolidated CSVs (compute_tfa_per_probe / compute_tfa_by_suite), replacing
+    # the JSONL garak_passed proxy that is wrong for non-LLM01 suites and for Scenario B
+    # LLM01 when LLM Guard blocks requests before they reach the model.
+    corrected_tfa_by_domain = _build_corrected_tfa(artifacts_dir, tfa_by_domain)
+
     for domain, data in tfa_by_domain.items():
         tfa_a, tfa_b = data["A"], data["B"]
         if not tfa_a:
             continue
-        csv_d = (tfa_csv_by_domain or {}).get(domain, {})
-        plot_tfa_by_probe(tfa_a, tfa_b, domain, figures_dir)
+        csv_d  = (tfa_csv_by_domain or {}).get(domain, {})
+        corr_d = corrected_tfa_by_domain.get(domain, {})
+        plot_tfa_by_probe(corr_d.get("A") or tfa_a, corr_d.get("B") or tfa_b, domain, figures_dir)
         plot_tfa_by_suite(tfa_a, tfa_b, domain, figures_dir,
                           tfa_csv_a=csv_d.get("A"), tfa_csv_b=csv_d.get("B"))
 
@@ -1432,9 +1532,10 @@ def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
             global_tfa_by_domain[domain] = {"A": global_a, "B": global_b}
         plot_tfa_global_weighted(global_tfa_by_domain, figures_dir)
 
-    plot_tfa_heatmap(tfa_by_domain, figures_dir)
-    plot_delta_tfa(tfa_by_domain, figures_dir)
-    plot_pvalue_by_suite(tfa_by_domain, figures_dir)
+    # Use corrected dict for all per-probe and per-suite charts
+    plot_tfa_heatmap(corrected_tfa_by_domain, figures_dir)
+    plot_delta_tfa(corrected_tfa_by_domain, figures_dir)
+    plot_pvalue_by_suite(corrected_tfa_by_domain, figures_dir)
     plot_confidential_exposure(artifacts_dir, domains, figures_dir)
     plot_las_boxplot(lat_a, lat_b, figures_dir)
     plot_las_boxplot(lat_a, lat_b, figures_dir, by_domain=True)
@@ -1446,7 +1547,7 @@ def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
     plot_confusion_matrix_guard_only(artifacts_dir, domains, figures_dir)
     plot_detector_heatmap(runs_dir, domains, figures_dir)
     plot_security_posture_radar(tfa_by_domain, figures_dir)
-    plot_tfa_suite_all_combos(tfa_by_domain, figures_dir)
+    plot_tfa_suite_all_combos(corrected_tfa_by_domain, figures_dir)
 
     timings_df = compute_probe_timings(artifacts_dir)
     if not timings_df.empty:
@@ -2302,11 +2403,14 @@ def generate_segmented_plots(
         print("  [ERROR] matplotlib not installed.")
         return
 
+    # Use corrected per-probe TFA (suite-specific GT columns) for the AB heatmap and ΔTFA chart.
+    corrected_tfa_by_domain = _build_corrected_tfa(artifacts_dir, tfa_by_domain)
+
     plot_latency_adv_vs_legit_boxplot(artifacts_dir, domains, figures_dir)
     plot_latency_adv_vs_legit_kde(artifacts_dir, domains, figures_dir)
     plot_fpr_by_domain_scenario(artifacts_dir, domains, figures_dir)
-    plot_tfa_heatmap_ab_comparison(tfa_by_domain, figures_dir)
-    plot_delta_tfa_by_domain(tfa_by_domain, figures_dir)
+    plot_tfa_heatmap_ab_comparison(corrected_tfa_by_domain, figures_dir)
+    plot_delta_tfa_by_domain(corrected_tfa_by_domain, figures_dir)
     plot_scanner_breakdown_by_probe(artifacts_dir, domains, figures_dir)
     plot_repetition_variance(figures_dir)
     plot_las_adv_vs_legit_summary(figures_dir)
@@ -2502,41 +2606,13 @@ def plot_probe_timings(df: pd.DataFrame, output_dir: Path) -> None:
 def plot_probe_execution_time_total(
     artifacts_dir: Path, domains: list, figures_dir: Path,
 ) -> None:
-    """Plot total probe execution times as horizontal grouped bar charts, one per domain.
+    """Plot total probe execution times as horizontal grouped bar charts, one per domain,
 
-    For each domain, generates one figure with two bar groups per probe —
-    Scenario A (unprotected, orange ``#e07b39``) and Scenario B (protected,
-    blue ``#1e5eff``) — where the bar length is the mean of per-repetition
-    totals (sum of all latency_ms for that probe within each repetition,
-    averaged across the five repetitions, then converted to minutes).  Error
-    bars span ``[mean − min_rep_total, max_rep_total − mean]`` to show the
-    variability of the total across repetitions.
-
-    Probes are ordered top-to-bottom by OWASP suite (LLM01→LLM02→LLM07→LLM08)
-    then alphabetically within each suite.  Suite boundaries are marked with a
-    dashed horizontal separator and a colour-coded suite label on the right
-    margin.  Probe labels use the short display names from :data:`PROBE_SHORT`.
-
-    Only ``prompt_type == "adversarial"`` rows are included in the sum so
-    that legitimate-prompt overhead is excluded, matching the intent of the
-    chart (attack-surface timing).
-
-    Parameters
-    ----------
-    artifacts_dir : Path
-        Root artifacts directory containing ``consolidated_<domain>_<scenario>.csv``
-        files.
-    domains : list
-        Ordered list of domain names; one figure per domain.
-    figures_dir : Path
-        Directory where output PNG files are saved (created if absent).
-
-    Outputs
-    -------
-    ``<figures_dir>/probe_execution_time_total_<domain>.png`` for every domain.
+    and also generates a summary vertical bar chart per domain comparing overall execution times.
     """
     import matplotlib.pyplot as plt
     import numpy as np
+    import pandas as pd
 
     _SUITE_ORDER     = ["LLM01", "LLM02", "LLM07", "LLM08"]
     _SCENARIO_COLORS = {"unprotected": "#e07b39", "protected": "#1e5eff"}
@@ -2582,6 +2658,9 @@ def plot_probe_execution_time_total(
         if not scenarios_present:
             continue
 
+        # ==========================================
+        # 1. PROBE-LEVEL CHART (ORIGINAL LOGIC)
+        # ==========================================
         y_base  = np.arange(n_probes, dtype=float)
         n_scen  = len(scenarios_present)
         offsets = np.linspace(
@@ -2592,6 +2671,9 @@ def plot_probe_execution_time_total(
 
         fig_height = max(5.0, n_probes * 0.85 + 1.5)
         fig, ax    = plt.subplots(figsize=(11, fig_height))
+
+        # List to accumulate macro-level total timing data for the whole domain
+        domain_macro_data = []
 
         for idx, scenario in enumerate(scenarios_present):
             path = artifacts_dir / f"consolidated_{domain}_{scenario}.csv"
@@ -2619,12 +2701,10 @@ def plot_probe_execution_time_total(
                     xerr_hi.append(0.0)
                     continue
 
-                rep_col = sub.get("repetition") if "repetition" in sub.columns else None
-                if rep_col is not None and rep_col.notna().any():
+                # Corrected safe check for repetition column
+                if "repetition" in sub.columns and sub["repetition"].notna().any():
                     rep_totals = sub.groupby("repetition")["latency_ms"].sum() / 60_000
                 else:
-                    # repetition not recorded for adversarial rows — split rows into
-                    # 5 equal consecutive groups (rows are in execution order)
                     n = len(sub)
                     rep_idx = (sub.index * 5) // n
                     rep_totals = sub.groupby(rep_idx)["latency_ms"].sum() / 60_000
@@ -2646,7 +2726,28 @@ def plot_probe_execution_time_total(
                 zorder=3,
             )
 
-        # Suite separators and right-margin labels.
+            # --- ADDON LOGIC: Calculate Total Overall Experiment Duration (FIXED) ---
+            if "repetition" in df.columns and df["repetition"].notna().any():
+                macro_rep_totals = df.groupby("repetition")["latency_ms"].sum() / 60_000
+            else:
+                n_macro = len(df)
+                macro_rep_idx = (df.index * 5) // n_macro if n_macro > 0 else []
+                macro_rep_totals = df.groupby(macro_rep_idx)["latency_ms"].sum() / 60_000 if n_macro > 0 else pd.Series([0.0])
+
+            m_med = float(macro_rep_totals.median())
+            m_min = float(macro_rep_totals.min())
+            m_max = float(macro_rep_totals.max())
+
+            domain_macro_data.append({
+                "scenario": scenario,
+                "label": "Escenario A\n(sin protección)" if scenario == "unprotected" else "Escenario B\n(LLM Guard)",
+                "color": color,
+                "median": m_med,
+                "err_lo": max(m_med - m_min, 0.0),
+                "err_hi": max(m_max - m_med, 0.0)
+            })
+
+        # Suite separators and right-margin labels (Original).
         blended        = ax.get_yaxis_transform()
         prev_suite     = None
         suite_first_y: dict[str, float] = {}
@@ -2691,3 +2792,52 @@ def plot_probe_execution_time_total(
         _save(fig, figures_dir, f"probe_execution_time_total_{domain}.png")
         plt.close(fig)
 
+        # ==========================================
+        # 2. OVERALL DOMAIN SUMMARY CHART (FIXED)
+        # ==========================================
+        if domain_macro_data:
+            fig_m, ax_m = plt.subplots(figsize=(6, 5))
+            
+            x_pos_m   = np.arange(len(domain_macro_data))
+            medians_m = [d["median"] for d in domain_macro_data]
+            colors_m  = [d["color"] for d in domain_macro_data]
+            labels_m  = [d["label"] for d in domain_macro_data]
+            xerr_m    = [[d["err_lo"] for d in domain_macro_data], [d["err_hi"] for d in domain_macro_data]]
+
+            bars_m = ax_m.bar(
+                x_pos_m, medians_m,
+                width=0.45,
+                color=colors_m, alpha=0.85, edgecolor="white",
+                yerr=xerr_m,
+                error_kw={"ecolor": "#555555", "capsize": 5, "elinewidth": 1.5},
+                zorder=3
+            )
+
+            for bar in bars_m:
+                h = bar.get_height()
+                ax_m.annotate(
+                    f"{h:.2f} min",
+                    xy=(bar.get_x() + bar.get_width() / 2, h),
+                    xytext=(0, 5),
+                    textcoords="offset points",
+                    ha="center", va="bottom", fontsize=9, fontweight="bold"
+                )
+
+            ax_m.set_xticks(x_pos_m)
+            ax_m.set_xticklabels(labels_m, fontsize=10)
+            ax_m.set_ylabel("Duración total del experimento (minutos)", fontsize=10)
+            
+            if medians_m:
+                ax_m.set_ylim(0, max(medians_m) * 1.25)
+
+            domain_title = _domain_label(domain) if "_domain_label" in globals() else domain
+            ax_m.set_title(
+                f"Tiempo total de ejecución — {domain_title}\n"
+                "Mediana y rango mín–máx (5 repeticiones completas)",
+                fontweight="bold", fontsize=11, pad=15
+            )
+            ax_m.grid(axis="y", alpha=0.3, zorder=1)
+
+            fig_m.tight_layout()
+            _save(fig_m, figures_dir, f"experiment_execution_time_total_{domain}.png")
+            plt.close(fig_m)

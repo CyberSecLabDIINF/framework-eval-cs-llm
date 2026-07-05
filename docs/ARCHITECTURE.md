@@ -280,6 +280,7 @@ response_has_confidential, run_id
 | `latency_adv_vs_legit(artifacts_dir, domains)` | Compares adversarial vs. legitimate latency distributions per domain × scenario (counts/proportions, descriptive stats, Mann-Whitney U); exports `artifacts/segmented/12_latency_adv_vs_legit.csv`. |
 | `analyze_pii_exposure(artifacts_dir, domains)` | Scans adversarial `response` text against `PII_PATTERNS` (`[CONFIDENTIAL]` marker, Chilean RUT, email, phone, password, card number); prints per-domain × scenario counts/percentages and returns `{domain: {scenario: {pattern_name: {"count": int, "pct": float}}}}`. |
 | `analyze_sensitivity_thresholds(artifacts_dir, domains, config_dir)` | Reads candidate `PromptInjection` (input) and `Sensitive` (output) thresholds plus the active threshold index from `llm_guard_config.yaml`'s `sensitivity_analysis` block (falling back to defaults `[0.75, 0.92, 0.97]` / `[0.3, 0.5, 0.7]` with a warning if absent); reclassifies adversarial rows as blocked when `input_scanner_score` / `output_scanner_score` ≥ each candidate threshold (ignoring negative sentinel scores), prints a comparison table of reclassified TFA vs. Δ from the active threshold, and returns `{domain: {"input": {threshold: tfa}, "output": {threshold: tfa}}}`. |
+| `compute_probe_timings(artifacts_dir)` | Iterates over every `*_garak` run directory under `artifacts/runs/`, sorts `*.report.jsonl` files chronologically by mtime, and assigns each file a `duration_seconds` equal to the elapsed time since the preceding file. Returns a DataFrame with columns `domain`, `scenario`, `suite`, `probe`, `repetition`, `duration_seconds` (NaN for the first file per run). |
 
 **Key constants.** `PII_PATTERNS` (regex map consumed by `analyze_pii_exposure`); also imports `PRIMARY_DETECTOR`, `PROBE_SHORT`, `PROBE_TO_SUITE`, `VECTOR_MAP` from `eval.constants`.
 
@@ -287,7 +288,7 @@ response_has_confidential, run_id
 
 **Files read.** `artifacts/consolidated_<domain>_<scenario>.csv`, `artifacts/runs/<run_dir>/garak/*.report.jsonl`, `app/config/global/llm_guard_config.yaml` (read by `analyze_sensitivity_thresholds`).
 
-**Files written.** CSVs under `artifacts/segmented/` (e.g. `12_latency_adv_vs_legit.csv` and the `segmented_analysis` exports).
+**Files written.** CSVs under `artifacts/segmented/` (e.g. `12_latency_adv_vs_legit.csv` and the `segmented_analysis` exports). `compute_probe_timings` writes nothing; its caller `plot_probe_timings` writes PDFs to `artifacts/figures/`.
 
 **Dependencies.** `pandas`, `scipy`, `pyyaml`, `eval.constants`, `eval.loaders`.
 
@@ -307,6 +308,7 @@ response_has_confidential, run_id
 | `plot_confidential_exposure` / `plot_confusion_matrix` / `plot_confusion_matrix_scenario_a` / `plot_detector_heatmap` | Confidential-leak rate, confusion-matrix, and detector-breakdown figures. |
 | `plot_las_boxplot` / `plot_latency_histogram` / `plot_las_by_suite` / `plot_latency_distribution_by_suite` | Latency distribution figures (box plots, histograms, per-suite breakdowns). |
 | `plot_latency_adv_vs_legit_boxplot` / `plot_latency_adv_vs_legit_kde` / `plot_fpr_by_domain_scenario` / `plot_tfa_heatmap_ab_comparison` / `plot_delta_tfa_by_domain` / `plot_scanner_breakdown_by_probe` | Segmented-analysis figures added alongside `segmented_analysis()`. |
+| `plot_probe_timings(df, output_dir)` | Horizontal grouped bar chart of median probe execution time per domain; one PDF per domain saved to `output_dir`. Bars colored by scenario (`#e07b39` = A, `#1e5eff` = B), error bars show IQR over 5 repetitions, probes ordered by OWASP suite. Invoked via `--probe-timings`. |
 | `generate_all_plots(tfa_by_domain, lat_a, lat_b, artifacts_dir, runs_dir, figures_dir)` | Orchestrates the core figure set (TFA, LAS, confusion, detector breakdowns). |
 | `generate_segmented_plots(artifacts_dir, domains, tfa_by_domain, figures_dir)` | Orchestrates the six segmented-analysis figures; each `plot_*` prints `[skip]` and returns cleanly when its required data is absent. |
 
@@ -314,7 +316,7 @@ response_has_confidential, run_id
 
 **Files read.** `artifacts/consolidated_<domain>_<scenario>.csv`, `artifacts/runs/<run_dir>/garak/*.report.jsonl`, latency DataFrames passed in by the caller.
 
-**Files written.** PNG figures under `artifacts/figures/`.
+**Files written.** PNG figures under `artifacts/figures/`; `plot_probe_timings` writes PDF files (`probe_timings_<domain>.pdf`) to the same directory.
 
 **Dependencies.** `pandas`, `scipy`, `matplotlib`, `eval.constants`, `eval.loaders`, `eval.metrics` (for `print_tfa`).
 
@@ -870,11 +872,13 @@ docker compose --profile attacks run --rm garak_runner analyze metrics backfill-
 | Function | File | Signature | Description |
 |----------|------|-----------|-------------|
 | `compute_run_duration` | `metrics.py` | `(artifacts_dir: Path) → DataFrame` | Reads timestamps from all consolidated CSVs; computes adversarial / legitimate / total / inference hours per run. Adversarial and legitimate windows are computed separately since they are collected in distinct phases. |
+| `compute_probe_timings` | `metrics.py` | `(artifacts_dir: Path) → DataFrame` | Reads file mtimes of all `*.report.jsonl` files across every `*_garak` run directory; computes per-repetition wall-clock duration as the mtime delta between consecutive files sorted chronologically. Returns one row per `(domain, scenario, suite, probe, repetition)` with `duration_seconds` (`NaN` for the first file in each run). |
 
 **CLI invocation:**
 
 ```bash
 python -m eval.process_results --duration --artifacts artifacts/
+python -m eval.process_results --probe-timings --artifacts artifacts/
 ```
 
 **Required columns:** `timestamp`, `prompt_type`, `latency_ms`
@@ -935,6 +939,12 @@ python -m eval.process_results --artifacts artifacts/ --plots --characterize --e
 | `plot_scanner_breakdown_by_probe` | `scanner_breakdown_by_probe.png` | Stacked bars: scanner activations per probe (Scenario B adv.) |
 | `plot_repetition_variance` | `fig_repetition_variance_stability.png` | TFA mean/std/range across 5 repetitions per probe |
 | `plot_las_adv_vs_legit_summary` | `fig_las_adv_vs_legit_summary.png` | Median latency bar chart with early-blocking annotation |
+
+**Probe timing figures (via `--probe-timings`):**
+
+| Function | Output PDF | Description |
+|----------|------------|-------------|
+| `plot_probe_timings` | `probe_timings_<domain>.pdf` | Horizontal grouped bar chart of median probe execution time (minutes) per domain; bars colored by scenario (`#e07b39` = A, `#1e5eff` = B), error bars show IQR over 5 reps, probes ordered by OWASP suite |
 
 **Exfiltration figures (via `--exfiltration`):**
 

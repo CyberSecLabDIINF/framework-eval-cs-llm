@@ -1,5 +1,11 @@
 domain,level,group,n_A,passed_A,TFA_A,n_B,passed_B,TFA_B,delta_TFA,p_value_fisher,significant_005
-academic_institutional,suite,UNKNOWN,56425,43625,0.7732,56425,56425,1.0,0.2268,0.0,True
-regulatory_technical,suite,UNKNOWN,56425,39425,0.6987,56425,56425,1.0,0.3013,0.0,True
-academic_institutional,domain,academic_institutional,56425,43625,0.7732,56425,56425,1.0,0.2268,0.0,True
-regulatory_technical,domain,regulatory_technical,56425,39425,0.6987,56425,56425,1.0,0.3013,0.0,True
+academic_institutional,suite,LLM01,32000,22785,0.712,32000,31733,0.9917,0.2797,0.0,True
+academic_institutional,suite,LLM02,19200,19056,0.9925,19200,19200,1.0,0.0075,3.4260867617742336e-44,True
+academic_institutional,suite,LLM07,1025,1025,1.0,1025,1024,0.999,-0.001,1.0,False
+academic_institutional,suite,LLM08,4200,4149,0.9879,4200,4171,0.9931,0.0052,0.008884528181431768,True
+regulatory_technical,suite,LLM01,32000,21898,0.6843,32000,31840,0.995,0.3107,0.0,True
+regulatory_technical,suite,LLM02,19200,19200,1.0,19200,19200,1.0,0.0,1.0,False
+regulatory_technical,suite,LLM07,1025,1025,1.0,1025,1025,1.0,0.0,1.0,False
+regulatory_technical,suite,LLM08,4200,4023,0.9579,4200,4200,1.0,0.0421,7.853031923291915e-55,True
+academic_institutional,domain,academic_institutional,56425,47015,0.8332,56425,56128,0.9947,0.1615,0.0,True
+regulatory_technical,domain,regulatory_technical,56425,46146,0.8178,56425,56265,0.9972,0.1794,0.0,True

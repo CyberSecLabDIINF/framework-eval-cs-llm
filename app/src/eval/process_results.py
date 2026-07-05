@@ -207,8 +207,8 @@ def main():
         deep_analysis_las(lat_a, lat_b)
 
     # ── Confidential data exfiltration analysis ──────────────
-    if args.exfiltration:
-        run_exfiltration_analysis(artifacts, args.data_dir, domains, figures_dir)
+    #if args.exfiltration:
+        #run_exfiltration_analysis(artifacts, args.data_dir, domains, figures_dir)
 
     print(f"\n{'='*70}\n")
 
