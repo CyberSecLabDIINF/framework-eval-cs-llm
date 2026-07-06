@@ -32,6 +32,8 @@ Requires: pandas, scipy, matplotlib
 import argparse
 from pathlib import Path
 
+import pandas as pd
+
 from eval.constants import *
 from eval.loaders import *
 from eval.loaders import load_tfa_from_csv
@@ -190,7 +192,21 @@ def main():
     # ── Segmented analysis ───────────────────────────────────
     # TODO: replace pcc_values=None with manually verified PCC values after
     # control verification. Format: {domain: {"D1": float, "D2": float, ...}}
-    segmented_analysis(artifacts, domains, pcc_values=None)
+    verified_levels = {
+        "academic_institutional": {
+            "D1": 3,
+            "D2": 3,
+            "D3": 3,
+            "D4": 3
+        },
+        "regulatory_technical": {
+            "D1": 3,
+            "D2": 3,
+            "D3": 3,
+            "D4": 3
+        }
+    }
+    segmented_analysis(artifacts, domains, pcc_values=verified_levels)
 
     # ── Latency: adversarial vs legitimate ───────────────────
     latency_adv_vs_legit(artifacts, domains)
@@ -205,6 +221,7 @@ def main():
         deep_analysis_confusion_a(artifacts, domains)
         deep_analysis_confusion(artifacts, domains)
         deep_analysis_las(lat_a, lat_b)
+        compute_garak_asr_by_repetition(artifacts)
 
     # ── Confidential data exfiltration analysis ──────────────
     #if args.exfiltration:
@@ -218,6 +235,20 @@ def main():
                             tfa_csv_by_domain=tfa_csv_by_domain)
         generate_segmented_plots(artifacts, domains, tfa_by_domain, figures_dir,
                                   tfa_csv_by_domain=tfa_csv_by_domain)
+
+        garak_detail_df = compute_garak_asr_by_repetition(artifacts)
+        reports_dir     = artifacts / "reports"
+        summary_path    = reports_dir / "garak_asr_summary.csv"
+        try:
+            garak_summary_df = pd.read_csv(summary_path)
+        except FileNotFoundError:
+            garak_summary_df = pd.DataFrame()
+
+        for domain in domains:
+            if not garak_summary_df.empty:
+                plot_garak_vs_ground_truth(garak_summary_df, domain, figures_dir)
+            if not garak_detail_df.empty:
+                plot_garak_asr_boxplot(garak_detail_df, domain, figures_dir)
 
     # ── Probe execution timings ──────────────────────────────
     if args.probe_timings:

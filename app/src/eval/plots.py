@@ -1467,6 +1467,250 @@ def plot_tfa_suite_all_combos(tfa_by_domain: dict, figures_dir: Path):
     plt.close(fig)
 
 
+def plot_garak_vs_ground_truth(
+    summary_df: pd.DataFrame,
+    domain: str,
+    figures_dir: Path,
+    color_a: str = "#e07b39",
+    color_b: str = "#1e5eff",
+):
+    """Grouped bar chart comparing Garak TFA vs ground truth TFA per probe.
+
+    Three bars per probe: Garak TFA Scenario A (orange, error bars = IQR across
+    5 repetitions), Garak TFA Scenario B (blue, error bars), and Ground Truth
+    TFA Scenario B (blue hatched, no error bars — single value from consolidated
+    CSV).  Probes are ordered by OWASP suite with dashed vertical separators
+    between suite groups.
+
+    Args:
+        summary_df: Summary DataFrame as returned by
+            :func:`eval.metrics.compute_garak_asr_by_repetition` (i.e. the
+            rows saved to ``garak_asr_summary.csv``).
+        domain: Domain name — used to filter ``summary_df`` and label the title.
+        figures_dir: Directory where the PNG is saved.
+        color_a: Bar fill color for Scenario A.
+        color_b: Bar fill color for Scenario B.
+
+    Outputs:
+        - artifacts/figures/garak_vs_ground_truth_{domain}.png
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+    import numpy as np
+    setup_style()
+
+    df = summary_df[summary_df["domain"] == domain].copy()
+    if df.empty:
+        print(f"  [skip] plot_garak_vs_ground_truth: no data for {domain}")
+        return
+
+    suite_order = ["LLM01", "LLM02", "LLM07", "LLM08"]
+    probes_all  = df["probe"].unique().tolist()
+    probes_sorted = sorted(
+        probes_all,
+        key=lambda p: (
+            suite_order.index(PROBE_TO_SUITE.get(p, ""))
+            if PROBE_TO_SUITE.get(p, "") in suite_order else 99,
+            p,
+        ),
+    )
+    labels = [PROBE_SHORT.get(p, p) for p in probes_sorted]
+    n      = len(probes_sorted)
+    x      = np.arange(n)
+    width  = 0.24
+
+    df_a = df[df["scenario"] == "unprotected"].set_index("probe")
+    df_b = df[df["scenario"] == "protected"].set_index("probe")
+
+    fig, ax = plt.subplots(figsize=(max(10, n * 1.3), 5.5))
+
+    for i, probe in enumerate(probes_sorted):
+        xi = x[i]
+
+        if probe in df_a.index:
+            r       = df_a.loc[probe]
+            med     = float(r["garak_tfa_median"])
+            err_lo  = max(med - float(r["garak_tfa_q1"]), 0.0)
+            err_hi  = max(float(r["garak_tfa_q3"]) - med, 0.0)
+            ax.bar(xi - width, med, width, color=color_a, alpha=0.85, edgecolor="white")
+            ax.errorbar(xi - width, med, yerr=[[err_lo], [err_hi]],
+                        color="#333333", capsize=3, linewidth=1.2, zorder=4)
+
+        if probe in df_b.index:
+            r       = df_b.loc[probe]
+            med     = float(r["garak_tfa_median"])
+            err_lo  = max(med - float(r["garak_tfa_q1"]), 0.0)
+            err_hi  = max(float(r["garak_tfa_q3"]) - med, 0.0)
+            ax.bar(xi, med, width, color=color_b, alpha=0.85, edgecolor="white")
+            ax.errorbar(xi, med, yerr=[[err_lo], [err_hi]],
+                        color="#333333", capsize=3, linewidth=1.2, zorder=4)
+
+            gt = r["ground_truth_tfa"]
+            if pd.notna(gt):
+                ax.bar(xi + width, float(gt), width,
+                       color=color_b, alpha=0.45, edgecolor=color_b,
+                       hatch="//", linewidth=0.8)
+
+    # Dashed separators between OWASP suite groups
+    prev_suite = None
+    for i, probe in enumerate(probes_sorted):
+        suite = PROBE_TO_SUITE.get(probe, "")
+        if prev_suite is not None and suite != prev_suite:
+            ax.axvline(x[i] - 0.5, color="#aaaaaa", linewidth=1.0,
+                       linestyle="--", alpha=0.7)
+        prev_suite = suite
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=35, ha="right", fontsize=9)
+    ax.set_ylim(0, 1.10)
+    ax.set_ylabel("TFA (Tasa de Filtrado de Ataques)")
+    ax.set_title(f"Comparación TFA: Garak vs Ground Truth — {_domain_label(domain)}")
+    ax.axhline(1.0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
+
+    legend_handles = [
+        mpatches.Patch(facecolor=color_a, alpha=0.85,
+                       label="TFA Garak — Escenario A"),
+        mpatches.Patch(facecolor=color_b, alpha=0.85,
+                       label="TFA Garak — Escenario B"),
+        mpatches.Patch(facecolor=color_b, alpha=0.45, hatch="//",
+                       edgecolor=color_b,
+                       label="Ground Truth TFA — Escenario B"),
+    ]
+    ax.legend(handles=legend_handles, fontsize=8.5, loc="lower right")
+
+    fig.text(
+        0.5, -0.06,
+        "TFA Garak: mediana ± IQR sobre 5 repeticiones. "
+        "Ground Truth: columna diferenciada por suite.",
+        ha="center", va="top", fontsize=7.5, style="italic", color="#555555",
+    )
+
+    fig.tight_layout()
+    _save(fig, figures_dir, f"garak_vs_ground_truth_{domain}.png")
+    plt.close(fig)
+
+
+def plot_garak_asr_boxplot(
+    detail_df: pd.DataFrame,
+    domain: str,
+    figures_dir: Path,
+    color_a: str = "#e07b39",
+    color_b: str = "#1e5eff",
+):
+    """Box plot of Garak's ASR distribution across repetitions per probe.
+
+    Two side-by-side boxes per probe: Scenario A (orange) and Scenario B
+    (blue).  ASR = 1 − garak_tfa.  Probes sorted by OWASP suite, with dashed
+    vertical separators between suite groups.  Probes for which a scenario has
+    fewer than two repetitions are omitted from the corresponding box.
+
+    Args:
+        detail_df: Detailed DataFrame as returned by
+            :func:`eval.metrics.compute_garak_asr_by_repetition` (i.e. the
+            rows saved to ``garak_asr_by_repetition.csv``).
+        domain: Domain name — used to filter ``detail_df`` and label the title.
+        figures_dir: Directory where the PNG is saved.
+        color_a: Box face color for Scenario A.
+        color_b: Box face color for Scenario B.
+
+    Outputs:
+        - artifacts/figures/garak_asr_boxplot_{domain}.png
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+    import numpy as np
+    setup_style()
+
+    df = detail_df[detail_df["domain"] == domain].copy()
+    if df.empty:
+        print(f"  [skip] plot_garak_asr_boxplot: no data for {domain}")
+        return
+
+    df["garak_asr"] = 1.0 - df["garak_tfa"]
+
+    suite_order = ["LLM01", "LLM02", "LLM07", "LLM08"]
+    probes_all  = df["probe"].unique().tolist()
+    probes_sorted = sorted(
+        probes_all,
+        key=lambda p: (
+            suite_order.index(PROBE_TO_SUITE.get(p, ""))
+            if PROBE_TO_SUITE.get(p, "") in suite_order else 99,
+            p,
+        ),
+    )
+    labels = [PROBE_SHORT.get(p, p) for p in probes_sorted]
+    n      = len(probes_sorted)
+
+    spacing    = 3.0
+    gap        = 0.7
+    pos_a      = [i * spacing for i in range(n)]
+    pos_b      = [p + gap for p in pos_a]
+    tick_pos   = [(pos_a[i] + pos_b[i]) / 2 for i in range(n)]
+
+    fig, ax = plt.subplots(figsize=(max(12, n * 1.6), 5.5))
+
+    prev_suite = None
+    for i, probe in enumerate(probes_sorted):
+        vals_a = (
+            df[(df["probe"] == probe) & (df["scenario"] == "unprotected")]
+            ["garak_asr"].dropna().values
+        )
+        vals_b = (
+            df[(df["probe"] == probe) & (df["scenario"] == "protected")]
+            ["garak_asr"].dropna().values
+        )
+
+        box_data   = []
+        box_pos    = []
+        box_colors = []
+        if len(vals_a) >= 2:
+            box_data.append(vals_a)
+            box_pos.append(pos_a[i])
+            box_colors.append(color_a)
+        if len(vals_b) >= 2:
+            box_data.append(vals_b)
+            box_pos.append(pos_b[i])
+            box_colors.append(color_b)
+
+        if not box_data:
+            continue
+
+        bp = ax.boxplot(
+            box_data, positions=box_pos, widths=0.55,
+            patch_artist=True,
+            medianprops={"color": "black", "linewidth": 2},
+            flierprops={"marker": ".", "markersize": 4, "alpha": 0.5},
+            whiskerprops={"linewidth": 1.2},
+            capprops={"linewidth": 1.2},
+        )
+        for patch, color in zip(bp["boxes"], box_colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.65)
+
+        # Suite separator between groups
+        suite = PROBE_TO_SUITE.get(probe, "")
+        if prev_suite is not None and suite != prev_suite:
+            sep_x = (pos_b[i - 1] + pos_a[i]) / 2
+            ax.axvline(sep_x, color="#aaaaaa", linewidth=1.0,
+                       linestyle="--", alpha=0.7)
+        prev_suite = suite
+
+    ax.set_xticks(tick_pos)
+    ax.set_xticklabels(labels, rotation=35, ha="right", fontsize=9)
+    ax.set_ylim(-0.05, 1.10)
+    ax.set_ylabel("ASR Garak (1 − TFA Garak)")
+    ax.set_title(f"Distribución ASR Garak por sonda — {_domain_label(domain)}")
+    ax.axhline(0.0, color="gray", linewidth=0.8, linestyle="--", alpha=0.4)
+
+    patch_a = mpatches.Patch(facecolor=color_a, alpha=0.65, label="Escenario A")
+    patch_b = mpatches.Patch(facecolor=color_b, alpha=0.65, label="Escenario B")
+    ax.legend(handles=[patch_a, patch_b], fontsize=9, loc="upper right")
+
+    fig.tight_layout()
+    _save(fig, figures_dir, f"garak_asr_boxplot_{domain}.png")
+    plt.close(fig)
+
+
 def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
                        lat_b: pd.DataFrame, artifacts_dir: Path, runs_dir: Path, figures_dir: Path,
                        tfa_csv_by_domain: dict | None = None):
@@ -2828,7 +3072,8 @@ def plot_probe_execution_time_total(
             ax_m.set_ylabel("Duración total del experimento (minutos)", fontsize=10)
             
             if medians_m:
-                ax_m.set_ylim(0, max(medians_m) * 1.25)
+                absolute_maxs = [d["median"] + d["err_hi"] for d in domain_macro_data]
+                ax_m.set_ylim(0, max(absolute_maxs) * 1.15)
 
             domain_title = _domain_label(domain) if "_domain_label" in globals() else domain
             ax_m.set_title(

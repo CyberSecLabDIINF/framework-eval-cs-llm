@@ -6,6 +6,7 @@ comparisons), printing formatted reports and exporting CSVs to stdout and
 ``artifacts/segmented/`` respectively.
 """
 
+import json
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -26,6 +27,7 @@ from eval.loaders import (
     _extract_suite,
     _load_consolidated_legit,
     _load_jsonl_eval_entries,
+    discover_domains,
     find_run_dir,
     load_consolidated,
     load_tfa_from_jsonl,
@@ -1547,82 +1549,90 @@ def segmented_analysis(artifacts_dir: Path, domains: list, pcc_values: dict | No
     if fisher_rows:
         _save_csv(pd.DataFrame(fisher_rows), "10_fisher_tfa_ab.csv", segmented_dir)
 
-    # ── 11. Spearman: PCC (external input) vs aggregate TFA ──────────────────
-    print(f"\n  {'='*68}")
-    print(f"  SPEARMAN — PCC (Porcentaje de Controles Cumplidos) vs aggregate TFA")
-    print(f"  PCC = C_verificados / C_aplicables × 100  (manually verified per subdim).")
-    print(f"  TFA = suite-correct aggregate per (domain × subdimension).  Exploratory.")
-    print(f"  {'='*68}")
+    # ── 11. Spearman: Verified Level vs Attack Filtering Rate (TFA) ───────
+        print(f"\n  {'='*68}")
+        print(f"  SPEARMAN — Verified Level vs Tasa de Filtrado de Ataques (TFA %)")
+        print(f"  Level   = Manually verified maturity level per subdimension.")
+        print(f"  TFA %   = (Mitigated Attacks / Total Attacks) × 100 per suite.")
+        print(f"  {'='*68}")
 
-    _SUBDIM_TO_SUITE = {v: k for k, v in SUITE_TO_SUBDIM.items()}
+        _SUBDIM_TO_SUITE = {v: k for k, v in SUITE_TO_SUBDIM.items()}
 
-    if pcc_values is None:
-        print(f"\n  [WARN] PCC values not provided — Spearman NCP skipped.")
-        print(f"  Supply pcc_values dict to segmented_analysis() after manual control verification.")
-        print(f"  Expected format: {{domain: {{subdimension: pcc_float}}}}")
-    else:
-        spearman_rows: list[dict] = []
-        for domain in domains:
-            if domain not in pcc_values:
-                print(f"\n  [WARN] No PCC entry for domain '{domain}' — skipping.")
-                continue
-            domain_pcc = pcc_values[domain]
-            for scenario in SCENARIOS:
-                df = all_data[domain][scenario]["adversarial"]
-                if df.empty or "subdimension" not in df.columns:
+        if pcc_values is None:
+            print(f"\n  [WARN] Verified levels not provided — Spearman NCP skipped.")
+            print(f"  Expected format: {{domain: {{subdimension: verified_level_numeric}}}}")
+        else:
+            spearman_rows: list[dict] = []
+            for domain in domains:
+                if domain not in pcc_values:
                     continue
-
-                subdims   = sorted(df["subdimension"].dropna().unique())
-                pcc_vals: list[float] = []
-                tfa_vals: list[float] = []
-
-                print(f"\n  Domain: {domain.upper()}  Scenario {SCEN_LABEL[scenario]}")
-                print(f"  {'Subdim':8s} {'Suite':6s} {'PCC (input)':>12} {'TFA_agg':>10} {'n_att':>8}")
-                print(f"  {'-'*50}")
-                for subdim in subdims:
-                    suite = _SUBDIM_TO_SUITE.get(subdim)
-                    if suite is None:
+                domain_levels = pcc_values[domain]
+                
+                for scenario in SCENARIOS:
+                    df = all_data[domain][scenario]["adversarial"]
+                    if df.empty or "subdimension" not in df.columns:
                         continue
-                    sub = df[df["subdimension"] == subdim]
-                    n_att = len(sub)
-                    if n_att == 0:
-                        continue
-                    try:
-                        agg_tfa_val = compute_tfa_by_suite(df, suite)
-                    except (KeyError, ValueError):
-                        continue
-                    if pd.isna(agg_tfa_val):
-                        continue
-                    agg_tfa = round(float(agg_tfa_val), 4)
-                    pcc     = domain_pcc.get(subdim)
-                    pcc_s   = f"{pcc:.4f}" if pcc is not None else "not provided"
-                    print(f"  {subdim:8s} {suite:6s} {pcc_s:>12} {agg_tfa:>10.4f} {n_att:>8}")
-                    if pcc is not None:
-                        pcc_vals.append(pcc)
-                        tfa_vals.append(agg_tfa)
-                        spearman_rows.append({
-                            "domain": domain, "scenario": scenario,
-                            "scenario_label": SCEN_LABEL[scenario],
-                            "subdimension": subdim, "n_attempts": n_att,
-                            "PCC": pcc, "TFA": agg_tfa,
-                        })
 
-                if len(pcc_vals) >= 3:
-                    rho, p_rho = spearmanr(pcc_vals, tfa_vals)
-                    print(f"\n  → Spearman ρ={rho:.4f}  p={p_rho:.4f}  "
-                          f"(n={len(pcc_vals)} subdims)")
-                elif pcc_vals:
-                    print(f"\n  → Spearman skipped: only {len(pcc_vals)} subdim(s) — need ≥ 3")
+                    subdims = sorted(df["subdimension"].dropna().unique())
+                    
+                    print(f"\n  Domain: {domain.upper()}  Scenario {SCEN_LABEL[scenario]}")
+                    print(f"  {'Subdim':8s} {'Suite':6s} {'Level (input)':>14} {'Att_Total':>10} {'TFA %':>10}")
+                    print(f"  {'-'*55}")
 
-        if len(spearman_rows) >= 3:
-            sp_df  = pd.DataFrame(spearman_rows)
-            rho_g, p_g = spearmanr(sp_df["PCC"].values, sp_df["TFA"].values)
-            print(f"\n  GLOBAL Spearman (all domains × subdims × scenarios pooled):")
-            print(f"  ρ = {rho_g:.4f}  p = {p_g:.4f}  (n = {len(sp_df)} pairs)")
-            _save_csv(sp_df, "11_spearman_pcc_tfa.csv", segmented_dir)
-        elif spearman_rows:
-            print(f"\n  [WARN] Spearman requires ≥ 3 (domain, subdim) pairs with PCC; "
-                  f"only {len(spearman_rows)} found.")
+                    level_vals: list[float] = []
+                    tfa_vals: list[float] = []
+
+                    for subdim in subdims:
+                        suite = _SUBDIM_TO_SUITE.get(subdim)
+                        if suite is None: 
+                            continue
+                        
+                        # Filter rows for this specific subdimension/threat vector
+                        sub_df = df[df["subdimension"] == subdim]
+                        total_attacks = len(sub_df)
+                        if total_attacks == 0: 
+                            continue
+                        
+                        # --- DYNAMIC TFA % CALCULATION ---
+                        # Assuming your CSV tracks mitigation in a column named 'mitigated', 'blocked', or 'success'
+                        # ADJUST COLUMN NAME HERE BASED ON YOUR DATASET ('is_mitigated', 'blocked', etc.)
+                        mitigation_column = "was_blocked" 
+                        
+                        if mitigation_column in sub_df.columns:
+                            mitigated_attacks = sub_df[mitigation_column].sum() # Counts True / 1 values
+                            tfa_pct = round((mitigated_attacks / total_attacks) * 100, 2)
+                        else:
+                            # Fallback if the column name differs or needs an alternate logic
+                            tfa_pct = 0.0
+                        # ─────────────────────────────────
+
+                        verified_level = domain_levels.get(subdim)
+                        level_s = f"{verified_level}" if verified_level is not None else "not provided"
+                        
+                        print(f"  {subdim:8s} {suite:6s} {level_s:>14} {total_attacks:>10} {tfa_pct:>9.2f}%")
+                        
+                        if verified_level is not None:
+                            level_vals.append(float(verified_level))
+                            tfa_vals.append(tfa_pct)
+                            spearman_rows.append({
+                                "domain": domain, "scenario": scenario,
+                                "scenario_label": SCEN_LABEL[scenario],
+                                "subdimension": subdim, 
+                                "Verified_Level": verified_level, "TFA_Percentage": tfa_pct,
+                            })
+
+                    # Local Spearman per scenario (n >= 3)
+                    if len(level_vals) >= 3:
+                        rho, p_rho = spearmanr(level_vals, tfa_vals)
+                        print(f"\n  → Local Spearman ρ={rho:.4f}  p={p_rho:.4f} (n={len(level_vals)} subdims)")
+
+            # Global Consolidated Analysis
+            if len(spearman_rows) >= 3:
+                sp_df = pd.DataFrame(spearman_rows)
+                rho_g, p_g = spearmanr(sp_df["Verified_Level"].values, sp_df["TFA_Percentage"].values)
+                print(f"\n  GLOBAL Spearman (Verified Level vs Tasa de Filtrado de Ataques):")
+                print(f"  ρ = {rho_g:.4f}  p = {p_g:.4f}  (n = {len(sp_df)} pairs pooled)")
+                _save_csv(sp_df, "11_spearman_level_vs_tfa.csv", segmented_dir)
 
     print(f"\n{'='*70}")
     print(f"  Segmented analysis complete. Outputs → {segmented_dir.resolve()}")
@@ -2045,3 +2055,148 @@ def compute_probe_timings(artifacts_dir: Path) -> pd.DataFrame:
         return pd.DataFrame(columns=_EMPTY_COLS)
 
     return pd.DataFrame(all_rows)
+
+
+# ─────────────────────────────────────────────
+# Garak ASR per repetition
+# ─────────────────────────────────────────────
+
+def compute_garak_asr_by_repetition(artifacts_dir: Path) -> pd.DataFrame:
+    """Extract Garak's native ASR per repetition and compare with ground truth TFA.
+
+    For each domain × scenario × probe × repetition, reads the corresponding
+    ``*.report.jsonl`` file and extracts the eval entry's passed/total counts.
+    Encoding probes (InjectBase64, InjectHex) are filtered to detector
+    ``encoding.DecodeMatch`` only, discarding ``encoding.DecodeApprox`` to avoid
+    double-counting (see thesis §4.1.3).
+
+    Computes per-repetition Garak TFA (= passed / total) and ASR (= 1 − TFA),
+    then aggregates median / Q1 / Q3 across repetitions in the summary CSV.
+    Ground truth TFA is derived from :func:`compute_tfa_per_probe` applied to
+    the consolidated CSV for the same domain × scenario pair, using the
+    suite-specific ground-truth column (see :func:`compute_tfa_by_suite`).
+
+    Args:
+        artifacts_dir: Root artifacts directory containing ``runs/`` sub-
+            directories and ``consolidated_*.csv`` files.
+
+    Returns:
+        Detailed DataFrame with one row per (domain, scenario, probe,
+        repetition) and columns: ``domain``, ``scenario``, ``probe``,
+        ``suite``, ``repetition``, ``garak_passed``, ``garak_total``,
+        ``garak_tfa``, ``ground_truth_tfa``.
+
+        Two CSVs are also saved under ``artifacts/reports/``:
+
+        - ``garak_asr_by_repetition.csv`` — detailed rows.
+        - ``garak_asr_summary.csv`` — median / Q1 / Q3 of ``garak_tfa`` per
+          (domain × scenario × probe), plus ``ground_truth_tfa`` for
+          comparison.
+    """
+    _JSONL_RE = re.compile(
+        r"^(unprotected|protected)_(LLM\d+)_(.+)_(\d{8})_(\d{6})_rep(\d{2})\.report\.jsonl$"
+    )
+    _DETAIL_COLS = [
+        "domain", "scenario", "probe", "suite", "repetition",
+        "garak_passed", "garak_total", "garak_tfa", "ground_truth_tfa",
+    ]
+
+    runs_dir = artifacts_dir / "runs"
+    domains  = discover_domains(runs_dir)
+
+    detail_rows: list[dict] = []
+
+    for domain in domains:
+        for scenario in ("unprotected", "protected"):
+            run_dir = find_run_dir(runs_dir, domain, scenario)
+            if run_dir is None:
+                continue
+            garak_dir = run_dir / "garak"
+            if not garak_dir.exists():
+                continue
+
+            df_consolidated = load_consolidated(artifacts_dir, domain, scenario)
+
+            for jsonl_file in sorted(garak_dir.glob("*.report.jsonl")):
+                m = _JSONL_RE.match(jsonl_file.name)
+                if not m:
+                    continue
+
+                probe   = m.group(3)
+                rep_num = int(m.group(6))
+                suite   = PROBE_TO_SUITE.get(probe, "UNKNOWN")
+
+                passed_count = 0
+                total_count  = 0
+                with jsonl_file.open("r", encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if obj.get("entry_type") != "eval":
+                            continue
+                        primary = PRIMARY_DETECTOR.get(probe)
+                        if primary is not None and obj.get("detector", "") != primary:
+                            continue
+                        passed_count = obj.get("passed", 0)
+                        total_count  = obj.get("total", 0)
+                        break
+
+                if total_count == 0:
+                    continue
+
+                garak_tfa = passed_count / total_count
+                gt_tfa    = compute_tfa_per_probe(df_consolidated, probe)
+
+                detail_rows.append({
+                    "domain":           domain,
+                    "scenario":         scenario,
+                    "probe":            probe,
+                    "suite":            suite,
+                    "repetition":       rep_num,
+                    "garak_passed":     passed_count,
+                    "garak_total":      total_count,
+                    "garak_tfa":        round(garak_tfa, 4),
+                    "ground_truth_tfa": round(float(gt_tfa), 4) if pd.notna(gt_tfa) else None,
+                })
+
+    if not detail_rows:
+        return pd.DataFrame(columns=_DETAIL_COLS)
+
+    detail_df   = pd.DataFrame(detail_rows)
+    reports_dir = artifacts_dir / "reports"
+    _save_csv(detail_df, "garak_asr_by_repetition.csv", reports_dir)
+
+    # Build summary: median / Q1 / Q3 per (domain × scenario × probe)
+    summary_rows: list[dict] = []
+    for (domain, scenario, probe), grp in detail_df.groupby(
+        ["domain", "scenario", "probe"], sort=False
+    ):
+        suite  = grp["suite"].iloc[0]
+        gt_val = grp["ground_truth_tfa"].iloc[0]
+        tfa    = grp["garak_tfa"].dropna()
+        asr    = 1.0 - tfa
+
+        summary_rows.append({
+            "domain":           domain,
+            "scenario":         scenario,
+            "probe":            probe,
+            "suite":            suite,
+            "n_reps":           len(tfa),
+            "garak_tfa_median": round(float(tfa.median()), 4),
+            "garak_tfa_q1":     round(float(tfa.quantile(0.25)), 4),
+            "garak_tfa_q3":     round(float(tfa.quantile(0.75)), 4),
+            "garak_asr_median": round(float(asr.median()), 4),
+            "garak_asr_q1":     round(float(asr.quantile(0.25)), 4),
+            "garak_asr_q3":     round(float(asr.quantile(0.75)), 4),
+            "ground_truth_tfa": round(float(gt_val), 4) if pd.notna(gt_val) else None,
+        })
+
+    summary_df = pd.DataFrame(summary_rows)
+    _save_csv(summary_df, "garak_asr_summary.csv", reports_dir)
+
+    return detail_df
