@@ -1711,6 +1711,201 @@ def plot_garak_asr_boxplot(
     plt.close(fig)
 
 
+def plot_run_duration(duration_records: list[dict], output_dir: Path) -> None:
+    """Grouped horizontal bar chart comparing total experiment duration per domain.
+
+    Renders one group of two bars per domain: Scenario A (unprotected, orange
+    ``#e07b39``) and Scenario B (protected, blue ``#1e5eff``).  Each bar is
+    annotated with its total-hours value.  The function is generic and works
+    with any number of domains derived from the input records.
+
+    Args:
+        duration_records: List of dicts, each containing at minimum the keys
+            ``domain``, ``scenario``, and ``total_hours``.  Produced by
+            converting the DataFrame returned by
+            :func:`eval.metrics.compute_run_duration` to records format.
+        output_dir: Directory where the PNG is saved.
+
+    Outputs:
+        ``output_dir/run_duration_comparison.png``
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    _COLOR_A = "#e07b39"
+    _COLOR_B = "#1e5eff"
+    _BAR_H   = 0.30
+
+    if not duration_records:
+        print("  [skip] plot_run_duration: no duration records provided.")
+        return
+
+    output_dir = Path(output_dir)
+    setup_style()
+
+    # Build per-domain lookup preserving insertion order.
+    domains_seen: list[str] = []
+    data: dict[str, dict[str, float]] = {}
+    for r in duration_records:
+        dom  = r["domain"]
+        scen = r["scenario"]
+        h    = float(r["total_hours"])
+        if dom not in data:
+            data[dom] = {}
+            domains_seen.append(dom)
+        data[dom][scen] = h
+
+    n     = len(domains_seen)
+    y     = np.arange(n, dtype=float)
+    bar_a = [data[d].get("unprotected", 0.0) for d in domains_seen]
+    bar_b = [data[d].get("protected",   0.0) for d in domains_seen]
+
+    fig, ax = plt.subplots(figsize=(9, max(3.5, n * 1.5 + 1.5)))
+
+    ax.barh(y + _BAR_H / 2, bar_a, height=_BAR_H,
+            color=_COLOR_A, alpha=0.85, edgecolor="white",
+            label="Escenario A (sin protección)")
+    ax.barh(y - _BAR_H / 2, bar_b, height=_BAR_H,
+            color=_COLOR_B, alpha=0.85, edgecolor="white",
+            label="Escenario B (LLM Guard)")
+
+    all_vals = [v for v in bar_a + bar_b if v > 0]
+    max_val  = max(all_vals) if all_vals else 1.0
+    x_pad    = max_val * 0.02
+
+    for i, (va, vb) in enumerate(zip(bar_a, bar_b)):
+        if va > 0:
+            ax.text(va + x_pad, y[i] + _BAR_H / 2, f"{va:.2f} h",
+                    va="center", ha="left", fontsize=9, color="#333333")
+        if vb > 0:
+            ax.text(vb + x_pad, y[i] - _BAR_H / 2, f"{vb:.2f} h",
+                    va="center", ha="left", fontsize=9, color="#333333")
+
+    ax.set_yticks(y)
+    ax.set_yticklabels([_domain_label(d) for d in domains_seen], fontsize=10)
+    ax.invert_yaxis()
+    ax.set_xlim(0, max_val * 1.20)
+    ax.set_xlabel("Duración total (horas)", fontsize=10)
+    ax.set_title("Duración total del experimento por dominio y escenario",
+                 fontweight="bold")
+    ax.grid(axis="x", alpha=0.3)
+    ax.legend(fontsize=9, loc="lower right")
+
+    fig.tight_layout()
+    _save(fig, output_dir, "run_duration_comparison.png")
+    plt.close(fig)
+
+
+def plot_sensitivity_tfa_by_tau_out(artifacts_dir: Path) -> None:
+    """Plot TFA sensitivity to the output threshold (tau_out) per domain and OWASP suite.
+
+    Reads ``sensitivity/sensitivity_summary.csv``, collapses the tau_in dimension
+    by averaging TFA_min across all tau_in values (tau_in produces minimal
+    variation), then draws one line per suite across the six tau_out operating
+    points. A vertical dashed line marks the deployed operating threshold
+    (tau_out = 0.50).
+
+    Args:
+        artifacts_dir: Root artifacts directory. Expects
+            ``sensitivity/sensitivity_summary.csv`` under this path.
+
+    Outputs:
+        - ``artifacts_dir/plots/sensitivity_tfa_tau_out.png`` (dpi=200)
+        - ``artifacts_dir/../figuras/cap5/sensitivity_tfa_tau_out.png`` (LaTeX copy)
+    """
+    import shutil
+    import matplotlib.pyplot as plt
+
+    csv_path = artifacts_dir / "sensitivity" / "sensitivity_summary.csv"
+    if not csv_path.exists():
+        print(f"  [skip] plot_sensitivity_tfa_by_tau_out: {csv_path} not found.")
+        return
+
+    setup_style()
+
+    df = pd.read_csv(csv_path)
+
+    # Collapse tau_in: average TFA_min over all tau_in values per (domain, suite, tau_out)
+    grouped = (
+        df.groupby(["domain", "suite", "tau_out"], sort=True)["TFA_min"]
+        .mean()
+        .reset_index()
+    )
+
+    domains_ordered = ["academic_institutional", "regulatory_technical"]
+    domain_titles = {
+        "academic_institutional": "Académico-institucional",
+        "regulatory_technical": "Regulatorio-técnico",
+    }
+    suites   = sorted(grouped["suite"].unique())
+    tau_outs = sorted(grouped["tau_out"].unique())
+
+    # Qualitative palette: tab10 gives 4 clearly distinct colors unrelated to
+    # the orange/blue scenario-A/B palette used elsewhere in this module.
+    cmap = plt.get_cmap("tab10")
+    suite_colors   = {s: cmap(i)            for i, s in enumerate(suites)}
+    suite_markers  = {s: ["o", "s", "^", "D"][i % 4] for i, s in enumerate(suites)}
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+
+    for ax, domain in zip(axes, domains_ordered):
+        dom_df = grouped[grouped["domain"] == domain]
+        if dom_df.empty:
+            ax.set_title(f"{domain_titles.get(domain, domain)}\n[sin datos]")
+            ax.set_xticks([])
+            continue
+
+        for suite in suites:
+            suite_df = dom_df[dom_df["suite"] == suite].sort_values("tau_out")
+            if suite_df.empty:
+                continue
+            ax.plot(
+                suite_df["tau_out"].values,
+                suite_df["TFA_min"].values,
+                color=suite_colors[suite],
+                marker=suite_markers[suite],
+                label=suite,
+                linewidth=1.8,
+                markersize=6,
+            )
+
+        # Deployed operating threshold
+        ax.axvline(0.50, color="gray", linewidth=1.2, linestyle="--", alpha=0.75,
+                   label="Punto operativo")
+
+        ax.set_xlim(min(tau_outs) - 0.02, max(tau_outs) + 0.02)
+        ax.set_ylim(0.94, 1.005)
+        ax.set_xticks(tau_outs)
+        ax.set_xticklabels([str(t) for t in tau_outs])
+        ax.set_xlabel(r"$\tau_{out}$ (umbral Sensitive)")
+        ax.set_title(domain_titles.get(domain, domain))
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc="lower left", fontsize=8.5)
+
+    axes[0].set_ylabel("TFA")
+    fig.suptitle(
+        r"Sensibilidad de TFA al umbral de salida ($\tau_{out}$)",
+        fontweight="bold",
+    )
+    fig.tight_layout()
+
+    # Primary save: dpi=200 per specification (different from default 150 in setup_style)
+    figures_dir = artifacts_dir / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    out_path = figures_dir / "sensitivity_tfa_tau_out.png"
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    print(f"  [saved] {out_path}")
+
+    # LaTeX compiler copy
+    latex_dir = artifacts_dir.parent / "figuras" / "cap5"
+    latex_dir.mkdir(parents=True, exist_ok=True)
+    latex_path = latex_dir / "sensitivity_tfa_tau_out.png"
+    shutil.copy2(out_path, latex_path)
+    print(f"  [saved] {latex_path}")
+
+    plt.close(fig)
+
+
 def generate_all_plots(tfa_by_domain: dict, lat_a: pd.DataFrame,
                        lat_b: pd.DataFrame, artifacts_dir: Path, runs_dir: Path, figures_dir: Path,
                        tfa_csv_by_domain: dict | None = None):

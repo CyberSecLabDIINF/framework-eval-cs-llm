@@ -1076,7 +1076,7 @@ def deep_analysis_las(lat_a: pd.DataFrame, lat_b: pd.DataFrame):
 # Segmented statistical analysis
 # ─────────────────────────────────────────────
 
-def segmented_analysis(artifacts_dir: Path, domains: list, pcc_values: dict | None = None):
+def segmented_analysis(artifacts_dir: Path, domains: list, subdim_levels: dict | None = None):
     """Segmented statistical analysis across all domain × scenario × prompt_type combinations.
 
     Loads every ``consolidated_<domain>_<scenario>.csv`` file and runs five
@@ -1092,8 +1092,8 @@ def segmented_analysis(artifacts_dir: Path, domains: list, pcc_values: dict | No
        Scenario B.
     4. Legitimate FPR and latency distribution (median, IQR, p95, p99).
     5. Cross-scenario statistical tests — LAS (Mann-Whitney U), TFA (Fisher's
-       exact), and, when ``pcc_values`` is supplied, Spearman ρ between PCC and
-       aggregate TFA per (domain × subdimension) pair.
+       exact), and, when ``subdim_levels`` is supplied, Spearman ρ between
+       verified maturity level and TFA per (domain × scenario × subdimension).
 
     Parameters
     ----------
@@ -1104,11 +1104,12 @@ def segmented_analysis(artifacts_dir: Path, domains: list, pcc_values: dict | No
         Ordered list of corpus domain names (e.g. ``["regulatory_technical",
         "academic_institutional"]``).  Only domains present in ``artifacts_dir``
         produce non-empty output.
-    pcc_values : dict or None, optional
-        Manually verified PCC (Porcentaje de Controles Cumplidos) values, keyed
-        as ``{domain: {subdimension: float}}``.  PCC cannot be derived from the
-        CSV data — it requires out-of-band control verification.  Pass ``None``
-        (default) to skip the Spearman block; a warning is printed in that case.
+    subdim_levels : dict or None, optional
+        Manually verified maturity levels keyed as
+        ``{domain: {scenario: {subdimension: float}}}``.  These values cannot
+        be derived from the CSV data — they require out-of-band control
+        verification.  Pass ``None`` (default) to skip the Spearman block; a
+        warning is printed in that case.
 
     Notes
     -----
@@ -1149,8 +1150,8 @@ def segmented_analysis(artifacts_dir: Path, domains: list, pcc_values: dict | No
     - artifacts/segmented/09_las_mannwhitney.csv : Mann-Whitney U results per domain.
     - artifacts/segmented/10_fisher_tfa_ab.csv : Fisher exact results per suite and
       per domain.
-    - artifacts/segmented/11_spearman_pcc_tfa.csv : Spearman ρ results; written
-      only when ``pcc_values`` is provided and has ≥ 3 (domain, subdimension) pairs.
+    - artifacts/segmented/11_spearman_level_vs_tfa.csv : Spearman ρ results; written
+      only when ``subdim_levels`` is provided and has ≥ 3 (domain, subdimension) pairs.
     """
     SCENARIOS    = ["unprotected", "protected"]
     SCEN_LABEL   = {"unprotected": "A", "protected": "B"}
@@ -1558,17 +1559,17 @@ def segmented_analysis(artifacts_dir: Path, domains: list, pcc_values: dict | No
 
         _SUBDIM_TO_SUITE = {v: k for k, v in SUITE_TO_SUBDIM.items()}
 
-        if pcc_values is None:
-            print(f"\n  [WARN] Verified levels not provided — Spearman NCP skipped.")
-            print(f"  Expected format: {{domain: {{subdimension: verified_level_numeric}}}}")
+        if subdim_levels is None:
+            print(f"\n  [WARN] Verified levels not provided — Spearman skipped.")
+            print(f"  Expected format: {{domain: {{scenario: {{subdimension: verified_level_numeric}}}}}}")
         else:
             spearman_rows: list[dict] = []
             for domain in domains:
-                if domain not in pcc_values:
+                if domain not in subdim_levels:
                     continue
-                domain_levels = pcc_values[domain]
-                
+
                 for scenario in SCENARIOS:
+                    domain_levels = subdim_levels[domain][scenario]
                     df = all_data[domain][scenario]["adversarial"]
                     if df.empty or "subdimension" not in df.columns:
                         continue

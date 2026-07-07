@@ -111,6 +111,10 @@ def main():
                       f"{legit_h:>10} {row['total_hours']:>10.2f} "
                       f"{row['inference_hours']:>14.2f} {row['num_requests']:>9}")
             print(f"\n{'='*70}\n")
+            if args.plots:
+                dur_figures_dir = args.artifacts / "figures"
+                records = df_dur.rename(columns={"num_requests": "requests"}).to_dict("records")
+                plot_run_duration(records, dur_figures_dir)
         return
 
     # ── Artifact characterization ────────────────────────────
@@ -190,23 +194,21 @@ def main():
     compute_las(lat_a, lat_b)
 
     # ── Segmented analysis ───────────────────────────────────
-    # TODO: replace pcc_values=None with manually verified PCC values after
-    # control verification. Format: {domain: {"D1": float, "D2": float, ...}}
+    # Manually verified maturity levels per domain × scenario × subdimension.
+    # Format: {domain: {scenario: {subdimension: int}}}
+    # Scenario A (unprotected) has no LLM Guard controls → level 0.
+    # Scenario B (protected) has all LLM Guard controls active → level 3.
     verified_levels = {
         "academic_institutional": {
-            "D1": 3,
-            "D2": 3,
-            "D3": 3,
-            "D4": 3
+            "unprotected": {"D1": 0, "D2": 0, "D3": 0, "D4": 0},
+            "protected":   {"D1": 3, "D2": 3, "D3": 3, "D4": 3},
         },
         "regulatory_technical": {
-            "D1": 3,
-            "D2": 3,
-            "D3": 3,
-            "D4": 3
-        }
+            "unprotected": {"D1": 0, "D2": 0, "D3": 0, "D4": 0},
+            "protected":   {"D1": 3, "D2": 3, "D3": 3, "D4": 3},
+        },
     }
-    segmented_analysis(artifacts, domains, pcc_values=verified_levels)
+    segmented_analysis(artifacts, domains, subdim_levels=verified_levels)
 
     # ── Latency: adversarial vs legitimate ───────────────────
     latency_adv_vs_legit(artifacts, domains)

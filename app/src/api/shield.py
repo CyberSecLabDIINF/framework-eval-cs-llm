@@ -157,6 +157,10 @@ def _raw_score_from_risk(risk_score: Optional[float], threshold: float) -> Optio
     native 0.0-1.0 probability scale (accurate to within the library's own
     rounding to 1 decimal). The sentinel ``risk_score == -1.0`` (empty
     input/output, no entities found) maps back to ``0.0``.
+
+    # deprecated — llm-guard 0.3.16 returns raw [0,1] probabilities directly
+    # from scan_prompt/scan_output; this inversion layer is no longer applied.
+    # Kept for reference and for backfill tooling in eval/consolidator.py.
     """
     if risk_score is None:
         return None
@@ -184,10 +188,9 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
         ``pi_score`` is the raw PromptInjection classifier probability
         (0.0-1.0, where higher means more likely an injection), captured
         regardless of the block decision and independent of whether
-        ``threshold`` was exceeded. See :func:`_raw_score_from_risk` for how
-        this is recovered from LLM Guard's threshold-relative risk score.
-        TokenLimit is binary and reports a sentinel score of -1.0, so it is
-        ignored for this purpose.
+        ``threshold`` was exceeded. llm-guard 0.3.16 returns this value
+        directly from scan_prompt. TokenLimit is binary and reports a
+        sentinel score of -1.0, so it is ignored for this purpose.
 
     LLM-Sec Control C3: Blocks input prompts classified as prompt injection attempts by the PromptInjection scanner
     """
@@ -224,7 +227,7 @@ def guard_input(user_prompt: str) -> tuple[Optional[str], Optional[str], Optiona
         if isinstance(scores, dict):
             last_score = next(iter(scores.values()), None)
         if isinstance(scanner, PromptInjection):
-            pi_score = _raw_score_from_risk(last_score, pi_threshold)
+            pi_score = last_score  # llm-guard 0.3.16 returns raw [0,1] probability directly
         _llm_guard_logger.debug(
             "INPUT SCAN | scanner=%s | score=%s | blocked=%s",
             scanner.__class__.__name__, last_score, not all(is_valid_dict.values()),
@@ -258,9 +261,8 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
     ``sens_score`` is the raw Sensitive classifier probability (0.0-1.0,
     where higher means more likely sensitive content), captured regardless
     of the block decision (whether Sensitive or OutputRegex triggered the
-    block) and independent of whether ``threshold`` was exceeded. See
-    :func:`_raw_score_from_risk` for how this is recovered from LLM Guard's
-    threshold-relative risk score.
+    block) and independent of whether ``threshold`` was exceeded.
+    llm-guard 0.3.16 returns this value directly from scan_output.
 
     LLM-Sec Control C18: Strips control characters and special tokens from the model output before scanning/returning it
     LLM-Sec Control C19: Blocks model output matching deterministic regex patterns for structured PII / confidential markers
@@ -302,7 +304,7 @@ def guard_output(prompt: str, text: str) -> tuple[str, Optional[str], Optional[f
             if isinstance(scores, dict):
                 last_score = next(iter(scores.values()), None)
             if isinstance(scanner, Sensitive):
-                sens_score = _raw_score_from_risk(last_score, sens_threshold)
+                sens_score = last_score  # llm-guard 0.3.16 returns raw [0,1] probability directly
             if scanner.__class__.__name__ == "Sensitive":
                 _llm_guard_logger.debug(
                     "OUTPUT SCAN | scanner=%s | score=%s | blocked=%s",
