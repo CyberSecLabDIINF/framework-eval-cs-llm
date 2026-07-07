@@ -14,6 +14,7 @@ from scipy.stats import fisher_exact, mannwhitneyu
 
 from eval.constants import (
     PRIMARY_DETECTOR,
+    PROBE_ORDER,
     PROBE_SHORT,
     PROBE_TO_SUITE,
     SCENARIO_COLORS,
@@ -68,6 +69,28 @@ _TFA_GT_SOURCE_NOTE = (
 def _domain_label(domain: str) -> str:
     """Spanish display label for a domain name (figure titles/ticks)."""
     return _DOMAIN_LABELS_ES.get(domain, domain.replace("_", " ").title())
+
+
+# Position index: short_name → int, built once at import time.
+# PROBE_ORDER contains short display names (e.g. "HijackKill"); this dict lets
+# _ordered_probes sort full probe names by their canonical position in O(1).
+_PROBE_SHORT_POS: dict[str, int] = {s: i for i, s in enumerate(PROBE_ORDER)}
+
+
+def _ordered_probes(available) -> list:
+    """Return full probe names from *available* sorted by canonical PROBE_ORDER.
+
+    PROBE_ORDER contains short display names; this function maps each full
+    probe name to its short name via PROBE_SHORT, looks up the canonical
+    position in _PROBE_SHORT_POS, and sorts accordingly.  Probes whose short
+    name is absent from PROBE_ORDER are appended alphabetically at the end.
+    """
+    avail_set = set(available)
+
+    def _key(p: str) -> tuple[int, str]:
+        return (_PROBE_SHORT_POS.get(PROBE_SHORT.get(p, p), 999), p)
+
+    return sorted(avail_set, key=_key)
 
 
 # ─────────────────────────────────────────────
@@ -206,7 +229,7 @@ def plot_tfa_by_probe(tfa_a: dict, tfa_b: dict, domain: str, figures_dir: Path):
     import numpy as np
     setup_style()
 
-    probes  = sorted(tfa_a["per_probe"].keys())
+    probes  = _ordered_probes(tfa_a["per_probe"].keys())
     labels  = [PROBE_SHORT.get(p, p) for p in probes]
     suites  = [tfa_a["per_probe"][p]["suite"] for p in probes]
     vals_a  = [tfa_a["per_probe"][p]["TFA"] or 0 for p in probes]
@@ -570,7 +593,7 @@ def plot_tfa_heatmap(tfa_by_domain: dict, figures_dir: Path):
     setup_style()
 
     domains = list(tfa_by_domain.keys())
-    probes  = sorted(next(iter(tfa_by_domain.values()))["A"]["per_probe"].keys())
+    probes  = _ordered_probes(next(iter(tfa_by_domain.values()))["A"]["per_probe"].keys())
     labels  = [PROBE_SHORT.get(p, p) for p in probes]
 
     matrix = []
@@ -617,7 +640,7 @@ def plot_delta_tfa(tfa_by_domain: dict, figures_dir: Path):
         return
     setup_style()
 
-    probes = sorted(next(iter(tfa_by_domain.values()))["A"]["per_probe"].keys())
+    probes = _ordered_probes(next(iter(tfa_by_domain.values()))["A"]["per_probe"].keys())
     labels = [PROBE_SHORT.get(p, p) for p in probes]
     fig, ax = plt.subplots(figsize=(13, 5))
     x = np.arange(len(probes))
@@ -1504,16 +1527,8 @@ def plot_garak_vs_ground_truth(
         print(f"  [skip] plot_garak_vs_ground_truth: no data for {domain}")
         return
 
-    suite_order = ["LLM01", "LLM02", "LLM07", "LLM08"]
-    probes_all  = df["probe"].unique().tolist()
-    probes_sorted = sorted(
-        probes_all,
-        key=lambda p: (
-            suite_order.index(PROBE_TO_SUITE.get(p, ""))
-            if PROBE_TO_SUITE.get(p, "") in suite_order else 99,
-            p,
-        ),
-    )
+    probes_all    = df["probe"].unique().tolist()
+    probes_sorted = _ordered_probes(probes_all)
     labels = [PROBE_SHORT.get(p, p) for p in probes_sorted]
     n      = len(probes_sorted)
     x      = np.arange(n)
@@ -1628,16 +1643,8 @@ def plot_garak_asr_boxplot(
 
     df["garak_asr"] = 1.0 - df["garak_tfa"]
 
-    suite_order = ["LLM01", "LLM02", "LLM07", "LLM08"]
-    probes_all  = df["probe"].unique().tolist()
-    probes_sorted = sorted(
-        probes_all,
-        key=lambda p: (
-            suite_order.index(PROBE_TO_SUITE.get(p, ""))
-            if PROBE_TO_SUITE.get(p, "") in suite_order else 99,
-            p,
-        ),
-    )
+    probes_all    = df["probe"].unique().tolist()
+    probes_sorted = _ordered_probes(probes_all)
     labels = [PROBE_SHORT.get(p, p) for p in probes_sorted]
     n      = len(probes_sorted)
 
@@ -2362,7 +2369,7 @@ def plot_tfa_heatmap_ab_comparison(tfa_by_domain: dict, figures_dir: Path):
 
     probe_sets = [set((tfa_by_domain[d]["A"] or {}).get("per_probe", {}).keys())
                   for d in domains]
-    all_probes = sorted(set.union(*probe_sets) if probe_sets else set())
+    all_probes = _ordered_probes(set.union(*probe_sets) if probe_sets else set())
     if not all_probes:
         print("  [skip] tfa_heatmap_ab_comparison: no probe data.")
         return
@@ -2465,7 +2472,7 @@ def plot_delta_tfa_by_domain(tfa_by_domain: dict, figures_dir: Path):
         return
     setup_style()
 
-    probes = sorted(next(iter(tfa_by_domain.values()))["A"]["per_probe"].keys())
+    probes = _ordered_probes(next(iter(tfa_by_domain.values()))["A"]["per_probe"].keys())
     labels = [PROBE_SHORT.get(p, p) for p in probes]
     fig, ax = plt.subplots(figsize=(13, 5))
     x     = np.arange(len(probes))
@@ -2565,7 +2572,8 @@ def plot_scanner_breakdown_by_probe(artifacts_dir: Path, domains: list, figures_
                    .size()
                    .unstack(fill_value=0))
 
-        probes_ord   = list(pivot.index)
+        probes_ord = sorted(list(pivot.index), key=lambda ps: _PROBE_SHORT_POS.get(ps, 999))
+        pivot      = pivot.reindex(probes_ord)
         scanner_cats = list(pivot.columns)
         x_pos        = np.arange(len(probes_ord))
         tab_colors   = plt.cm.tab10.colors
@@ -2933,16 +2941,9 @@ def plot_probe_timings(df: pd.DataFrame, output_dir: Path) -> None:
         if not scenarios:
             continue
 
-        # Probe ordering: suite rank first, then alphabetical within suite.
+        # Probe ordering: canonical PROBE_ORDER.
         all_probes = df_dom["probe"].unique().tolist()
-
-        def _sort_key(p: str) -> tuple:
-            suite_vals = df_dom.loc[df_dom["probe"] == p, "suite"]
-            suite      = suite_vals.iloc[0] if len(suite_vals) > 0 else "ZZZ"
-            rank       = _SUITE_ORDER.index(suite) if suite in _SUITE_ORDER else len(_SUITE_ORDER)
-            return (rank, p)
-
-        ordered_probes = sorted(all_probes, key=_sort_key)
+        ordered_probes = _ordered_probes(all_probes)
         n_probes = len(ordered_probes)
         if n_probes == 0:
             continue
@@ -3082,12 +3083,7 @@ def plot_probe_execution_time_total(
             print(f"  [skip] probe_execution_time_total: no data for {domain}")
             continue
 
-        def _sort_key(p: str) -> tuple:
-            suite = probe_suite.get(p, "ZZZ")
-            rank  = _SUITE_ORDER.index(suite) if suite in _SUITE_ORDER else len(_SUITE_ORDER)
-            return (rank, p)
-
-        ordered_probes = sorted(probe_suite.keys(), key=_sort_key)
+        ordered_probes = _ordered_probes(probe_suite.keys())
         n_probes       = len(ordered_probes)
 
         scenarios_present = [

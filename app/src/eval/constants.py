@@ -5,6 +5,9 @@ reused across data loading (loaders.py), metrics computation (metrics.py),
 and plotting (plots.py).
 """
 
+import json as _json
+from pathlib import Path as _Path
+
 
 # ─────────────────────────────────────────────
 # Constants
@@ -65,3 +68,30 @@ SUITE_COLORS = {
 }
 
 SCENARIO_COLORS = {"A": "#4C72B0", "B": "#DD8452"}
+
+def _build_probe_order() -> list[str]:
+    """Build the canonical short-name probe list by reading owasp_suites.json.
+
+    Iterates suites in JSON key order (LLM01 → LLM02 → LLM07 → LLM08) and
+    within each suite iterates probes in array order, converting full names to
+    short display names via PROBE_SHORT.  Falls back to the insertion order of
+    PROBE_SHORT when the JSON file is absent (e.g. unit-test environments).
+    """
+    _config = _Path(__file__).parents[2] / "config/global/owasp_suites.json"
+    try:
+        suites: dict = _json.loads(_config.read_text())
+    except (FileNotFoundError, _json.JSONDecodeError):
+        return list(dict.fromkeys(PROBE_SHORT.values()))
+
+    ordered: list[str] = []
+    for probe_list in suites.values():
+        for full_name in probe_list:
+            short = PROBE_SHORT.get(full_name, full_name)
+            ordered.append(short)
+    return ordered
+
+
+# Canonical probe order (short display names) derived from owasp_suites.json.
+# Used to enforce consistent axis ordering across all bar charts and heatmaps.
+# Source of truth: app/config/global/owasp_suites.json — do not hardcode here.
+PROBE_ORDER: list[str] = _build_probe_order()
