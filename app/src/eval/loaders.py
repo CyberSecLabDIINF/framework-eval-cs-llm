@@ -245,33 +245,6 @@ def load_consolidated(
     return df
 
 
-def load_latency(latency_dir: Path, filename: str) -> pd.DataFrame:
-    """Loads a latency CSV, keeping only /generate requests.
-
-    Adds a ``prompt_type`` column derived from ``suite_probe``: rows with no
-    Garak tag (``suite_probe`` empty/NaN) are legitimate prompts; rows
-    carrying a ``SUITE|probe`` tag are adversarial. This is necessary because
-    the two prompt types have structurally different latency distributions —
-    in Scenario B, adversarial prompts blocked early by LLM Guard return in
-    ~600ms while legitimate prompts go through full inference (~4000ms) —
-    so they must not be pooled together in the same statistical test.
-    """
-    path = latency_dir / filename
-    if not path.exists():
-        return pd.DataFrame()
-    df = pd.read_csv(path, header=None, names=[
-        "timestamp", "scenario", "domain", "method",
-        "endpoint", "status_code", "latency_ms",
-        "col8", "suite_probe", "prompt_tokens", "response_tokens"
-    ], on_bad_lines="skip")
-    df = df[df["endpoint"] == "/generate"].copy()
-    df["latency_ms"] = pd.to_numeric(df["latency_ms"], errors="coerce")
-    df = df[df["latency_ms"].notna()]
-    df["prompt_type"] = df["suite_probe"].apply(
-        lambda v: "legitimate" if pd.isna(v) or str(v).strip() == "" else "adversarial"
-    )
-    return df
-
 
 def find_run_dir(runs_dir: Path, domain: str, scenario: str) -> Path | None:
     """Return the most recent run directory matching ``domain`` and ``scenario``, or None."""

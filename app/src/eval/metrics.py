@@ -1033,7 +1033,8 @@ def deep_analysis_las(lat_a: pd.DataFrame, lat_b: pd.DataFrame):
 
     # ── By suite ────────────────────────────────────────────
     lat_a = lat_a.copy()
-    lat_a["suite"] = lat_a["suite_probe"].apply(_extract_suite)
+    if "suite_probe" in lat_a.columns:
+        lat_a["suite"] = lat_a["suite_probe"].apply(_extract_suite)
 
     print(f"\n  MEDIAN LATENCY BY SUITE — Scenario A (ms)")
     print(f"  {'Suite':8s} {'Description':28s} {'n':>6} {'Median':>8} {'Std':>8} {'p95':>8}")
@@ -1048,7 +1049,8 @@ def deep_analysis_las(lat_a: pd.DataFrame, lat_b: pd.DataFrame):
     # ── Overhead comparison by suite (A vs B) ───────────────
     if not lat_b.empty:
         lat_b = lat_b.copy()
-        lat_b["suite"] = lat_b["suite_probe"].apply(_extract_suite)
+        if "suite_probe" in lat_b.columns:
+            lat_b["suite"] = lat_b["suite_probe"].apply(_extract_suite)
         print(f"\n  LAS OVERHEAD BY SUITE (Δmedian B - A, ms)")
         print(f"  {'Suite':8s} {'Med_A':>8} {'Med_B':>8} {'Δ':>8} {'Δ%':>8}")
         print(f"  {'-'*40}")

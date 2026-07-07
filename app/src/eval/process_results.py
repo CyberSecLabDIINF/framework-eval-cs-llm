@@ -6,8 +6,7 @@ Computes TFA, LAS and deep analysis from LLM-Sec experiment artifacts.
 
 Sources:
   - TFA        : artifacts/runs/<run_dir>/garak/*.report.jsonl
-  - LAS        : artifacts/latency/latency_unprotected_direct.csv
-                  artifacts/latency/latency_protected.csv
+  - LAS        : artifacts/consolidated_<domain>_<scenario>.csv (latency_ms column)
   - Deep anal. : artifacts/consolidated_<domain>_<scenario>.csv
 
 garak_passed convention (Garak):
@@ -127,7 +126,6 @@ def main():
 
     artifacts   = args.artifacts
     runs_dir    = artifacts / "runs"
-    latency_dir = artifacts / "latency"
     figures_dir = artifacts / "figures"
 
     available = discover_domains(runs_dir)
@@ -189,8 +187,21 @@ def main():
             print_tfa_breakdown(breakdown_df, domain)
 
     # ── LAS ─────────────────────────────────────────────────
-    lat_a = load_latency(latency_dir, "latency_unprotected_direct.csv")
-    lat_b = load_latency(latency_dir, "latency_protected.csv")
+    # Build latency DataFrames from consolidated CSVs (already filtered for
+    # adversarial/legitimate prompt_type; no health-check rows).
+    lat_frames_a, lat_frames_b = [], []
+    for domain in domains:
+        for scenario, frames in (("unprotected", lat_frames_a), ("protected", lat_frames_b)):
+            path = artifacts / f"consolidated_{domain}_{scenario}.csv"
+            if not path.exists():
+                continue
+            df = pd.read_csv(path, dtype={"run_id": str})
+            df = df[df["prompt_type"].isin(["adversarial", "legitimate"])].copy()
+            if "latency_ms" in df.columns:
+                df["latency_ms"] = pd.to_numeric(df["latency_ms"], errors="coerce")
+            frames.append(df)
+    lat_a = pd.concat(lat_frames_a, ignore_index=True) if lat_frames_a else pd.DataFrame()
+    lat_b = pd.concat(lat_frames_b, ignore_index=True) if lat_frames_b else pd.DataFrame()
     compute_las(lat_a, lat_b)
 
     # ── Segmented analysis ───────────────────────────────────

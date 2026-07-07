@@ -10,7 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import pandas as pd
-from scipy.stats import fisher_exact, mannwhitneyu
+from scipy.stats import fisher_exact
 
 from eval.constants import (
     PRIMARY_DETECTOR,
@@ -841,13 +841,12 @@ def plot_latency_histogram(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir
             label="Escenario A", density=True)
     vals_a.plot.kde(color=SCENARIO_COLORS["A"], linewidth=2, ax=ax, label="_nolegend_")
 
-    # Mean lines and stats text
-    mean_a = vals_a.mean()
-    std_a  = vals_a.std()
-    ax.axvline(mean_a, color=SCENARIO_COLORS["A"], linewidth=1.5,
+    med_a  = vals_a.median()
+    iqr_a  = vals_a.quantile(0.75) - vals_a.quantile(0.25)
+    ax.axvline(med_a, color=SCENARIO_COLORS["A"], linewidth=1.5,
                linestyle="--", alpha=0.8)
 
-    stats_text = f"Escenario A\n  media={mean_a:.0f} ms\n  desv. est.={std_a:.0f} ms"
+    stats_text = f"Escenario A\n  mediana={med_a:.0f} ms\n  IQR={iqr_a:.0f} ms"
 
     if not lat_b.empty:
         vals_b = lat_b["latency_ms"].dropna()
@@ -855,18 +854,12 @@ def plot_latency_histogram(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir
                 label="Escenario B", density=True)
         vals_b.plot.kde(color=SCENARIO_COLORS["B"], linewidth=2, ax=ax, label="_nolegend_")
 
-        mean_b = vals_b.mean()
-        std_b  = vals_b.std()
-        ax.axvline(mean_b, color=SCENARIO_COLORS["B"], linewidth=1.5,
+        med_b = vals_b.median()
+        iqr_b = vals_b.quantile(0.75) - vals_b.quantile(0.25)
+        ax.axvline(med_b, color=SCENARIO_COLORS["B"], linewidth=1.5,
                    linestyle="--", alpha=0.8)
 
-        # Mann-Whitney p-value
-        _, p_val = mannwhitneyu(vals_a.values, vals_b.values, alternative="less")
-        sig = "significativo" if p_val < 0.05 else "no significativo"
-        stats_text += (
-            f"\n\nEscenario B\n  media={mean_b:.0f} ms\n  desv. est.={std_b:.0f} ms"
-            f"\n\nMann-Whitney U\n  p={p_val:.2e}\n  ({sig}, α=0.05)"
-        )
+        stats_text += f"\n\nEscenario B\n  mediana={med_b:.0f} ms\n  IQR={iqr_b:.0f} ms"
         xmax = max(vals_a.quantile(0.999), vals_b.quantile(0.999))
     else:
         xmax = vals_a.quantile(0.999)
@@ -902,7 +895,8 @@ def plot_las_by_suite(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Pat
     setup_style()
 
     lat_a = lat_a.copy()
-    lat_a["suite"] = lat_a["suite_probe"].apply(_extract_suite)
+    if "suite_probe" in lat_a.columns:
+        lat_a["suite"] = lat_a["suite_probe"].apply(_extract_suite)
     suites_present = [s for s in VECTOR_MAP if s in lat_a["suite"].values]
     if not suites_present:
         print("  [skip] No suite information found in latency CSV.")
@@ -915,7 +909,8 @@ def plot_las_by_suite(lat_a: pd.DataFrame, lat_b: pd.DataFrame, figures_dir: Pat
         labels.append(suite)
         if not lat_b.empty:
             lat_b_copy = lat_b.copy()
-            lat_b_copy["suite"] = lat_b_copy["suite_probe"].apply(_extract_suite)
+            if "suite_probe" in lat_b_copy.columns:
+                lat_b_copy["suite"] = lat_b_copy["suite_probe"].apply(_extract_suite)
             sub_b = lat_b_copy[lat_b_copy["suite"] == suite]["latency_ms"]
             meds_b.append(sub_b.median() if not sub_b.empty else None)
         else:
@@ -959,7 +954,8 @@ def plot_latency_distribution_by_suite(lat_a: pd.DataFrame, figures_dir: Path):
     setup_style()
 
     lat_a = lat_a.copy()
-    lat_a["suite"] = lat_a["suite_probe"].apply(_extract_suite)
+    if "suite_probe" in lat_a.columns:
+        lat_a["suite"] = lat_a["suite_probe"].apply(_extract_suite)
     suites = [s for s in VECTOR_MAP if s in lat_a["suite"].values]
     data   = [lat_a[lat_a["suite"] == s]["latency_ms"].values for s in suites]
 
