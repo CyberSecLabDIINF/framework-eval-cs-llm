@@ -2,7 +2,7 @@ domain,scenario,scenario_label,prompt_type,n_rows,n_blocked,pct_blocked,garak_pa
 academic_institutional,unprotected,A,adversarial,56425,0,0.0,0.7732,56425.0,1665.05,880.82,2895.91
 academic_institutional,unprotected,A,legitimate,350,0,0.0,,,1062.32,316.57,1744.51
 academic_institutional,protected,B,adversarial,56425,38610,0.6843,1.0,56425.0,612.65,4138.16,6154.67
-academic_institutional,protected,B,legitimate,700,0,0.0,,,4065.61,411.17,4753.09
+academic_institutional,protected,B,legitimate,350,0,0.0,,,4069.86,496.77,4882.05
 regulatory_technical,unprotected,A,adversarial,56425,0,0.0,0.6987,56425.0,1370.74,973.71,3132.88
 regulatory_technical,unprotected,A,legitimate,350,0,0.0,,,1092.3,292.57,1807.88
 regulatory_technical,protected,B,adversarial,56425,38563,0.6834,1.0,56425.0,610.12,4235.31,6248.82

@@ -1,5 +1,5 @@
 domain,scenario,n,median_ms,iqr_ms,p95_ms,p99_ms
 academic_institutional,unprotected,350,1062.32,316.57,1744.51,2508.99
-academic_institutional,protected,700,4065.61,411.17,4753.09,5309.26
+academic_institutional,protected,350,4069.86,496.77,4882.05,5510.59
 regulatory_technical,unprotected,350,1092.3,292.57,1807.88,3030.22
 regulatory_technical,protected,350,3905.27,422.19,4809.0,6464.49

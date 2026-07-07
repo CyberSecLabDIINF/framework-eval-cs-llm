@@ -1,5 +1,5 @@
 domain,scenario,scenario_label,adv_n,adv_median_ms,adv_mean_ms,adv_iqr_ms,adv_p95_ms,adv_p99_ms,legit_n,legit_median_ms,legit_mean_ms,legit_iqr_ms,legit_p95_ms,legit_p99_ms,delta_median_adv_minus_legit_ms,U_stat,p_value_mw,significant_005
 academic_institutional,unprotected,A,56425,1665.05,1710.36,880.82,2895.91,3861.62,350,1062.32,1138.44,316.57,1744.51,2508.99,602.72,15484012.5,0.0,True
-academic_institutional,protected,B,56425,612.65,2547.95,4138.16,6154.67,7386.03,700,4065.61,4137.36,411.17,4753.09,5309.26,-3452.96,14881815.0,0.0,True
+academic_institutional,protected,B,56425,612.65,2547.95,4138.16,6154.67,7386.03,350,4069.86,4168.71,496.77,4882.05,5510.59,-3457.21,7263306.0,0.0,True
 regulatory_technical,unprotected,A,56425,1370.74,1509.85,973.71,3132.88,4239.81,350,1092.3,1179.41,292.57,1807.88,3030.22,278.44,12100499.0,0.0,True
 regulatory_technical,protected,B,56425,610.12,2593.15,4235.31,6248.82,7498.0,350,3905.27,4138.97,422.19,4809.0,6464.49,-3295.15,7979236.5,0.0,True
