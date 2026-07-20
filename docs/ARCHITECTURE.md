@@ -87,7 +87,9 @@ This document describes each module in `app/src/`, the Docker Compose services, 
 
 ## 3. `api/rag.py`
 
-**Purpose.** FastAPI application serving the unprotected RAG endpoint (`POST /generate`). Retrieves semantically relevant context from ChromaDB, constructs a prompt, and queries Ollama (`llama3:8b`). When `IS_PROTECTED=True` (i.e. `SCENARIO=protected`), also applies six in-process defence controls (C4, C8, C9, C11, C12, C17) before returning a response. These controls are bypassed when the request was already filtered by Shield (`x-forwarded-by: shield` header), preventing double-logging.
+**Purpose.** FastAPI application serving the unprotected RAG endpoint (`POST /generate`). Retrieves semantically relevant context from ChromaDB, constructs a prompt, and queries Ollama (`llama3:8b`). When `IS_PROTECTED=True` (i.e. `SCENARIO=protected`), also applies six in-process defence controls (C4, C8, C9, C11, C12, C17) before returning a response. Requests forwarded by Shield (`x-forwarded-by: shield` header) still go through these same `IS_PROTECTED` gated checks; only their consolidated-CSV logging is skipped, to avoid double-counting a request already logged by `shield_api`.
+
+> **Deployment caveat.** `docker-compose.yml` sets `SCENARIO=unprotected` as a fixed, non-interpolated value on the `rag_api` service, and this is the only `rag_api` definition in the repository — it does not change between Scenario A and Scenario B runs (Scenario B only redirects Garak's target to `shield_api`, which proxies to this same `rag_api` container). Consequently `IS_PROTECTED` evaluates `False` inside `rag_api` in every deployed configuration, and the `IS_PROTECTED`-gated controls described above (C4, C8's retrieval `where_filter`, C9, C11, C12, C17's blocking branch, and C32) do not execute their blocking/filtering logic in any current experimental run, including runs labeled Scenario B. See `docs/CONTROL_AUDIT_REPORT.md` for the empirical confirmation (zero matching `block_reason` values across all four consolidated CSVs) and its implications.
 
 **Key functions / classes.**
 
@@ -180,13 +182,14 @@ This document describes each module in `app/src/`, the Docker Compose services, 
 
 **Purpose.** Thread-safe CSV writer providing the single append path (`log_request`) for all `/generate` responses — both from `rag.py` and `shield.py`. Also provides `patch_garak_passed()`, which back-fills the `garak_passed` column by parsing Garak's `*.report.jsonl` after an attack run completes. The consolidated CSV is the primary input for all downstream analysis.
 
-**CSV schema (`COLUMNS`).**
+**CSV schema (`COLUMNS`, 23 columns).**
 
 ```
 timestamp, scenario, domain, prompt_type, probe, suite, subdimension, repetition,
 prompt, response, latency_ms, should_block, was_blocked, scanner_triggered,
 block_reason, input_scanner_score, output_scanner_score, garak_passed,
-response_has_confidential, run_id
+response_has_confidential, grounding_ratio, run_id, response_has_system_prompt,
+injection_followed, rogue_string_found
 ```
 
 **Key functions.**
@@ -491,6 +494,7 @@ response_has_confidential, run_id
 - Creates `artifacts/latency/` and `artifacts/runs/` before starting.
 - Health-checked every 10 s (12 retries) via Python `urllib`.
 - **Key env vars:** `SCENARIO=unprotected`, `DATASET_TAG`, `OLLAMA_HOST=http://ollama_core:11434`, `CHROMA_PATH`, `CONSOLIDATED_CSV`, `LATENCY_CSV_DIRECT`, `LATENCY_CSV_VIA_SHIELD`.
+- `SCENARIO=unprotected` is a fixed literal in this service definition; there is no override for Scenario B. Scenario B is achieved solely by pointing Garak at `shield_api` instead of `rag_api` (see the deployment caveat in section 3, `api/rag.py`).
 
 #### `shield_api` (profile: `lab`, port 8001)
 
@@ -515,6 +519,10 @@ response_has_confidential, run_id
 
 - `ollama_bootstrap`: used to pull the Ollama model into the shared volume.
 - `chroma_bootstrap`: pre-caches ONNX embedding model weights for ChromaDB.
+
+### Orchestration (`llmsec.sh`)
+
+`llmsec.sh`, at the repository root, wraps all `docker compose` invocations above so that no `docker compose` command needs to be typed directly. It selects the correct `--env-file` per domain, brings the `lab` profile up before running `attacks`, retries aborted Garak runs (fewer than 55 JSONL files), and re-ingests the ChromaDB collection when it is found empty or missing expected `[CONFIDENTIAL]` fragments. See the top-level `CLAUDE.md` for the full subcommand table (`run`, `run-scenario`, `smoke`, `process`, `reload`, `shell`, `new`).
 
 ### Networks
 
@@ -864,6 +872,13 @@ docker compose --profile attacks run --rm garak_runner analyze metrics backfill-
 - `patch_garak_passed` — fills empty `garak_passed` cells
 - `backfill_llm01_attack_success` — adds `rogue_string_found` column
 - `backfill_raw_scores` — overwrites `input_scanner_score`, `output_scanner_score`
+
+**Standalone one-time scripts (`app/src/eval/`, not wired into `process_results.py`):**
+
+| Script | Description |
+|--------|-------------|
+| `backfill_scenario_a.py` | Backfills `response_has_system_prompt` and `injection_followed` into consolidated CSVs written before those columns existed; skips CSVs that already have them. Usage: `python eval/backfill_scenario_a.py --artifacts artifacts/`. |
+| `fix_scanner_scores.py` | Corrects `input_scanner_score`/`output_scanner_score` in protected CSVs affected by a since-fixed scoring bug in `shield.py` (`_raw_score_from_risk()` assumed a `[-1,1]` risk range; llm-guard 0.3.16 already returns raw `[0,1]` probabilities). Inverts the distortion for rows where the stored score is at or above the scanner's threshold. |
 
 ---
 

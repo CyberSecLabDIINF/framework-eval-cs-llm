@@ -2,19 +2,25 @@
 """
 Generación de gráficos PCC a partir de controles_llmsec.csv
 
-Produce DOCE figuras distribuidas según el análisis requerido:
-- 4 Gráficos de barras individuales (Ecosistema Global)
-- 4 Gráficos de torta individuales con leyendas (Solo Verificables de Laboratorio)
-- 4 Gráficos de barras dobles comparativas (Totalidad vs Verificables)
+Produce TRECE figuras distribuidas según el análisis requerido:
+- 4 Gráficos de barras individuales (Ecosistema Global — los 62 controles)
+- 4 Gráficos de torta individuales con leyendas (Solo Verificables hasta N3)
+- 5 Gráficos de barras dobles comparativas (Totalidad vs Verificables)
+
+El universo "Solo Verificables" es el subconjunto Config/Exp de nivel <= N3
+(ver ``filtrar_verificables_hasta_n3``), NO la columna ``Verificable_Lab``
+tal cual — esa columna también marca "Sí" en controles de nivel N4 (p. ej.
+C24) que quedan fuera del nivel verificado del sistema (N3) y no deben
+contarse en el denominador del PCC "solo verificables".
 
 Figuras generadas:
-[Globales - Barras]
+[Globales - Barras, universo completo: 62 controles]
 1. pcc_fuente_evidencia.png
 2. pcc_subdimension.png
 3. pcc_nivel.png
 4. pcc_funcional.png
 
-[Verificables - Tortas]
+[Verificables - Tortas, universo Config/Exp hasta N3: 26 controles]
 5. pcc_fuente_evidencia_verificables.png
 6. pcc_subdimension_verificables.png
 7. pcc_nivel_verificables.png
@@ -25,6 +31,7 @@ Figuras generadas:
 10. pcc_comparativa_subdimension.png
 11. pcc_comparativa_nivel.png
 12. pcc_comparativa_funcional.png
+13. pcc_comparativa_universo_global.png
 """
 
 import os
@@ -65,6 +72,25 @@ TITLES = {
     "Nivel": "Nivel",
     "Tipo_Funcional": "Tipo funcional"
 }
+
+# Universo "verificable en laboratorio hasta N3": el PCC del Capítulo 5 se
+# calcula sobre los controles Config/Exp de nivel <= N3 (el nivel verificado
+# del sistema es N3). NO se usa la columna Verificable_Lab directamente para
+# este corte, porque esa columna también marca como "Sí" controles de nivel
+# N4 con evidencia Experimental (p. ej. C24, D4-N4), que quedan fuera del
+# nivel verificado y por tanto no deben integrar el denominador del PCC
+# "solo verificables". Ver AUDIT.md / conteo de 26 controles únicos, 33
+# aplicaciones.
+FUENTES_VERIFICABLES_HASTA_N3 = ["Configuración", "Experimental"]
+NIVELES_HASTA_N3 = ["N1", "N2", "N3"]
+
+
+def filtrar_verificables_hasta_n3(df):
+    """Subconjunto Config/Exp de nivel <= N3: universo del PCC 'solo verificables'."""
+    return df[
+        df["Fuente_Evidencia"].isin(FUENTES_VERIFICABLES_HASTA_N3)
+        & df["Nivel"].isin(NIVELES_HASTA_N3)
+    ].copy()
 
 
 # ------------------------------------------------------------
@@ -108,6 +134,15 @@ def calculate(df, column, sep=None):
         metrics[column] = pd.Categorical(metrics[column], categories=ORDERS[column], ordered=True)
         metrics = metrics.sort_values(column)
     return metrics
+
+
+def calculate_global(df):
+    """PCC agregado sobre controles únicos (sin explotar por subdimensión),
+    para la comparativa de universo global (totalidad vs. solo verificables)."""
+    total = len(df)
+    implementados = int((df["Implementado"] == "Sí").sum())
+    pcc = round(implementados / total * 100, 2) if total else 0.0
+    return implementados, total, pcc
 
 
 # ------------------------------------------------------------
@@ -232,6 +267,49 @@ def plot_comparativo_universos(df_all, df_ver, column, outfile, title, sep=None)
     print("Guardado (Comparativo):", outfile)
 
 
+def plot_comparativo_global(df_all, df_ver, outfile, title):
+    """Barra comparativa de un solo corte: PCC agregado (controles únicos,
+    sin explotar por subdimensión) -- Totalidad de Controles (62) vs.
+    Solo Verificables hasta N3 (26)."""
+    impl_all, total_all, pcc_all = calculate_global(df_all)
+    impl_ver, total_ver, pcc_ver = calculate_global(df_ver)
+
+    combined = pd.DataFrame({
+        "Universo": ["Totalidad de Controles\n(62 controles)", "Solo Verificables hasta N3\n(26 controles)"],
+        "PCC": [pcc_all, pcc_ver],
+    })
+
+    plt.figure(figsize=(7, 5))
+    ax = sns.barplot(
+        data=combined,
+        x="Universo",
+        y="PCC",
+        hue="Universo",
+        palette=[PALETA_COLORES[0], PALETA_COLORES[3]],
+        legend=False,
+    )
+
+    ax.set_title(title, weight="bold", pad=15)
+    ax.set_ylabel("PCC (%)")
+    ax.set_xlabel("")
+    ax.set_ylim(0, 110)
+
+    for p in ax.patches:
+        h = p.get_height()
+        if h >= 0 and not pd.isna(h):
+            ax.annotate(
+                f"{h:.2f}".replace(".", ",") + " %",
+                (p.get_x() + p.get_width() / 2., h),
+                ha='center', va='bottom', xytext=(0, 3),
+                textcoords='offset points', fontsize=10, color='black', weight='bold'
+            )
+
+    plt.tight_layout()
+    plt.savefig(outfile, dpi=300)
+    plt.close()
+    print("Guardado (Comparativo Global):", outfile)
+
+
 # ------------------------------------------------------------
 # FUNCIÓN PRINCIPAL (PROCESAMIENTO SECUENCIAL EXPLÍCITO)
 # ------------------------------------------------------------
@@ -245,9 +323,9 @@ def main():
     os.makedirs(figures, exist_ok=True)
 
     df = load_data(csv_file)
-    df_ver = df[df["Verificable_Lab"] == "Sí"].copy()
+    df_ver = filtrar_verificables_hasta_n3(df)
 
-    print("=== Iniciando Generación de Reportes Visuales (12 Figuras Completas) ===\n")
+    print("=== Iniciando Generación de Reportes Visuales (13 Figuras Completas) ===\n")
 
     # --- BLOQUE 1: 4 GRÁFICOS DE BARRAS GLOBALES (TODO EL UNIVERSO) ---
     print("[1/3] Generando gráficos globales en barras...")
@@ -294,7 +372,14 @@ def main():
         title="Comparativa PCC por Tipo Funcional"
     )
 
-    print(f"\n[ÉXITO TOTAL] Las 12 figuras se guardaron perfectamente en: {figures}")
+    # 13. Comparativa Universo Global (agregado, controles únicos, sin explotar)
+    plot_comparativo_global(
+        df_all=df, df_ver=df_ver,
+        outfile=os.path.join(figures, "pcc_comparativa_universo_global.png"),
+        title="Comparativa PCC — Universo Global"
+    )
+
+    print(f"\n[ÉXITO TOTAL] Las 13 figuras se guardaron perfectamente en: {figures}")
 
 
 # ------------------------------------------------------------
