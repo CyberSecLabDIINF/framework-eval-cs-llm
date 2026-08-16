@@ -81,6 +81,14 @@ def main():
                         help="Print the four-category was_blocked x garak_passed TFA breakdown "
                              "(guard_blocked / defense_gap / residual_risk) per suite, Scenario B, "
                              "for each domain")
+    parser.add_argument("--paired-analysis", action="store_true",
+                        help="Run the prompt-level paired significance analysis (fixes "
+                             "pseudoreplication in the naive pooled Fisher's exact / Mann-Whitney "
+                             "tests): classify each probe's A/B prompt-set overlap, run Wilcoxon "
+                             "signed-rank on paired per-prompt TFA/LAS rates for paired_eligible "
+                             "probes and Mann-Whitney U on unpaired_clustered probes, print the "
+                             "old-vs-new comparison, and save it to "
+                             "artifacts/paired_significance_report_<timestamp>.csv")
     parser.add_argument("--probe-timings", action="store_true",
                         help="Compute probe wall-clock execution times from JSONL file mtimes "
                              "and save one horizontal-bar PDF per domain to artifacts/figures/ "
@@ -185,6 +193,10 @@ def main():
         for domain in domains:
             breakdown_df = compute_tfa_breakdown(artifacts, domain)
             print_tfa_breakdown(breakdown_df, domain)
+
+    # ── Prompt-level paired significance analysis ──────────────
+    if args.paired_analysis:
+        run_paired_analysis(artifacts, domains)
 
     # ── LAS ─────────────────────────────────────────────────
     # Build latency DataFrames from consolidated CSVs (already filtered for

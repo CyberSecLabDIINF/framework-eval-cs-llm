@@ -12,7 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import pandas as pd
-from scipy.stats import fisher_exact, mannwhitneyu, spearmanr
+from scipy.stats import combine_pvalues, fisher_exact, mannwhitneyu, spearmanr, wilcoxon
 
 from eval.constants import (
     PRIMARY_DETECTOR,
@@ -48,6 +48,26 @@ PII_PATTERNS = {
     "password":     r"(?i)(?:contrase[nñ]a|password|clave)\s*[:=]\s*\S+",
     "tarjeta":      r"\b(?:\d{4}[\s\-]?){3}\d{4}\b",
 }
+
+# Ground-truth column and invert flag per OWASP suite, shared by
+# compute_tfa_by_suite, compute_tfa_breakdown, and the prompt-level paired
+# analysis functions (compute_tfa_paired_by_prompt / _unpaired_clustered).
+# A raw column value of 1 means the attack succeeded, for all four suites.
+SUITE_METRIC = {
+    "LLM01": ("rogue_string_found",          True),
+    "LLM02": ("response_has_confidential",   True),
+    "LLM07": ("response_has_system_prompt",  True),
+    "LLM08": ("injection_followed",          True),
+}
+
+# Minimum Jaccard overlap (|A∩B| / |A∪B|) of exact prompt text between
+# Scenario A and B, per (suite, probe), for that probe to be treated as
+# paired_eligible (same prompts, safe to pair by text). Below this, Garak
+# resampled its payload/template space independently per invocation (no
+# shared seed between the two garak_runner processes), so A and B are two
+# independent draws rather than the same units measured twice — see
+# classify_probe_pairing.
+PROBE_PAIRING_OVERLAP_THRESHOLD = 90.0
 
 
 # ─────────────────────────────────────────────
@@ -222,12 +242,6 @@ def compute_tfa_by_suite(df: pd.DataFrame, suite: str) -> float:
             with a message indicating which column is needed and how to
             populate it.
     """
-    SUITE_METRIC = {
-        "LLM01": ("rogue_string_found",          True),
-        "LLM02": ("response_has_confidential",   True),
-        "LLM07": ("response_has_system_prompt",  True),
-        "LLM08": ("injection_followed",          True),
-    }
     if suite not in SUITE_METRIC:
         raise ValueError(
             f"Unsupported suite '{suite}'. "
@@ -434,13 +448,6 @@ def compute_tfa_breakdown(artifacts_dir: Path, domain: str) -> pd.DataFrame:
         ``defense_gap_pct``, ``residual_risk``, ``residual_risk_pct``. Empty
         (but correctly-columned) when Scenario B data is unavailable.
     """
-    _SUITE_METRIC = {
-        "LLM01": ("rogue_string_found",         True),
-        "LLM02": ("response_has_confidential",  True),
-        "LLM07": ("response_has_system_prompt", True),
-        "LLM08": ("injection_followed",         True),
-    }
-
     columns = [
         "suite", "total", "guard_blocked", "guard_blocked_pct",
         "defense_gap", "defense_gap_pct", "residual_risk", "residual_risk_pct",
@@ -452,9 +459,9 @@ def compute_tfa_breakdown(artifacts_dir: Path, domain: str) -> pd.DataFrame:
 
     rows = []
     for suite in sorted(df["suite"].dropna().unique()):
-        if suite not in _SUITE_METRIC:
+        if suite not in SUITE_METRIC:
             continue
-        col, _ = _SUITE_METRIC[suite]
+        col, _ = SUITE_METRIC[suite]
 
         if col not in df.columns:
             print(f"  [WARN] compute_tfa_breakdown: column '{col}' not found for suite "
@@ -514,6 +521,361 @@ def print_tfa_breakdown(breakdown_df: pd.DataFrame, domain: str):
               f"{r['guard_blocked_pct']*100:>6.1f}% {r['defense_gap']:>8} "
               f"{r['defense_gap_pct']*100:>6.1f}% {r['residual_risk']:>8} "
               f"{r['residual_risk_pct']*100:>6.1f}%")
+
+
+# ─────────────────────────────────────────────
+# Prompt-level paired significance analysis
+# ─────────────────────────────────────────────
+#
+# compute_tfa_by_suite / the segmented Fisher's exact test pool every
+# repetition x generation observation per suite into a single contingency
+# table, treating ~9-25 correlated draws per base prompt as independent
+# trials (pseudoreplication). The functions below instead aggregate per
+# prompt within each scenario and compare at the prompt level.
+#
+# That fix only holds if the same prompt (by exact text) was actually drawn
+# in both Scenario A and B. classify_probe_pairing found that several Garak
+# probes resample their payload/template space independently per
+# garak_runner invocation (no shared seed across separate processes), so
+# for those probes A and B are two independent samples from the same
+# generative distribution, not the same units measured twice. Pairing by
+# text there would silently keep only the coincidental intersection.
+# compute_tfa_paired_by_prompt is only valid for paired_eligible probes;
+# compute_tfa_unpaired_clustered is the fallback for unpaired_clustered
+# probes, still aggregating by prompt (to fix the pseudoreplication) but
+# comparing the two per-scenario rate distributions as independent samples
+# (Mann-Whitney U) instead of pairing them.
+
+def _combine_pvalues_fisher(pvalues: list) -> tuple:
+    """Fisher's method across independent p-values, guarding against
+    log(0): a p-value that has underflowed to exactly 0.0 (common with
+    highly significant Wilcoxon/Mann-Whitney results at these sample sizes)
+    would otherwise make combine_pvalues emit a RuntimeWarning from
+    log(0) = -inf. Clipping to float64's smallest positive normal value
+    changes the combined statistic negligibly but keeps it finite.
+
+    Returns (statistic, pvalue) as floats.
+    """
+    import numpy as np
+    clipped = [max(p, np.finfo(float).tiny) for p in pvalues]
+    stat, p = combine_pvalues(clipped, method="fisher")
+    return float(stat), float(p)
+
+
+def classify_probe_pairing(df_a: pd.DataFrame, df_b: pd.DataFrame) -> pd.DataFrame:
+    """Classify each (suite, probe) by Jaccard overlap of exact prompt text
+    between Scenario A and B, restricted to adversarial rows.
+
+    overlap_pct = |A∩B| / |A∪B| * 100. Probes at or above
+    PROBE_PAIRING_OVERLAP_THRESHOLD are "paired_eligible" (same prompt set,
+    safe to pair by exact text); probes below it are "unpaired_clustered"
+    (A and B must be treated as independent samples — see module docstring
+    above for why).
+
+    Args:
+        df_a: Consolidated CSV for Scenario A, as returned by load_consolidated.
+        df_b: Consolidated CSV for Scenario B.
+
+    Returns:
+        DataFrame with columns: suite, probe, n_a, n_b, n_common, overlap_pct,
+        bucket. One row per (suite, probe) present in either scenario. Empty
+        DataFrame (same columns) if both inputs are empty.
+    """
+    columns = ["suite", "probe", "n_a", "n_b", "n_common", "overlap_pct", "bucket"]
+    if df_a.empty and df_b.empty:
+        return pd.DataFrame(columns=columns)
+
+    adv_a = df_a[df_a["prompt_type"] == "adversarial"] if not df_a.empty else df_a
+    adv_b = df_b[df_b["prompt_type"] == "adversarial"] if not df_b.empty else df_b
+
+    pairs = set()
+    for sub in (adv_a, adv_b):
+        if sub.empty:
+            continue
+        pairs |= set(sub[["suite", "probe"]].dropna().itertuples(index=False, name=None))
+
+    rows = []
+    for suite, probe in sorted(pairs):
+        pa = set(adv_a[(adv_a["suite"] == suite) & (adv_a["probe"] == probe)]["prompt"].dropna()) \
+            if not adv_a.empty else set()
+        pb = set(adv_b[(adv_b["suite"] == suite) & (adv_b["probe"] == probe)]["prompt"].dropna()) \
+            if not adv_b.empty else set()
+        common = pa & pb
+        union = pa | pb
+        overlap_pct = len(common) / len(union) * 100 if union else float("nan")
+        bucket = ("paired_eligible" if not pd.isna(overlap_pct)
+                  and overlap_pct >= PROBE_PAIRING_OVERLAP_THRESHOLD
+                  else "unpaired_clustered")
+        rows.append({
+            "suite": suite, "probe": probe,
+            "n_a": len(pa), "n_b": len(pb), "n_common": len(common),
+            "overlap_pct": round(overlap_pct, 2) if not pd.isna(overlap_pct) else None,
+            "bucket": bucket,
+        })
+    return pd.DataFrame(rows, columns=columns)
+
+
+def print_probe_pairing_classification(classification_df: pd.DataFrame, domain: str):
+    """Print the per-(suite, probe) pairing classification table for one domain."""
+    print(f"\n{'='*70}")
+    print(f"  PROBE PAIRING CLASSIFICATION — {domain.upper()}")
+    print(f"  paired_eligible (overlap >= {PROBE_PAIRING_OVERLAP_THRESHOLD:.0f}%) vs unpaired_clustered")
+    print(f"{'='*70}")
+    if classification_df.empty:
+        print("  [WARN] No data.")
+        return
+    print(f"\n  {'Suite':6s} {'Probe':45s} {'n_A':>6} {'n_B':>6} {'common':>7} "
+          f"{'overlap%':>9} {'bucket':>20}")
+    print(f"  {'-'*104}")
+    for _, r in classification_df.iterrows():
+        ov = f"{r['overlap_pct']:.1f}" if r["overlap_pct"] is not None else "N/A"
+        print(f"  {r['suite']:6s} {r['probe']:45s} {r['n_a']:>6} {r['n_b']:>6} "
+              f"{r['n_common']:>7} {ov:>9} {r['bucket']:>20}")
+
+
+def _per_prompt_rate(df: pd.DataFrame, suite: str, col: str,
+                      probe: str | None = None) -> pd.Series:
+    """Attack-success rate (mean of the raw ground-truth column, 1=succeeded)
+    per unique prompt, for one suite (optionally restricted to one probe)."""
+    sub = df[(df["suite"] == suite) & (df["prompt_type"] == "adversarial")]
+    if probe is not None:
+        sub = sub[sub["probe"] == probe]
+    if sub.empty or col not in sub.columns:
+        return pd.Series(dtype=float)
+    values = pd.to_numeric(sub[col], errors="coerce")
+    return values.groupby(sub["prompt"]).mean().dropna()
+
+
+def compute_tfa_paired_by_prompt(df_a: pd.DataFrame, df_b: pd.DataFrame,
+                                  suite: str, probe: str | None = None) -> dict:
+    """Prompt-level paired significance test for the effect of the defense
+    layer on TFA, for probes where Scenario A and B drew the same prompts
+    (paired_eligible per classify_probe_pairing).
+
+    Aggregates per-prompt attack-success rate (mean of the suite's raw
+    ground-truth column, over that prompt's repeated draws) within each
+    scenario, intersects prompts by exact text across A and B, and runs a
+    Wilcoxon signed-rank test on the paired per-prompt rates. The prompt is
+    the unit of analysis (independent), not the individual observation.
+
+    Do not call this for probes classified unpaired_clustered — the
+    intersection would keep only the coincidental subset of prompts that
+    happened to be resampled identically, biasing the sample. Use
+    compute_tfa_unpaired_clustered instead.
+
+    Args:
+        df_a: Consolidated CSV for Scenario A (adversarial + legitimate rows;
+            filtered internally to adversarial + suite [+ probe]).
+        df_b: Consolidated CSV for Scenario B.
+        suite: One of "LLM01", "LLM02", "LLM07", "LLM08".
+        probe: Optional full probe name to restrict to a single probe within
+            the suite. When None, uses all probes present for the suite —
+            only safe if every probe in the suite is paired_eligible.
+
+    Returns:
+        Dict with: suite, probe, n_prompts (paired clusters used in the
+        test), n_dropped (prompts present in only A or only B, excluded),
+        pct_dropped, n_raw_pooled_a, n_raw_pooled_b (row counts, for
+        comparison against the old naive pooled n), median_rate_a,
+        median_rate_b, wilcoxon_statistic, wilcoxon_pvalue, n_ties_excluded,
+        method="wilcoxon_paired". When every paired difference is zero,
+        scipy's wilcoxon raises — that case is caught and returned with
+        wilcoxon_statistic=None, wilcoxon_pvalue=None, and a
+        no_variation=True flag instead of crashing.
+    """
+    col, _ = SUITE_METRIC[suite]
+
+    rate_a = _per_prompt_rate(df_a, suite, col, probe)
+    rate_b = _per_prompt_rate(df_b, suite, col, probe)
+
+    n_raw_pooled_a = len(df_a[(df_a["suite"] == suite) & (df_a["prompt_type"] == "adversarial")
+                               & (df_a["probe"] == probe if probe else True)])
+    n_raw_pooled_b = len(df_b[(df_b["suite"] == suite) & (df_b["prompt_type"] == "adversarial")
+                               & (df_b["probe"] == probe if probe else True)])
+
+    common_prompts = rate_a.index.intersection(rate_b.index)
+    n_a, n_b = len(rate_a), len(rate_b)
+    n_common = len(common_prompts)
+    n_dropped = (n_a + n_b) - 2 * n_common
+    pct_dropped = n_dropped / (n_a + n_b) * 100 if (n_a + n_b) > 0 else float("nan")
+
+    result = {
+        "suite": suite, "probe": probe,
+        "n_prompts": n_common,
+        "n_dropped": n_dropped, "pct_dropped": round(pct_dropped, 2) if not pd.isna(pct_dropped) else None,
+        "n_raw_pooled_a": n_raw_pooled_a, "n_raw_pooled_b": n_raw_pooled_b,
+        "median_rate_a": None, "median_rate_b": None,
+        "wilcoxon_statistic": None, "wilcoxon_pvalue": None,
+        "n_ties_excluded": None, "no_variation": False,
+        "method": "wilcoxon_paired",
+    }
+
+    if n_common == 0:
+        return result
+
+    a_vals = rate_a.loc[common_prompts]
+    b_vals = rate_b.loc[common_prompts]
+    result["median_rate_a"] = float(a_vals.median())
+    result["median_rate_b"] = float(b_vals.median())
+
+    diffs = b_vals.values - a_vals.values
+    result["n_ties_excluded"] = int((diffs == 0).sum())
+
+    if (diffs == 0).all():
+        result["no_variation"] = True
+        return result
+
+    try:
+        stat, p = wilcoxon(a_vals.values, b_vals.values)
+        result["wilcoxon_statistic"] = float(stat)
+        result["wilcoxon_pvalue"] = float(p)
+    except ValueError:
+        result["no_variation"] = True
+
+    return result
+
+
+def compute_tfa_unpaired_clustered(df_a: pd.DataFrame, df_b: pd.DataFrame,
+                                    suite: str, probe: str | None = None) -> dict:
+    """Prompt-level significance test for the effect of the defense layer on
+    TFA, for probes where Scenario A and B are independent samples from the
+    same generative distribution (unpaired_clustered per
+    classify_probe_pairing — Garak resampled its payload/template space
+    independently per invocation, so exact-text pairing is not valid).
+
+    Aggregates per-prompt attack-success rate within each scenario
+    separately (no intersection by text — the two scenarios' prompt sets
+    are treated as distinct draws), then compares the two independent rate
+    distributions with a Mann-Whitney U test. Same principle already used
+    for LAS (compute_las) applied here to per-prompt rates instead of raw
+    observations, fixing the pseudoreplication without assuming a pairing
+    that the data does not support.
+
+    Args:
+        df_a: Consolidated CSV for Scenario A.
+        df_b: Consolidated CSV for Scenario B.
+        suite: One of "LLM01", "LLM02", "LLM07", "LLM08".
+        probe: Optional full probe name to restrict to a single probe.
+
+    Returns:
+        Dict with: suite, probe, n_prompts_a, n_prompts_b (independent
+        cluster counts — no pairing, so no single n_prompts), n_raw_pooled_a,
+        n_raw_pooled_b, median_rate_a, median_rate_b, mannwhitney_statistic,
+        mannwhitney_pvalue, method="mannwhitney_unpaired". mannwhitney_*
+        are None when either side has zero prompts.
+    """
+    col, _ = SUITE_METRIC[suite]
+
+    rate_a = _per_prompt_rate(df_a, suite, col, probe)
+    rate_b = _per_prompt_rate(df_b, suite, col, probe)
+
+    n_raw_pooled_a = len(df_a[(df_a["suite"] == suite) & (df_a["prompt_type"] == "adversarial")
+                               & (df_a["probe"] == probe if probe else True)])
+    n_raw_pooled_b = len(df_b[(df_b["suite"] == suite) & (df_b["prompt_type"] == "adversarial")
+                               & (df_b["probe"] == probe if probe else True)])
+
+    result = {
+        "suite": suite, "probe": probe,
+        "n_prompts_a": len(rate_a), "n_prompts_b": len(rate_b),
+        "n_raw_pooled_a": n_raw_pooled_a, "n_raw_pooled_b": n_raw_pooled_b,
+        "median_rate_a": None, "median_rate_b": None,
+        "mannwhitney_statistic": None, "mannwhitney_pvalue": None,
+        "method": "mannwhitney_unpaired",
+    }
+
+    if rate_a.empty or rate_b.empty:
+        return result
+
+    result["median_rate_a"] = float(rate_a.median())
+    result["median_rate_b"] = float(rate_b.median())
+
+    stat, p = mannwhitneyu(rate_a.values, rate_b.values)
+    result["mannwhitney_statistic"] = float(stat)
+    result["mannwhitney_pvalue"] = float(p)
+
+    return result
+
+
+def compute_tfa_paired_analysis_for_suite(df_a: pd.DataFrame, df_b: pd.DataFrame,
+                                           suite: str,
+                                           classification_df: pd.DataFrame) -> dict:
+    """Route every probe in `suite` to the correct test per its
+    classify_probe_pairing bucket, then combine the per-probe p-values into
+    one suite-level result.
+
+    A suite may mix paired_eligible and unpaired_clustered probes (LLM02
+    does, in both domains — see classify_probe_pairing). Wilcoxon and
+    Mann-Whitney statistics are not directly poolable across probes, so the
+    suite-level p-value is obtained via Fisher's method
+    (scipy.stats.combine_pvalues), which combines p-values from independent
+    tests (each probe's data is independent of the others') without
+    requiring them to share a test statistic. This is only valid when every
+    per-probe test actually ran (skipped when the suite has zero probes with
+    a result).
+
+    Args:
+        df_a: Consolidated CSV for Scenario A.
+        df_b: Consolidated CSV for Scenario B.
+        suite: One of "LLM01", "LLM02", "LLM07", "LLM08".
+        classification_df: Result of classify_probe_pairing(df_a, df_b) for
+            the same domain.
+
+    Returns:
+        Dict with: suite, per_probe (list of the individual
+        compute_tfa_paired_by_prompt / compute_tfa_unpaired_clustered result
+        dicts, each carrying its own "method"), n_prompts_total (sum across
+        probes; paired and unpaired counts are not the same quantity — see
+        each probe's dict for n_prompts vs n_prompts_a/n_prompts_b),
+        combined_pvalue (Fisher's method across probes with a non-null
+        p-value; None if fewer than one probe produced a p-value),
+        combined_statistic, methods_used (sorted set of methods
+        contributing), pct_prompts_paired (share of n_prompts_total handled
+        by wilcoxon_paired, by prompt-count).
+    """
+    suite_probes = classification_df[classification_df["suite"] == suite]
+    per_probe = []
+    for _, row in suite_probes.iterrows():
+        probe = row["probe"]
+        if row["bucket"] == "paired_eligible":
+            r = compute_tfa_paired_by_prompt(df_a, df_b, suite, probe=probe)
+        else:
+            r = compute_tfa_unpaired_clustered(df_a, df_b, suite, probe=probe)
+        r["bucket"] = row["bucket"]
+        per_probe.append(r)
+
+    pvalues, weights_n = [], []
+    n_prompts_total = 0
+    n_prompts_paired = 0
+    for r in per_probe:
+        if r["method"] == "wilcoxon_paired":
+            n = r["n_prompts"]
+            n_prompts_total += n
+            n_prompts_paired += n
+            if r["wilcoxon_pvalue"] is not None:
+                pvalues.append(r["wilcoxon_pvalue"])
+        else:
+            n = r["n_prompts_a"] + r["n_prompts_b"]
+            n_prompts_total += n
+            if r["mannwhitney_pvalue"] is not None:
+                pvalues.append(r["mannwhitney_pvalue"])
+
+    combined_pvalue = combined_statistic = None
+    if len(pvalues) >= 1:
+        if len(pvalues) == 1:
+            combined_pvalue = pvalues[0]
+        else:
+            combined_statistic, combined_pvalue = _combine_pvalues_fisher(pvalues)
+
+    return {
+        "suite": suite,
+        "per_probe": per_probe,
+        "n_prompts_total": n_prompts_total,
+        "combined_statistic": combined_statistic,
+        "combined_pvalue": combined_pvalue,
+        "methods_used": sorted({r["method"] for r in per_probe}),
+        "pct_prompts_paired": round(n_prompts_paired / n_prompts_total * 100, 2)
+                               if n_prompts_total > 0 else None,
+    }
 
 
 # ─────────────────────────────────────────────
@@ -598,6 +960,606 @@ def compute_las(lat_a: pd.DataFrame, lat_b: pd.DataFrame):
                 continue
             delta = sub_b.median() - sub_a.median()
             print(f"  {domain:35s} {sub_a.median():>8.3f} {sub_b.median():>8.3f} {delta:>+8.3f}")
+
+
+# ─────────────────────────────────────────────
+# LAS — prompt-level paired significance analysis
+# ─────────────────────────────────────────────
+#
+# compute_las (_print_las_block) runs Mann-Whitney U on every individual
+# request's latency_ms, pooling repetitions/generations per prompt just like
+# the naive TFA Fisher's exact test does — same pseudoreplication issue. The
+# functions below aggregate median latency per prompt first. For adversarial
+# rows the same probe-level pairing validity applies as for TFA (see
+# classify_probe_pairing): only paired_eligible probes can be pooled by
+# exact-text pairing. Legitimate rows use a fixed per-domain prompt set
+# (verified separately: Scenario B's legitimate prompt set is a strict
+# subset of Scenario A's, so pairing on the common subset is always valid
+# there — just report n_dropped for the A-only prompts).
+
+def _per_prompt_median_latency(df: pd.DataFrame, prompt_type: str,
+                                suite: str | None = None,
+                                probe: str | None = None) -> pd.Series:
+    """Median latency_ms per unique prompt, for one prompt_type (optionally
+    restricted to one suite and/or probe)."""
+    sub = df[df["prompt_type"] == prompt_type]
+    if suite is not None:
+        sub = sub[sub["suite"] == suite]
+    if probe is not None:
+        sub = sub[sub["probe"] == probe]
+    if sub.empty or "latency_ms" not in sub.columns:
+        return pd.Series(dtype=float)
+    values = pd.to_numeric(sub["latency_ms"], errors="coerce")
+    return values.groupby(sub["prompt"]).median().dropna()
+
+
+def compute_las_paired_by_prompt(df_a: pd.DataFrame, df_b: pd.DataFrame,
+                                  prompt_type: str = "adversarial",
+                                  suite: str | None = None,
+                                  probe: str | None = None) -> dict:
+    """Prompt-level paired significance test for LAS, for prompts where
+    Scenario A and B used the same prompt set (paired_eligible per
+    classify_probe_pairing, when suite/probe is given; always valid for
+    prompt_type="legitimate" since B's legitimate set is a subset of A's).
+
+    Aggregates median latency_ms per prompt within each scenario, intersects
+    by exact prompt text, and runs a Wilcoxon signed-rank test on the paired
+    per-prompt medians.
+
+    Args:
+        df_a: Consolidated CSV for Scenario A (single domain).
+        df_b: Consolidated CSV for Scenario B (single domain).
+        prompt_type: "adversarial" or "legitimate".
+        suite: Optional OWASP suite to restrict to (adversarial only).
+        probe: Optional full probe name to restrict to (adversarial only).
+
+    Returns:
+        Same shape as compute_tfa_paired_by_prompt, with
+        median_latency_a/median_latency_b in place of median_rate_a/b, plus
+        prompt_type. wilcoxon_statistic/pvalue are None and no_variation=True
+        when every paired difference is zero or wilcoxon raises.
+    """
+    lat_a = _per_prompt_median_latency(df_a, prompt_type, suite, probe)
+    lat_b = _per_prompt_median_latency(df_b, prompt_type, suite, probe)
+
+    mask_a = df_a["prompt_type"] == prompt_type
+    mask_b = df_b["prompt_type"] == prompt_type
+    if suite is not None:
+        mask_a &= df_a["suite"] == suite
+        mask_b &= df_b["suite"] == suite
+    if probe is not None:
+        mask_a &= df_a["probe"] == probe
+        mask_b &= df_b["probe"] == probe
+    n_raw_pooled_a, n_raw_pooled_b = int(mask_a.sum()), int(mask_b.sum())
+
+    common_prompts = lat_a.index.intersection(lat_b.index)
+    n_a, n_b, n_common = len(lat_a), len(lat_b), len(common_prompts)
+    n_dropped = (n_a + n_b) - 2 * n_common
+    pct_dropped = n_dropped / (n_a + n_b) * 100 if (n_a + n_b) > 0 else float("nan")
+
+    result = {
+        "prompt_type": prompt_type, "suite": suite, "probe": probe,
+        "n_prompts": n_common,
+        "n_dropped": n_dropped, "pct_dropped": round(pct_dropped, 2) if not pd.isna(pct_dropped) else None,
+        "n_raw_pooled_a": n_raw_pooled_a, "n_raw_pooled_b": n_raw_pooled_b,
+        "median_latency_a": None, "median_latency_b": None,
+        "wilcoxon_statistic": None, "wilcoxon_pvalue": None,
+        "n_ties_excluded": None, "no_variation": False,
+        "method": "wilcoxon_paired",
+    }
+
+    if n_common == 0:
+        return result
+
+    a_vals = lat_a.loc[common_prompts]
+    b_vals = lat_b.loc[common_prompts]
+    result["median_latency_a"] = float(a_vals.median())
+    result["median_latency_b"] = float(b_vals.median())
+
+    diffs = b_vals.values - a_vals.values
+    result["n_ties_excluded"] = int((diffs == 0).sum())
+
+    if (diffs == 0).all():
+        result["no_variation"] = True
+        return result
+
+    try:
+        stat, p = wilcoxon(a_vals.values, b_vals.values)
+        result["wilcoxon_statistic"] = float(stat)
+        result["wilcoxon_pvalue"] = float(p)
+    except ValueError:
+        result["no_variation"] = True
+
+    return result
+
+
+def compute_las_unpaired_clustered(df_a: pd.DataFrame, df_b: pd.DataFrame,
+                                    prompt_type: str = "adversarial",
+                                    suite: str | None = None,
+                                    probe: str | None = None) -> dict:
+    """Prompt-level significance test for LAS, for probes where Scenario A
+    and B are independent samples (unpaired_clustered per
+    classify_probe_pairing). Aggregates median latency per prompt within
+    each scenario separately, then compares the two independent median
+    distributions with Mann-Whitney U — no pairing by text.
+
+    Returns:
+        Same shape as compute_tfa_unpaired_clustered, with
+        median_latency_a/median_latency_b in place of median_rate_a/b, plus
+        prompt_type.
+    """
+    lat_a = _per_prompt_median_latency(df_a, prompt_type, suite, probe)
+    lat_b = _per_prompt_median_latency(df_b, prompt_type, suite, probe)
+
+    mask_a = df_a["prompt_type"] == prompt_type
+    mask_b = df_b["prompt_type"] == prompt_type
+    if suite is not None:
+        mask_a &= df_a["suite"] == suite
+        mask_b &= df_b["suite"] == suite
+    if probe is not None:
+        mask_a &= df_a["probe"] == probe
+        mask_b &= df_b["probe"] == probe
+    n_raw_pooled_a, n_raw_pooled_b = int(mask_a.sum()), int(mask_b.sum())
+
+    result = {
+        "prompt_type": prompt_type, "suite": suite, "probe": probe,
+        "n_prompts_a": len(lat_a), "n_prompts_b": len(lat_b),
+        "n_raw_pooled_a": n_raw_pooled_a, "n_raw_pooled_b": n_raw_pooled_b,
+        "median_latency_a": None, "median_latency_b": None,
+        "mannwhitney_statistic": None, "mannwhitney_pvalue": None,
+        "method": "mannwhitney_unpaired",
+    }
+
+    if lat_a.empty or lat_b.empty:
+        return result
+
+    result["median_latency_a"] = float(lat_a.median())
+    result["median_latency_b"] = float(lat_b.median())
+
+    stat, p = mannwhitneyu(lat_a.values, lat_b.values)
+    result["mannwhitney_statistic"] = float(stat)
+    result["mannwhitney_pvalue"] = float(p)
+
+    return result
+
+
+def compute_las_paired_analysis_for_suite(df_a: pd.DataFrame, df_b: pd.DataFrame,
+                                           suite: str,
+                                           classification_df: pd.DataFrame) -> dict:
+    """LAS analogue of compute_tfa_paired_analysis_for_suite: routes every
+    adversarial probe in `suite` to the correct latency test per its
+    classify_probe_pairing bucket, then combines per-probe p-values via
+    Fisher's method. See that function's docstring for the combination
+    rationale — identical here, applied to latency medians instead of
+    attack-success rates.
+    """
+    suite_probes = classification_df[classification_df["suite"] == suite]
+    per_probe = []
+    for _, row in suite_probes.iterrows():
+        probe = row["probe"]
+        if row["bucket"] == "paired_eligible":
+            r = compute_las_paired_by_prompt(df_a, df_b, "adversarial", suite, probe)
+        else:
+            r = compute_las_unpaired_clustered(df_a, df_b, "adversarial", suite, probe)
+        r["bucket"] = row["bucket"]
+        per_probe.append(r)
+
+    pvalues = []
+    n_prompts_total = 0
+    n_prompts_paired = 0
+    for r in per_probe:
+        if r["method"] == "wilcoxon_paired":
+            n = r["n_prompts"]
+            n_prompts_total += n
+            n_prompts_paired += n
+            if r["wilcoxon_pvalue"] is not None:
+                pvalues.append(r["wilcoxon_pvalue"])
+        else:
+            n = r["n_prompts_a"] + r["n_prompts_b"]
+            n_prompts_total += n
+            if r["mannwhitney_pvalue"] is not None:
+                pvalues.append(r["mannwhitney_pvalue"])
+
+    combined_pvalue = combined_statistic = None
+    if len(pvalues) >= 1:
+        if len(pvalues) == 1:
+            combined_pvalue = pvalues[0]
+        else:
+            combined_statistic, combined_pvalue = _combine_pvalues_fisher(pvalues)
+
+    return {
+        "suite": suite,
+        "per_probe": per_probe,
+        "n_prompts_total": n_prompts_total,
+        "combined_statistic": combined_statistic,
+        "combined_pvalue": combined_pvalue,
+        "methods_used": sorted({r["method"] for r in per_probe}),
+        "pct_prompts_paired": round(n_prompts_paired / n_prompts_total * 100, 2)
+                               if n_prompts_total > 0 else None,
+    }
+
+
+# ─────────────────────────────────────────────
+# Naive pooled baselines used only for the old-vs-new comparison report
+# below. These duplicate the *statistic*, not the ground-truth logic, of
+# compute_tfa_by_suite / compute_las — they exist so the comparison report
+# can show the naive pooled p-value next to the new prompt-level one without
+# calling private internals. compute_tfa_by_suite / compute_las themselves
+# are untouched.
+# ─────────────────────────────────────────────
+
+def _pooled_naive_fisher_tfa(df_a: pd.DataFrame, df_b: pd.DataFrame, suite: str) -> dict:
+    """Naive pooled Fisher's exact test for one suite (old methodology,
+    reproduced here for side-by-side comparison — same pseudoreplication
+    compute_tfa_paired_by_prompt / compute_tfa_unpaired_clustered fix)."""
+    col, invert = SUITE_METRIC[suite]
+    adv_a = df_a[(df_a["suite"] == suite) & (df_a["prompt_type"] == "adversarial")]
+    adv_b = df_b[(df_b["suite"] == suite) & (df_b["prompt_type"] == "adversarial")]
+    n_a, n_b = len(adv_a), len(adv_b)
+    result = {"n_pooled_a": n_a, "n_pooled_b": n_b, "tfa_a": None, "tfa_b": None, "fisher_pvalue": None}
+    if n_a == 0 or n_b == 0:
+        return result
+    val_a = pd.to_numeric(adv_a[col], errors="coerce")
+    val_b = pd.to_numeric(adv_b[col], errors="coerce")
+    tfa_a = 1.0 - val_a.mean() if invert else val_a.mean()
+    tfa_b = 1.0 - val_b.mean() if invert else val_b.mean()
+    passed_a, passed_b = round(n_a * tfa_a), round(n_b * tfa_b)
+    _, p = fisher_exact([[passed_a, n_a - passed_a], [passed_b, n_b - passed_b]], alternative="less")
+    result.update(tfa_a=round(float(tfa_a), 4), tfa_b=round(float(tfa_b), 4), fisher_pvalue=float(p))
+    return result
+
+
+def _pooled_naive_mannwhitney_las(df_a: pd.DataFrame, df_b: pd.DataFrame,
+                                   prompt_type: str = "adversarial",
+                                   suite: str | None = None) -> dict:
+    """Naive pooled Mann-Whitney U test on raw latency_ms (old methodology),
+    optionally restricted to one suite — reproduced here for side-by-side
+    comparison against compute_las_paired_by_prompt /
+    compute_las_unpaired_clustered."""
+    sub_a = df_a[df_a["prompt_type"] == prompt_type]
+    sub_b = df_b[df_b["prompt_type"] == prompt_type]
+    if suite is not None:
+        sub_a = sub_a[sub_a["suite"] == suite]
+        sub_b = sub_b[sub_b["suite"] == suite]
+    lat_a = pd.to_numeric(sub_a["latency_ms"], errors="coerce").dropna()
+    lat_b = pd.to_numeric(sub_b["latency_ms"], errors="coerce").dropna()
+    result = {"n_pooled_a": len(lat_a), "n_pooled_b": len(lat_b),
+              "median_a": None, "median_b": None, "mannwhitney_pvalue": None}
+    if lat_a.empty or lat_b.empty:
+        return result
+    stat, p = mannwhitneyu(lat_a.values, lat_b.values)
+    result.update(median_a=float(lat_a.median()), median_b=float(lat_b.median()),
+                  mannwhitney_pvalue=float(p))
+    return result
+
+
+def build_paired_comparison_report(artifacts_dir: Path, domains: list) -> pd.DataFrame:
+    """Build the full old-vs-new comparison table: for every domain and
+    OWASP suite, the naive pooled test (Fisher's exact for TFA, Mann-Whitney
+    U for LAS — both pseudoreplicated) next to the prompt-level test routed
+    per classify_probe_pairing's bucket (Wilcoxon paired for paired_eligible
+    probes, Mann-Whitney unpaired for unpaired_clustered probes, combined
+    across probes via Fisher's method). Also includes one legitimate-prompt
+    LAS row per domain (always paired — see compute_las_paired_by_prompt).
+
+    Two row granularities, distinguished by the "level" column:
+      "suite" — one row per (domain, metric, suite): old pooled result vs
+        new combined result, plus conclusions_agree (whether both cross the
+        α=0.05 threshold the same way).
+      "probe" — one row per (domain, metric, suite, probe): the individual
+        test result and bucket that fed into the suite-level combination.
+        No old-methodology column at this granularity (the naive test was
+        never run per-probe).
+
+    Returns:
+        Long-format DataFrame, one row per (domain, metric, suite, probe|None,
+        level). Saved separately by run_paired_analysis to
+        artifacts/paired_significance_report_<timestamp>.csv.
+    """
+    SUITES = ["LLM01", "LLM02", "LLM07", "LLM08"]
+    rows = []
+
+    for domain in domains:
+        # load_consolidated returns adversarial rows only; concat with the
+        # legitimate-only loader so df_a/df_b carry both prompt_type values
+        # (needed for the legitimate-prompt LAS row below).
+        adv_a = load_consolidated(artifacts_dir, domain, "unprotected")
+        adv_b = load_consolidated(artifacts_dir, domain, "protected")
+        if adv_a.empty or adv_b.empty:
+            print(f"  [WARN] build_paired_comparison_report: missing data for {domain}, skipping.")
+            continue
+        legit_a = _load_consolidated_legit(artifacts_dir, domain, "unprotected")
+        legit_b = _load_consolidated_legit(artifacts_dir, domain, "protected")
+        df_a = pd.concat([adv_a, legit_a], ignore_index=True)
+        df_b = pd.concat([adv_b, legit_b], ignore_index=True)
+        if "latency_ms" in df_a.columns:
+            df_a["latency_ms"] = pd.to_numeric(df_a["latency_ms"], errors="coerce")
+        if "latency_ms" in df_b.columns:
+            df_b["latency_ms"] = pd.to_numeric(df_b["latency_ms"], errors="coerce")
+
+        classification_df = classify_probe_pairing(df_a, df_b)
+        print_probe_pairing_classification(classification_df, domain)
+
+        for suite in SUITES:
+            suite_probes = classification_df[classification_df["suite"] == suite]
+            if suite_probes.empty:
+                continue
+
+            # ── TFA: suite-level row ──────────────────────────
+            old = _pooled_naive_fisher_tfa(df_a, df_b, suite)
+            new = compute_tfa_paired_analysis_for_suite(df_a, df_b, suite, classification_df)
+            old_sig = old["fisher_pvalue"] is not None and old["fisher_pvalue"] < 0.05
+            new_sig = new["combined_pvalue"] is not None and new["combined_pvalue"] < 0.05
+            rows.append({
+                "domain": domain, "metric": "TFA", "suite": suite, "probe": None, "level": "suite",
+                "bucket": "+".join(sorted(set(suite_probes["bucket"]))),
+                "method_new": "+".join(new["methods_used"]),
+                "n_old_pooled_a": old["n_pooled_a"], "n_old_pooled_b": old["n_pooled_b"],
+                "old_value_a": old["tfa_a"], "old_value_b": old["tfa_b"],
+                "old_pvalue": old["fisher_pvalue"], "old_significant": old_sig,
+                "n_new_prompts": new["n_prompts_total"], "pct_prompts_paired": new["pct_prompts_paired"],
+                "new_pvalue": new["combined_pvalue"], "new_significant": new_sig,
+                "conclusions_agree": (old_sig == new_sig)
+                                      if (old["fisher_pvalue"] is not None and new["combined_pvalue"] is not None)
+                                      else None,
+            })
+            for r in new["per_probe"]:
+                p_val = r.get("wilcoxon_pvalue") if r["method"] == "wilcoxon_paired" else r.get("mannwhitney_pvalue")
+                n_new = r["n_prompts"] if r["method"] == "wilcoxon_paired" else r["n_prompts_a"] + r["n_prompts_b"]
+                rows.append({
+                    "domain": domain, "metric": "TFA", "suite": suite, "probe": r["probe"], "level": "probe",
+                    "bucket": r["bucket"], "method_new": r["method"],
+                    "n_old_pooled_a": r["n_raw_pooled_a"], "n_old_pooled_b": r["n_raw_pooled_b"],
+                    "old_value_a": None, "old_value_b": None, "old_pvalue": None, "old_significant": None,
+                    "n_new_prompts": n_new, "pct_prompts_paired": None,
+                    "new_pvalue": p_val, "new_significant": None if p_val is None else p_val < 0.05,
+                    "conclusions_agree": None,
+                })
+
+            # ── LAS: suite-level row (adversarial only) ───────
+            old_las = _pooled_naive_mannwhitney_las(df_a, df_b, "adversarial", suite)
+            new_las = compute_las_paired_analysis_for_suite(df_a, df_b, suite, classification_df)
+            old_las_sig = old_las["mannwhitney_pvalue"] is not None and old_las["mannwhitney_pvalue"] < 0.05
+            new_las_sig = new_las["combined_pvalue"] is not None and new_las["combined_pvalue"] < 0.05
+            rows.append({
+                "domain": domain, "metric": "LAS", "suite": suite, "probe": None, "level": "suite",
+                "bucket": "+".join(sorted(set(suite_probes["bucket"]))),
+                "method_new": "+".join(new_las["methods_used"]),
+                "n_old_pooled_a": old_las["n_pooled_a"], "n_old_pooled_b": old_las["n_pooled_b"],
+                "old_value_a": old_las["median_a"], "old_value_b": old_las["median_b"],
+                "old_pvalue": old_las["mannwhitney_pvalue"], "old_significant": old_las_sig,
+                "n_new_prompts": new_las["n_prompts_total"], "pct_prompts_paired": new_las["pct_prompts_paired"],
+                "new_pvalue": new_las["combined_pvalue"], "new_significant": new_las_sig,
+                "conclusions_agree": (old_las_sig == new_las_sig)
+                                      if (old_las["mannwhitney_pvalue"] is not None and new_las["combined_pvalue"] is not None)
+                                      else None,
+            })
+            for r in new_las["per_probe"]:
+                p_val = r.get("wilcoxon_pvalue") if r["method"] == "wilcoxon_paired" else r.get("mannwhitney_pvalue")
+                n_new = r["n_prompts"] if r["method"] == "wilcoxon_paired" else r["n_prompts_a"] + r["n_prompts_b"]
+                rows.append({
+                    "domain": domain, "metric": "LAS", "suite": suite, "probe": r["probe"], "level": "probe",
+                    "bucket": r["bucket"], "method_new": r["method"],
+                    "n_old_pooled_a": r["n_raw_pooled_a"], "n_old_pooled_b": r["n_raw_pooled_b"],
+                    "old_value_a": None, "old_value_b": None, "old_pvalue": None, "old_significant": None,
+                    "n_new_prompts": n_new, "pct_prompts_paired": None,
+                    "new_pvalue": p_val, "new_significant": None if p_val is None else p_val < 0.05,
+                    "conclusions_agree": None,
+                })
+
+        # ── LAS: legitimate prompts (domain-level, always paired) ──
+        old_legit = _pooled_naive_mannwhitney_las(df_a, df_b, "legitimate", suite=None)
+        new_legit = compute_las_paired_by_prompt(df_a, df_b, prompt_type="legitimate")
+        old_legit_sig = old_legit["mannwhitney_pvalue"] is not None and old_legit["mannwhitney_pvalue"] < 0.05
+        new_legit_sig = new_legit["wilcoxon_pvalue"] is not None and new_legit["wilcoxon_pvalue"] < 0.05
+        rows.append({
+            "domain": domain, "metric": "LAS_legitimate", "suite": None, "probe": None, "level": "suite",
+            "bucket": "paired_eligible (B subset of A)",
+            "method_new": new_legit["method"],
+            "n_old_pooled_a": old_legit["n_pooled_a"], "n_old_pooled_b": old_legit["n_pooled_b"],
+            "old_value_a": old_legit["median_a"], "old_value_b": old_legit["median_b"],
+            "old_pvalue": old_legit["mannwhitney_pvalue"], "old_significant": old_legit_sig,
+            "n_new_prompts": new_legit["n_prompts"], "pct_prompts_paired": None,
+            "new_pvalue": new_legit["wilcoxon_pvalue"], "new_significant": new_legit_sig,
+            "conclusions_agree": (old_legit_sig == new_legit_sig)
+                                  if (old_legit["mannwhitney_pvalue"] is not None and new_legit["wilcoxon_pvalue"] is not None)
+                                  else None,
+        })
+
+    columns = ["domain", "metric", "suite", "probe", "level", "bucket", "method_new",
+               "n_old_pooled_a", "n_old_pooled_b", "old_value_a", "old_value_b",
+               "old_pvalue", "old_significant", "n_new_prompts", "pct_prompts_paired",
+               "new_pvalue", "new_significant", "conclusions_agree"]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def print_paired_comparison(report_df: pd.DataFrame):
+    """Print the suite-level and probe-level breakdown of
+    build_paired_comparison_report, grouped by domain and metric."""
+    print(f"\n{'='*70}")
+    print(f"  PAIRED SIGNIFICANCE ANALYSIS — old pooled test vs new prompt-level test")
+    print(f"{'='*70}")
+
+    if report_df.empty:
+        print("  [WARN] No data.")
+        return
+
+    for domain in sorted(report_df["domain"].dropna().unique()):
+        print(f"\n  DOMAIN: {domain.upper()}")
+        print(f"  {'-'*90}")
+        dom_df = report_df[report_df["domain"] == domain]
+
+        for metric in ["TFA", "LAS", "LAS_legitimate"]:
+            met_df = dom_df[dom_df["metric"] == metric]
+            if met_df.empty:
+                continue
+            print(f"\n  -- {metric} --")
+
+            suite_rows = met_df[met_df["level"] == "suite"]
+            print(f"  {'Suite':6s} {'Bucket':28s} {'n_old A/B':>11} {'old_p':>10} {'old_sig':>8} "
+                  f"{'n_new':>7} {'new_p':>10} {'new_sig':>8} {'agree':>7}")
+            print(f"  {'-'*100}")
+            for _, r in suite_rows.iterrows():
+                suite_lbl = r["suite"] if pd.notna(r["suite"]) else "(all)"
+                n_old = f"{r['n_old_pooled_a']}/{r['n_old_pooled_b']}"
+                old_p = f"{r['old_pvalue']:.6f}" if pd.notna(r["old_pvalue"]) else "N/A"
+                old_s = ("N/A" if pd.isna(r["old_significant"]) else
+                          ("yes" if r["old_significant"] else "no"))
+                new_p = f"{r['new_pvalue']:.6f}" if pd.notna(r["new_pvalue"]) else "N/A"
+                new_s = ("N/A" if pd.isna(r["new_significant"]) else
+                          ("yes" if r["new_significant"] else "no"))
+                agree = ("N/A" if pd.isna(r["conclusions_agree"]) else
+                          ("✅" if r["conclusions_agree"] else "⚠️ DIFFERS"))
+                print(f"  {suite_lbl:6s} {r['bucket']:28s} {n_old:>11} {old_p:>10} {old_s:>8} "
+                      f"{r['n_new_prompts']:>7} {new_p:>10} {new_s:>8} {agree:>7}")
+
+            probe_rows = met_df[met_df["level"] == "probe"]
+            if not probe_rows.empty:
+                print(f"\n  Probe-level breakdown ({metric}):")
+                print(f"  {'Suite':6s} {'Probe':45s} {'Bucket':20s} {'Method':20s} {'n_new':>7} {'p':>10}")
+                print(f"  {'-'*112}")
+                for _, r in probe_rows.iterrows():
+                    p_str = f"{r['new_pvalue']:.6f}" if pd.notna(r["new_pvalue"]) else "N/A"
+                    print(f"  {r['suite']:6s} {r['probe']:45s} {r['bucket']:20s} "
+                          f"{r['method_new']:20s} {r['n_new_prompts']:>7} {p_str:>10}")
+
+
+def compute_tfa_paired_bootstrap_ci(df_a: pd.DataFrame, df_b: pd.DataFrame,
+                                     suite: str, probe: str | None = None,
+                                     n_resamples: int = 5000, ci: float = 0.95,
+                                     seed: int = 42) -> dict:
+    """Cluster bootstrap (cluster = prompt) percentile CI for the paired
+    per-prompt ΔTFA (mean of rate_b - rate_a), only valid for
+    paired_eligible probes (same prompt intersection as
+    compute_tfa_paired_by_prompt).
+
+    Rationale: robustness check for borderline cases where the Wilcoxon
+    paired p-value sits near the α=0.05 boundary (e.g.
+    academic_institutional/LLM08/LatentWhois in run_paired_analysis, p≈0.058
+    on n=168 prompts) — an interval estimate is more informative than a
+    single p-value that close to the cutoff. Resamples the n paired prompts
+    with replacement n_resamples times, recomputing mean(rate_b - rate_a)
+    per resample (this is what makes the prompt, not the raw
+    repetition/generation observation, the resampling unit — preserving the
+    same fix as the paired Wilcoxon test), and takes the
+    [(1-ci)/2, 1-(1-ci)/2] percentiles of the resampled means as the CI.
+
+    Args:
+        df_a: Consolidated CSV for Scenario A.
+        df_b: Consolidated CSV for Scenario B.
+        suite: One of "LLM01", "LLM02", "LLM07", "LLM08".
+        probe: Optional full probe name to restrict to a single probe.
+        n_resamples: Bootstrap resample count (2000-5000 typical; default 5000).
+        ci: Confidence level (default 0.95).
+        seed: RNG seed, fixed by default for reproducibility across runs.
+
+    Returns:
+        Dict with: suite, probe, n_prompts, n_resamples, ci_level,
+        delta_mean (observed, not resampled), ci_low, ci_high. delta_mean/
+        ci_low/ci_high are None when n_prompts == 0.
+    """
+    import numpy as np
+
+    col, _ = SUITE_METRIC[suite]
+    rate_a = _per_prompt_rate(df_a, suite, col, probe)
+    rate_b = _per_prompt_rate(df_b, suite, col, probe)
+    common = rate_a.index.intersection(rate_b.index)
+    n = len(common)
+
+    result = {
+        "suite": suite, "probe": probe, "n_prompts": n, "n_resamples": n_resamples,
+        "ci_level": ci, "delta_mean": None, "ci_low": None, "ci_high": None,
+    }
+    if n == 0:
+        return result
+
+    diffs = (rate_b.loc[common] - rate_a.loc[common]).values
+
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, n, size=(n_resamples, n))
+    resampled_means = diffs[idx].mean(axis=1)
+
+    lo_pct, hi_pct = (1 - ci) / 2 * 100, (1 - (1 - ci) / 2) * 100
+    ci_low, ci_high = np.percentile(resampled_means, [lo_pct, hi_pct])
+
+    result.update(delta_mean=float(diffs.mean()), ci_low=float(ci_low), ci_high=float(ci_high))
+    return result
+
+
+def print_tfa_bootstrap_ci(result: dict, domain: str):
+    """Print one compute_tfa_paired_bootstrap_ci result."""
+    print(f"\n{'='*70}")
+    print(f"  CLUSTER BOOTSTRAP CI (cluster=prompt) — ΔTFA (rate_B - rate_A)")
+    print(f"  {domain.upper()} / {result['suite']} / {result['probe']}")
+    print(f"{'='*70}")
+    if result["n_prompts"] == 0:
+        print("  [WARN] No paired prompts available.")
+        return
+    print(f"  n_prompts    = {result['n_prompts']}")
+    print(f"  n_resamples  = {result['n_resamples']}")
+    print(f"  ΔTFA (mean rate_B - rate_A, observed) = {result['delta_mean']:+.4f}")
+    print(f"  {int(result['ci_level']*100)}% percentile CI: "
+          f"[{result['ci_low']:+.4f}, {result['ci_high']:+.4f}]")
+    crosses_zero = result["ci_low"] <= 0 <= result["ci_high"]
+    print(f"  CI {'includes' if crosses_zero else 'excludes'} zero → "
+          f"{'consistent with no detectable effect (matches Wilcoxon non-significance)' if crosses_zero else 'excludes zero — effect direction plausible despite p>0.05'}")
+
+
+def run_paired_analysis(artifacts_dir: Path, domains: list) -> pd.DataFrame:
+    """Top-level entry point: build the paired-vs-pooled comparison report
+    for all domains, print it, run the cluster-bootstrap CI robustness check
+    for the academic_institutional/LLM08/LatentWhois borderline case (see
+    compute_tfa_paired_bootstrap_ci), merge the CI into the report, and save
+    it to artifacts/paired_significance_report_<timestamp>.csv.
+
+    The bootstrap CI is only computed for that one (domain, suite, probe)
+    combination — it is a targeted robustness check for a borderline
+    p-value, not a general-purpose addition to every row.
+
+    Args:
+        artifacts_dir: Root artifacts directory.
+        domains: Domains to include.
+
+    Returns:
+        The report DataFrame (also written to disk), with
+        bootstrap_delta_mean/bootstrap_ci_low/bootstrap_ci_high/
+        bootstrap_n_resamples columns populated only for the acad_inst/
+        LLM08 rows (NaN elsewhere).
+    """
+    import datetime
+
+    report_df = build_paired_comparison_report(artifacts_dir, domains)
+    print_paired_comparison(report_df)
+
+    report_df["bootstrap_delta_mean"] = pd.NA
+    report_df["bootstrap_ci_low"] = pd.NA
+    report_df["bootstrap_ci_high"] = pd.NA
+    report_df["bootstrap_n_resamples"] = pd.NA
+
+    BOOTSTRAP_DOMAIN, BOOTSTRAP_SUITE, BOOTSTRAP_PROBE = (
+        "academic_institutional", "LLM08", "latentinjection.LatentWhois",
+    )
+    if BOOTSTRAP_DOMAIN in domains:
+        adv_a = load_consolidated(artifacts_dir, BOOTSTRAP_DOMAIN, "unprotected")
+        adv_b = load_consolidated(artifacts_dir, BOOTSTRAP_DOMAIN, "protected")
+        if not adv_a.empty and not adv_b.empty:
+            boot = compute_tfa_paired_bootstrap_ci(adv_a, adv_b, BOOTSTRAP_SUITE, BOOTSTRAP_PROBE)
+            print_tfa_bootstrap_ci(boot, BOOTSTRAP_DOMAIN)
+
+            mask = (
+                (report_df["domain"] == BOOTSTRAP_DOMAIN)
+                & (report_df["metric"] == "TFA")
+                & (report_df["suite"] == BOOTSTRAP_SUITE)
+                & ((report_df["probe"] == BOOTSTRAP_PROBE) | (report_df["probe"].isna() & (report_df["level"] == "suite")))
+            )
+            report_df.loc[mask, "bootstrap_delta_mean"] = boot["delta_mean"]
+            report_df.loc[mask, "bootstrap_ci_low"] = boot["ci_low"]
+            report_df.loc[mask, "bootstrap_ci_high"] = boot["ci_high"]
+            report_df.loc[mask, "bootstrap_n_resamples"] = boot["n_resamples"]
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    _save_csv(report_df, f"paired_significance_report_{timestamp}.csv", artifacts_dir)
+    return report_df
 
 
 # ─────────────────────────────────────────────
