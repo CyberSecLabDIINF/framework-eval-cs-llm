@@ -171,6 +171,12 @@ laboratorio, no a una auditoría de documentación.
 
 ### 4.1. `IS_PROTECTED` evalúa `False` de forma permanente en todas las corridas registradas
 
+> **Actualización:** este hallazgo fue corregido en el commit
+> 8430c923. IS_PROTECTED ahora se deriva por request desde el header
+> x-scenario enviado por shield_api, en vez de leerse una sola vez del
+> entorno del contenedor al arrancar. El resto de esta sección se
+> conserva como registro histórico del diagnóstico original.
+
 `docker-compose.yml` define el servicio `rag_api` con `SCENARIO=unprotected`
 como valor literal, no interpolado, y esta es la única definición de
 `rag_api` en el repositorio: se usa sin cambios tanto para Escenario A como
