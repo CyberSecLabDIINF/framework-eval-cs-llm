@@ -352,6 +352,7 @@ def _extract_forward_headers(req: Request) -> Dict[str, str]:
         h["x-run-kind"] = run_kind
 
     h["x-forwarded-by"] = "shield"
+    h["x-scenario"] = "protected"
     return h
 
 

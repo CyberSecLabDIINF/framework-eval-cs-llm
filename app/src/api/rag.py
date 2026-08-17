@@ -26,7 +26,6 @@ CONFIG_RAG_PATH = s.get_rag_config_path(DATASET_TAG)
 CHROMA_PATH = str(s.chroma_db_path)
 OLLAMA_HOST_ENV = os.getenv("OLLAMA_HOST")
 SCENARIO = os.getenv("SCENARIO", "unprotected")
-IS_PROTECTED = SCENARIO == "protected"
 LATENCY_CSV = str(s.latency_dir / "latency_unprotected.csv")
 
 def _resolve_consolidated_csv() -> Path:
@@ -195,7 +194,7 @@ class Query(BaseModel):
 
     prompt: str
 
-def retrieve_context(query: str, k: int = 3) -> tuple:
+def retrieve_context(query: str, is_protected: bool, k: int = 3) -> tuple:
     """
     Retrieve the top-k fragments from ChromaDB for the given query.
 
@@ -218,7 +217,7 @@ def retrieve_context(query: str, k: int = 3) -> tuple:
     LLM-Sec Control C14: Excludes document metadata from retrieval, so only fragment text/IDs reach the LLM context
     """
     try:
-        where_filter = {"sensitivity": {"$in": ALLOWED_SENSITIVITY}} if IS_PROTECTED else None
+        where_filter = {"sensitivity": {"$in": ALLOWED_SENSITIVITY}} if is_protected else None
         results = collection.query(
             query_texts=[query],
             n_results=k,
@@ -453,7 +452,9 @@ def _blocked_response(
 async def generate(query: Query, request: Request):
     """Answer a user query using RAG and apply defence controls when running as protected.
 
-    When ``IS_PROTECTED`` is True, the following controls gate the pipeline:
+    When ``is_protected`` is True (derived per-request from the
+    ``x-scenario: protected`` header set by Shield; absent when Garak hits
+    this service directly in Scenario A), the following controls gate the pipeline:
     C32 (system-prompt integrity), C4 (domain validation), C11 (coherence),
     C12 (reconnaissance detection), C9 (corpus integrity), C17 (response
     grounding). Requests forwarded by Shield (``x-forwarded-by: shield``) are
@@ -471,6 +472,7 @@ async def generate(query: Query, request: Request):
     garak_tag = request.headers.get("X-Garak-Tag", "")
     prompt_type = "adversarial" if garak_tag else "legitimate"
     forwarded_by_shield = request.headers.get("x-forwarded-by", "") == "shield"
+    is_protected = request.headers.get("x-scenario", "") == "protected"
     # RUN_ID/RUN_KIND live in the garak_runner/legitimate-orchestrator
     # process, not this container's environment — they must arrive per
     # request via header (rag.py's own os.getenv would always read empty).
@@ -478,7 +480,7 @@ async def generate(query: Query, request: Request):
     run_kind = request.headers.get("X-Run-Kind", "experiment")
 
     # Pre-retrieval checks: C32 and C4 act on the prompt before the vector store is touched.
-    if IS_PROTECTED:
+    if is_protected:
         if not validate_system_prompt_integrity():
             return _blocked_response(
                 request, query, start, garak_tag, prompt_type,
@@ -512,10 +514,10 @@ async def generate(query: Query, request: Request):
                 log=not forwarded_by_shield,
             )
 
-    context, fragments = retrieve_context(query.prompt, k=3)
+    context, fragments = retrieve_context(query.prompt, is_protected, k=3)
 
     # Post-retrieval check: C9 validates fragment integrity before context injection.
-    if IS_PROTECTED:
+    if is_protected:
         integrity_ok, _ = validate_corpus_integrity(fragments)
         if not integrity_ok:
             return _blocked_response(
@@ -540,7 +542,7 @@ Question:
     out = response.get("response", "")
 
     grounded, grounding_ratio = is_grounded_response(out, context)
-    if IS_PROTECTED and not grounded:
+    if is_protected and not grounded:
         return _blocked_response(
             request, query, start, garak_tag, prompt_type,
             message="Response could not be grounded in the retrieved context.",
