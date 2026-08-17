@@ -16,7 +16,7 @@ services:
     container_name: tesis_rag
     networks: [red_internal]
     environment:
-      - SCENARIO=unprotected
+      - SCENARIO=${SCENARIO:-unprotected}
       - PROJECT_ROOT=/root/proyecto_tesis
       - APP_DIR=/root/proyecto_tesis/app
       - DATA_DIR=/root/proyecto_tesis/data

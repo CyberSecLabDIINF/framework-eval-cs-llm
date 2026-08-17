@@ -221,7 +221,7 @@ def retrieve_context(query: str, is_protected: bool, k: int = 3) -> tuple:
         results = collection.query(
             query_texts=[query],
             n_results=k,
-            include=["documents", "ids"],
+            include=["documents"],
             where=where_filter,
         )
         docs = results.get("documents", [[]])[0] or []
@@ -515,6 +515,10 @@ async def generate(query: Query, request: Request):
             )
 
     context, fragments = retrieve_context(query.prompt, is_protected, k=3)
+    logger.info(
+        "DEBUG-C17 retrieve_context: is_protected=%s fragments_count=%d context[:200]=%r",
+        is_protected, len(fragments), context[:200],
+    )
 
     # Post-retrieval check: C9 validates fragment integrity before context injection.
     if is_protected:
@@ -542,6 +546,10 @@ Question:
     out = response.get("response", "")
 
     grounded, grounding_ratio = is_grounded_response(out, context)
+    logger.info(
+        "DEBUG-C17 is_grounded_response: ratio=%.4f grounded=%s out[:200]=%r",
+        grounding_ratio, grounded, out[:200],
+    )
     if is_protected and not grounded:
         return _blocked_response(
             request, query, start, garak_tag, prompt_type,

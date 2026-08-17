@@ -1,7 +1,0 @@
-timestamp,source,collection,action,doc_count,corpus_hash
-2026-05-17T21:36:31.245827+00:00,regulatory_technical,regulatory_technical,reset+ingest,477,d149adf32a5bf72b62dac0515a0b7c4d8eecff681db7d8926a1d28a261aba7fc
-2026-05-25T12:26:06.238304+00:00,regulatory_technical,regulatory_technical,reset+ingest,477,d149adf32a5bf72b62dac0515a0b7c4d8eecff681db7d8926a1d28a261aba7fc
-2026-05-26T12:26:22.903736+00:00,academic_institutional,academic_institutional,reset+ingest,342,79a69faf7cd8f9fcf30ead9f69548c2b913a9a56abf5a432bd7deadb1e6ddbb0
-2026-05-27T13:48:48.663480+00:00,regulatory_technical,regulatory_technical,reset+ingest,477,d149adf32a5bf72b62dac0515a0b7c4d8eecff681db7d8926a1d28a261aba7fc
-2026-05-27T14:14:31.416728+00:00,regulatory_technical,regulatory_technical,reset+ingest,477,d149adf32a5bf72b62dac0515a0b7c4d8eecff681db7d8926a1d28a261aba7fc
-2026-06-01T19:46:40.748727+00:00,regulatory_technical,regulatory_technical,reset+ingest,477,d149adf32a5bf72b62dac0515a0b7c4d8eecff681db7d8926a1d28a261aba7fc
