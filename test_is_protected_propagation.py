@@ -264,4 +264,238 @@ check(
     f"A_calls={mocks_a['log_request'].call_count} B_calls={mocks_b['log_request'].call_count}",
 )
 
-print(f"\n=== RESULT: {len(results)}/{len(results)} assertions passed ===")
+print(f"\n=== RESULT (PARTE A+B): {len(results)}/{len(results)} assertions passed ===")
+
+
+# ============================================================
+# PART C — per-control blocking-branch verification (item 58 extension,
+# morning's test only mocked controls to "pass" to isolate whether they were
+# invoked; this section mocks each one to "fail" in turn and verifies
+# _blocked_response() fires with the correct block_reason, isolated from the
+# other five controls).
+# ============================================================
+print("\n=== PARTE C: rama de bloqueo por control (mock de fallo) ===")
+
+# Pipeline order in rag.generate(): needed to know which mocks must have
+# fired (upstream, passed) vs never fired (downstream, unreached because the
+# pipeline returned early) for a given control's block to be well-isolated.
+CONTROL_ORDER = [
+    "validate_system_prompt_integrity",  # C32
+    "is_on_domain",                       # C4
+    "is_coherent_query",                  # C11
+    "is_safe_from_reconnaissance",        # C12
+    "validate_corpus_integrity",          # C9
+    "is_grounded_response",               # C17
+]
+
+CONTROL_LABEL = {
+    "validate_system_prompt_integrity": "C32",
+    "is_on_domain": "C4",
+    "is_coherent_query": "C11",
+    "is_safe_from_reconnaissance": "C12",
+    "validate_corpus_integrity": "C9",
+    "is_grounded_response": "C17",
+}
+
+# Passing return values (same shape rag.py's morning test used).
+PASS_VALUES = {
+    "validate_system_prompt_integrity": True,
+    "is_on_domain": True,
+    "is_coherent_query": True,
+    "is_safe_from_reconnaissance": True,
+    "validate_corpus_integrity": (True, None),
+    "is_grounded_response": (True, 1.0),
+}
+
+# Failing return values — exact signature per control, taken from rag.py:
+# bool for C32/C4/C11/C12, (bool, tampered_id) for C9, (bool, ratio) for C17.
+FAIL_VALUES = {
+    "validate_system_prompt_integrity": False,
+    "is_on_domain": False,
+    "is_coherent_query": False,
+    "is_safe_from_reconnaissance": False,
+    "validate_corpus_integrity": (False, "doc1"),
+    "is_grounded_response": (False, 0.05),
+}
+
+# Literal block_reason strings, copied verbatim from rag.py's _blocked_response
+# call sites (lines 488/496/504/512/526/549) — not assumed.
+EXPECTED_BLOCK_REASON = {
+    "validate_system_prompt_integrity": "system_prompt_integrity_failed",
+    "is_on_domain": "domain_validation_failed",
+    "is_coherent_query": "query_coherence_failed",
+    "is_safe_from_reconnaissance": "corpus_reconnaissance_detected",
+    "validate_corpus_integrity": "corpus_integrity_failed",
+    "is_grounded_response": "response_not_grounded",
+}
+
+
+def run_with_one_failing(failing_control: str, headers: dict):
+    """POST /generate with `failing_control` mocked to its FAIL_VALUES entry
+    and all other five controls mocked to PASS_VALUES. Mirrors run_scenario's
+    mock set (collection.query, client.generate, log_request) so the flow
+    reaches exactly as far as the real pipeline would."""
+    rv = dict(PASS_VALUES)
+    rv[failing_control] = FAIL_VALUES[failing_control]
+
+    with patch.object(rag_mod, "validate_system_prompt_integrity", return_value=rv["validate_system_prompt_integrity"]) as m1, \
+         patch.object(rag_mod, "is_on_domain", return_value=rv["is_on_domain"]) as m2, \
+         patch.object(rag_mod, "is_coherent_query", return_value=rv["is_coherent_query"]) as m3, \
+         patch.object(rag_mod, "is_safe_from_reconnaissance", return_value=rv["is_safe_from_reconnaissance"]) as m4, \
+         patch.object(rag_mod, "validate_corpus_integrity", return_value=rv["validate_corpus_integrity"]) as m5, \
+         patch.object(rag_mod, "is_grounded_response", return_value=rv["is_grounded_response"]) as m6, \
+         patch.object(
+             rag_mod.collection,
+             "query",
+             return_value={
+                 "documents": [[t for _, t in canned_fragments]],
+                 "ids": [[i for i, _ in canned_fragments]],
+                 "distances": [[0.01]],
+             },
+         ) as m_query, \
+         patch.object(
+             rag_mod.client, "generate", return_value={"response": "canned model output"}
+         ) as m_ollama, \
+         patch.object(rag_mod, "log_request") as m_log:
+        mocks = {
+            "validate_system_prompt_integrity": m1,
+            "is_on_domain": m2,
+            "is_coherent_query": m3,
+            "is_safe_from_reconnaissance": m4,
+            "validate_corpus_integrity": m5,
+            "is_grounded_response": m6,
+            "collection.query": m_query,
+            "client.generate": m_ollama,
+            "log_request": m_log,
+        }
+        with TestClient(rag_mod.app) as tc:
+            resp = tc.post("/generate", json={"prompt": "What is the CRMA?"}, headers=headers)
+    return resp, mocks
+
+
+control_summary = []  # (label, control_name, protected_ok, unprotected_ok)
+
+for failing_control in CONTROL_ORDER:
+    label = CONTROL_LABEL[failing_control]
+    expected_reason = EXPECTED_BLOCK_REASON[failing_control]
+    idx = CONTROL_ORDER.index(failing_control)
+    upstream = CONTROL_ORDER[:idx]
+    downstream = CONTROL_ORDER[idx + 1:]
+    pre_retrieval = ("validate_system_prompt_integrity", "is_on_domain", "is_coherent_query", "is_safe_from_reconnaissance")
+
+    print(f"\n-- {label} ({failing_control}) --")
+
+    # --- protected request: this control must fire and block, isolated ---
+    n_before = len(results)
+    try:
+        resp_p, mocks_p = run_with_one_failing(failing_control, headers={"x-scenario": "protected"})
+        body_p = resp_p.json()
+
+        check(
+            f"{label} protegido: HTTP status es 200 (rag.py no fija status_code en _blocked_response; el bloqueo va en blocked_by_rag/block_reason del body)",
+            resp_p.status_code == 200,
+            f"got={resp_p.status_code}",
+        )
+        check(
+            f"{label} protegido: blocked_by_rag=True",
+            body_p.get("blocked_by_rag") is True,
+            f"body={body_p}",
+        )
+        check(
+            f"{label} protegido: block_reason == {expected_reason!r} (string exacto de rag.py)",
+            body_p.get("block_reason") == expected_reason,
+            f"got={body_p.get('block_reason')!r}",
+        )
+        check(
+            f"{label} protegido: {failing_control}() fue invocada (es la causante del bloqueo)",
+            mocks_p[failing_control].called,
+            f"call_count={mocks_p[failing_control].call_count}",
+        )
+        for up in upstream:
+            check(
+                f"{label} protegido: control previo {up}() SÍ fue invocado (pasó, permitiendo llegar hasta {label})",
+                mocks_p[up].called,
+                f"call_count={mocks_p[up].call_count}",
+            )
+        for down in downstream:
+            check(
+                f"{label} protegido: control posterior {down}() NO fue invocado (pipeline retornó antes de alcanzarlo — bloqueo aislado en {label})",
+                not mocks_p[down].called,
+                f"call_count={mocks_p[down].call_count}",
+            )
+        if failing_control in pre_retrieval:
+            check(
+                f"{label} protegido: collection.query() (retrieve_context) NO fue invocado — bloqueo ocurre antes de tocar ChromaDB",
+                not mocks_p["collection.query"].called,
+                f"call_count={mocks_p['collection.query'].call_count}",
+            )
+        else:
+            check(
+                f"{label} protegido: collection.query() (retrieve_context) SÍ fue invocado — {label} actúa después de la recuperación",
+                mocks_p["collection.query"].called,
+                f"call_count={mocks_p['collection.query'].call_count}",
+            )
+        if failing_control == "is_grounded_response":
+            check(
+                f"{label} protegido: client.generate() (Ollama) SÍ fue invocado — C17 evalúa la respuesta ya generada",
+                mocks_p["client.generate"].called,
+                f"call_count={mocks_p['client.generate'].call_count}",
+            )
+        else:
+            check(
+                f"{label} protegido: client.generate() (Ollama) NO fue invocado — bloqueo ocurre antes de generar respuesta",
+                not mocks_p["client.generate"].called,
+                f"call_count={mocks_p['client.generate'].call_count}",
+            )
+        other_reasons = [EXPECTED_BLOCK_REASON[c] for c in CONTROL_ORDER if c != failing_control]
+        check(
+            f"{label} protegido: block_reason no coincide con el motivo de ningún otro control (aísla la causa)",
+            body_p.get("block_reason") not in other_reasons,
+            f"block_reason={body_p.get('block_reason')!r} otros={other_reasons}",
+        )
+    except AssertionError:
+        pass
+    protected_ok = all(cond for _, cond in results[n_before:])
+
+    # --- control request: same failing mock, but is_protected=False ---
+    n_before2 = len(results)
+    try:
+        resp_u, mocks_u = run_with_one_failing(failing_control, headers={})
+        body_u = resp_u.json()
+
+        check(f"{label} sin proteger: HTTP 200", resp_u.status_code == 200, f"got={resp_u.status_code}")
+        check(
+            f"{label} sin proteger: blocked_by_rag=False pese a que {failing_control}() está mockeada para fallar (el gateo por is_protected sigue protegiendo)",
+            body_u.get("blocked_by_rag") is False,
+            f"body={body_u}",
+        )
+        if failing_control == "is_grounded_response":
+            # Pre-existing behavior documented in PARTE B: is_grounded_response
+            # is called unconditionally regardless of is_protected — only its
+            # BLOCKING effect (is_protected and not grounded) is gated. So the
+            # call still happens; what must hold is that its False result did
+            # not block the response.
+            check(
+                f"{label} sin proteger: is_grounded_response() SÍ fue invocada (llamada incondicional preexistente, no forma parte del fix) pero su resultado False no bloqueó la respuesta",
+                mocks_u[failing_control].called and body_u.get("blocked_by_rag") is False,
+                f"called={mocks_u[failing_control].called} blocked_by_rag={body_u.get('blocked_by_rag')}",
+            )
+        else:
+            check(
+                f"{label} sin proteger: {failing_control}() NO fue invocada (todo el bloque queda gateado por is_protected=False)",
+                not mocks_u[failing_control].called,
+                f"call_count={mocks_u[failing_control].call_count}",
+            )
+    except AssertionError:
+        pass
+    unprotected_ok = all(cond for _, cond in results[n_before2:])
+
+    control_summary.append((label, failing_control, protected_ok, unprotected_ok))
+
+print("\n=== RESUMEN PARTE C (por control, lectura rápida) ===")
+for label, name, prot_ok, unprot_ok in control_summary:
+    print(f"{label} ({name}) bloquea correctamente en protegido: {'PASS' if prot_ok else 'FAIL'}"
+          f"  |  {label} NO bloquea sin proteger (gateo intacto): {'PASS' if unprot_ok else 'FAIL'}")
+
+total_pass = sum(1 for _, c in results if c)
+print(f"\n=== RESULT (TOTAL, PARTE A+B+C): {total_pass}/{len(results)} assertions passed ===")
