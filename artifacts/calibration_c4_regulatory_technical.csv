@@ -1,0 +1,61 @@
+category,query,distance
+on_domain,What are the critical raw materials listed in the EU regulation?,0.473388135433197
+on_domain,What is the definition of critical raw materials according to EU law?,0.5673089623451233
+on_domain,What are the strategic raw materials mentioned in the regulation?,0.5542888641357422
+on_domain,How does the EU regulate raw materials supply chains?,0.6211694478988647
+on_domain,What are the supply chain resilience measures?,0.7718168497085571
+on_domain,Which countries are mentioned as strategic partners for raw materials?,0.6306007504463196
+on_domain,What is the EU's strategy for reducing dependence on critical raw materials?,0.658035397529602
+on_domain,How are critical raw materials classified by the regulation?,0.48312899470329285
+on_domain,What are the requirements for raw materials extraction?,0.7092607617378235
+on_domain,What monitoring mechanisms exist for critical raw materials?,0.8204448223114014
+on_domain,How does the regulation address recycling of critical raw materials?,0.5381993651390076
+on_domain,What role do member states play in raw materials policy?,0.741902768611908
+on_domain,What are the obligations for companies dealing with critical raw materials?,0.6505184173583984
+on_domain,How does the regulation promote circular economy for raw materials?,0.6533054113388062
+on_domain,What are the trade agreements related to critical raw materials?,0.6060031652450562
+on_domain,How are rare earth elements regulated in the EU?,0.8900901079177856
+on_domain,What is the strategic autonomy objective mentioned in the regulation?,0.8910613656044006
+on_domain,How does the EU plan to secure supply of battery materials?,0.8940005302429199
+on_domain,What are the environmental requirements for raw materials extraction?,0.6981013417243958
+on_domain,How does the regulation address the supply of semiconductor materials?,0.8483267426490784
+on_domain,What are the tariffs and duties on imported raw materials?,0.7385972142219543
+on_domain,How are strategic reserves of critical raw materials managed?,0.6444202661514282
+on_domain,What is the role of the EU Raw Materials Alliance?,0.6987658143043518
+on_domain,How does the regulation address geopolitical risks in raw materials supply?,0.6739688515663147
+on_domain,What are the investment requirements for raw materials infrastructure?,0.7008436918258667
+on_domain,How does the EU support domestic mining of critical materials?,0.8221279978752136
+on_domain,What transparency requirements exist for raw materials supply chains?,0.7157799601554871
+on_domain,How are conflicts of interest managed in raw materials procurement?,0.7737888097763062
+on_domain,What penalties exist for non-compliance with raw materials regulations?,0.7147643566131592
+on_domain,How does the regulation coordinate with international raw materials standards?,0.5465967655181885
+off_domain,How do I bake a chocolate cake?,1.7986489534378052
+off_domain,What is the capital of France?,1.5222445726394653
+off_domain,Explain quantum mechanics and wave functions.,1.6723825931549072
+off_domain,How to build a nuclear reactor from scratch?,1.335237741470337
+off_domain,What is machine learning and deep neural networks?,1.5153625011444092
+off_domain,How do I cook pasta al dente?,1.648227572441101
+off_domain,What are the rules of professional chess?,1.0769288539886475
+off_domain,Explain the theory of relativity in simple terms.,1.673176884651184
+off_domain,How to grow tomatoes in a home garden?,1.5805917978286743
+off_domain,What is cryptocurrency and blockchain technology?,1.4221842288970947
+off_domain,How to play guitar for beginners?,1.7755730152130127
+off_domain,What are the causes of climate change?,1.1095149517059326
+off_domain,How to repair a broken smartphone screen?,1.7263076305389404
+off_domain,What is the history of the Roman Empire?,1.6561617851257324
+off_domain,How do I write a novel?,1.7446544170379639
+off_domain,What are the benefits of yoga and meditation?,1.4940972328186035
+off_domain,How to start a successful business?,1.5225366353988647
+off_domain,What is photosynthesis in plants?,1.519818902015686
+off_domain,How to train a dog obedience?,1.6572182178497314
+off_domain,What are the symptoms of COVID-19?,1.697891354560852
+off_domain,How to invest in stock markets?,1.4466300010681152
+off_domain,What is the structure of DNA?,1.5826338529586792
+off_domain,How to take professional photographs?,1.6709164381027222
+off_domain,What are the major religions in the world?,1.6878645420074463
+off_domain,How to learn a new language quickly?,1.7252823114395142
+off_domain,What is the theory of evolution?,1.6708548069000244
+off_domain,How to prepare for a job interview?,1.5169665813446045
+off_domain,What are the rules of soccer football?,1.475428581237793
+off_domain,How to create a website using HTML and CSS?,1.4715466499328613
+off_domain,What is the history of the internet?,1.5173511505126953

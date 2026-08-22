@@ -1,0 +1,61 @@
+category,query,distance
+on_domain,What is the total undergraduate enrollment at this institution?,0.7446473836898804
+on_domain,How many students are enrolled in computer science programs?,0.8396332263946533
+on_domain,What is the graduation rate for engineering majors?,0.8062064051628113
+on_domain,How many degrees were awarded in 2024?,0.8931807279586792
+on_domain,What is the student-to-faculty ratio at this university?,0.620132565498352
+on_domain,What are the admission requirements for undergraduate programs?,0.7934005260467529
+on_domain,How many international students attend this institution?,0.768301784992218
+on_domain,What is the average SAT score of admitted students?,0.7235069870948792
+on_domain,What percentage of students live on campus?,0.7712401151657104
+on_domain,How many research centers does the university have?,1.1345674991607666
+on_domain,What is the tuition cost for undergraduate students?,0.7998628616333008
+on_domain,How many scholarships are available annually?,0.6339297890663147
+on_domain,What is the student retention rate?,0.7553732395172119
+on_domain,How many faculty members teach at this institution?,0.7800825834274292
+on_domain,What are the most popular majors at this university?,0.9133952856063843
+on_domain,What is the diversity profile of the student body?,0.9363743662834167
+on_domain,How many libraries does the institution have?,1.1785091161727905
+on_domain,What percentage of classes have fewer than 20 students?,0.7600442171096802
+on_domain,What are the requirements for graduate admission?,0.8373880386352539
+on_domain,How many sports teams compete at this university?,1.2611323595046997
+on_domain,What is the cost of student housing?,0.8579697012901306
+on_domain,How many students participate in internships?,0.8813329339027405
+on_domain,What is the placement rate for graduates?,0.8170320987701416
+on_domain,How many clubs and student organizations are there?,1.1241891384124756
+on_domain,What are the library hours and resources available?,1.2508838176727295
+on_domain,What is the average class size at this institution?,0.8338600397109985
+on_domain,How many students study abroad annually?,0.7796939015388489
+on_domain,What is the acceptance rate for admissions?,0.7909177541732788
+on_domain,How many research grants has the university received?,0.7626817226409912
+on_domain,What academic support services are available to students?,0.9861291646957397
+off_domain,How do I bake a perfect soufflé?,1.728598952293396
+off_domain,What is the capital of Japan?,1.6027169227600098
+off_domain,Explain string theory in theoretical physics.,1.7109737396240234
+off_domain,How to construct a suspension bridge?,1.6301923990249634
+off_domain,What is artificial intelligence and its applications?,1.3274940252304077
+off_domain,How to make homemade pasta from scratch?,1.7095296382904053
+off_domain,What are the official rules of tennis?,1.4566937685012817
+off_domain,Explain Newton's laws of motion.,1.6837133169174194
+off_domain,How to plant and maintain a vegetable garden?,1.5572715997695923
+off_domain,What is blockchain and cryptocurrency?,1.538407802581787
+off_domain,How to learn to play the violin?,1.6383824348449707
+off_domain,What causes earthquakes and tsunamis?,1.7293554544448853
+off_domain,How to replace a car engine?,1.8431986570358276
+off_domain,What is the French Revolution and its impact?,1.6797783374786377
+off_domain,How to write a screenplay for film?,1.6223649978637695
+off_domain,What are the health benefits of running?,1.6387535333633423
+off_domain,How to launch an e-commerce store?,1.583282709121704
+off_domain,What is cellular respiration in biology?,1.656881332397461
+off_domain,How to teach a cat to use a litter box?,1.72676682472229
+off_domain,What are the treatments for diabetes?,1.6205003261566162
+off_domain,How to trade in foreign exchange markets?,1.5367343425750732
+off_domain,What is the periodic table of elements?,1.4632837772369385
+off_domain,How to take macro photography?,1.6950815916061401
+off_domain,What are the world's major mountain ranges?,1.6130897998809814
+off_domain,How to master public speaking skills?,1.5571805238723755
+off_domain,What is natural selection and evolution?,1.636773943901062
+off_domain,How to negotiate a salary increase?,1.527311086654663
+off_domain,What are the basic rules of basketball?,1.4001888036727905
+off_domain,How to build a mobile app with React?,1.7876337766647339
+off_domain,What is the history of medieval Europe?,1.6211001873016357

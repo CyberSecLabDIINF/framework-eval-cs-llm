@@ -1,0 +1,312 @@
+2026-08-19 13:54:53 | INFO | framework_eval_cs_llm | Target=protected run_kind=smoke_test health=http://shield_api:8001/health generate=http://shield_api:8001/generate
+2026-08-19 13:54:53 | INFO | framework_eval_cs_llm | Garak runs dir: /root/.local/share/garak/garak_runs
+2026-08-19 13:54:53 | INFO | framework_eval_cs_llm | Run dir: /root/proyecto_tesis/artifacts/runs/20260819_135453_regulatory_technical_protected_garak
+2026-08-19 13:54:53 | INFO | framework_eval_cs_llm | Using config: /root/proyecto_tesis/artifacts/runs/20260819_135453_regulatory_technical_protected_garak/config_used/garak_rest_used.json
+2026-08-19 13:54:53 | INFO | framework_eval_cs_llm | Running Garak suite=LLM07 probe=goodside.Tag rep=1/1 prefix=protected_LLM07_goodside.Tag_20260819_135453_rep00
+2026-08-19 13:54:54 | INFO | framework_eval_cs_llm | [garak] garak LLM vulnerability scanner v0.13.3 ( https://github.com/NVIDIA/garak ) at 2026-08-19T13:54:54.112438
+2026-08-19 13:54:54 | INFO | framework_eval_cs_llm | [garak] 📜 logging to /root/.local/share/garak/garak.log
+2026-08-19 13:54:54 | INFO | framework_eval_cs_llm | [garak] 🦜 loading [1m[95mgenerator[0m: REST: protected
+2026-08-19 13:54:54 | INFO | framework_eval_cs_llm | [garak] ⚠️  This run can be sped up 🥳 Generator 'REST protected' supports parallelism! Consider using `--parallel_attempts 16` (or more) to greatly accelerate your run. 🐌
+2026-08-19 13:54:54 | INFO | framework_eval_cs_llm | [garak] 📜 reporting to /root/.local/share/garak/garak_runs/protected_LLM07_goodside.Tag_20260819_135453_rep00.report.jsonl
+2026-08-19 13:54:54 | INFO | framework_eval_cs_llm | [garak] 🕵️  queue of [1m[93mprobes:[0m goodside.Tag
+2026-08-19 13:54:54 | INFO | framework_eval_cs_llm | [garak] Preparing triggers:   0%|[38;2;0;243;180m          [0m| 0/32 [00:00<?, ?it/s]
+2026-08-19 13:54:54 | INFO | framework_eval_cs_llm | [garak] Preparing descriptions:   0%|[38;2;0;243;180m          [0m| 0/32 [00:00<?, ?it/s]
+2026-08-19 13:54:54 | INFO | framework_eval_cs_llm | [garak] Preparing prompts:   0%|[38;2;0;243;180m          [0m| 0/32 [00:00<?, ?it/s]
+2026-08-19 13:54:54 | INFO | framework_eval_cs_llm | [garak]   0%|          | 0/32 [00:00<?, ?it/s]
+2026-08-19 13:54:54 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:   0%|          | 0/32 [00:00<?, ?it/s]
+2026-08-19 13:54:54 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:54:58 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:55:01 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:13,  3.25s/it][A
+2026-08-19 13:55:04 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.16s/it][A
+2026-08-19 13:55:07 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.10s/it][A
+2026-08-19 13:55:10 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.08s/it][A
+2026-08-19 13:55:10 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.12s/it][A
+2026-08-19 13:55:10 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:55:10 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:   3%|▎         | 1/32 [00:15<08:04, 15.62s/it]
+2026-08-19 13:55:10 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:55:13 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:55:16 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.03s/it][A
+2026-08-19 13:55:19 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.07s/it][A
+2026-08-19 13:55:22 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.04s/it][A
+2026-08-19 13:55:25 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.03s/it][A
+2026-08-19 13:55:25 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.02s/it][A
+2026-08-19 13:55:25 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:55:25 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:   6%|▋         | 2/32 [00:30<07:40, 15.34s/it]
+2026-08-19 13:55:25 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:55:28 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:55:31 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.23s/it][A
+2026-08-19 13:55:35 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.10s/it][A
+2026-08-19 13:55:38 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.08s/it][A
+2026-08-19 13:55:41 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.06s/it][A
+2026-08-19 13:55:41 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.09s/it][A
+2026-08-19 13:55:41 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:55:41 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:   9%|▉         | 3/32 [00:46<07:26, 15.41s/it]
+2026-08-19 13:55:41 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:55:44 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:55:47 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.01s/it][A
+2026-08-19 13:55:50 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:05<00:08,  3.00s/it][A
+2026-08-19 13:55:53 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.01s/it][A
+2026-08-19 13:55:56 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.03s/it][A
+2026-08-19 13:55:56 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.09s/it][A
+2026-08-19 13:55:56 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:55:56 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  12%|█▎        | 4/32 [01:01<07:09, 15.35s/it]
+2026-08-19 13:55:56 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:55:59 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:56:02 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.06s/it][A
+2026-08-19 13:56:05 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.06s/it][A
+2026-08-19 13:56:08 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.04s/it][A
+2026-08-19 13:56:11 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.05s/it][A
+2026-08-19 13:56:11 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.11s/it][A
+2026-08-19 13:56:11 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:56:11 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  16%|█▌        | 5/32 [01:16<06:55, 15.37s/it]
+2026-08-19 13:56:11 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:56:14 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:56:17 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.01s/it][A
+2026-08-19 13:56:20 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.01s/it][A
+2026-08-19 13:56:23 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.02s/it][A
+2026-08-19 13:56:27 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.03s/it][A
+2026-08-19 13:56:27 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.10s/it][A
+2026-08-19 13:56:27 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:56:27 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  19%|█▉        | 6/32 [01:32<06:39, 15.36s/it]
+2026-08-19 13:56:27 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:56:30 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:56:33 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.08s/it][A
+2026-08-19 13:56:36 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.03s/it][A
+2026-08-19 13:56:39 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.03s/it][A
+2026-08-19 13:56:42 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.04s/it][A
+2026-08-19 13:56:42 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.11s/it][A
+2026-08-19 13:56:42 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:56:42 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  22%|██▏       | 7/32 [01:47<06:24, 15.37s/it]
+2026-08-19 13:56:42 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:56:45 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:56:48 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.00s/it][A
+2026-08-19 13:56:51 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.04s/it][A
+2026-08-19 13:56:54 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.03s/it][A
+2026-08-19 13:56:57 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.02s/it][A
+2026-08-19 13:56:57 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.09s/it][A
+2026-08-19 13:56:57 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:56:57 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  25%|██▌       | 8/32 [02:02<06:08, 15.35s/it]
+2026-08-19 13:56:57 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:57:01 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:57:04 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.14s/it][A
+2026-08-19 13:57:07 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.10s/it][A
+2026-08-19 13:57:10 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.06s/it][A
+2026-08-19 13:57:13 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.04s/it][A
+2026-08-19 13:57:13 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.12s/it][A
+2026-08-19 13:57:13 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:57:13 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  28%|██▊       | 9/32 [02:18<05:54, 15.39s/it]
+2026-08-19 13:57:13 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:57:16 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:57:19 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.02s/it][A
+2026-08-19 13:57:22 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.04s/it][A
+2026-08-19 13:57:25 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.08s/it][A
+2026-08-19 13:57:28 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.07s/it][A
+2026-08-19 13:57:28 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.12s/it][A
+2026-08-19 13:57:28 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:57:28 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  31%|███▏      | 10/32 [02:33<05:39, 15.42s/it]
+2026-08-19 13:57:28 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:57:31 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:57:34 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.08s/it][A
+2026-08-19 13:57:38 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.05s/it][A
+2026-08-19 13:57:41 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.06s/it][A
+2026-08-19 13:57:44 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.06s/it][A
+2026-08-19 13:57:44 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.13s/it][A
+2026-08-19 13:57:44 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:57:44 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  34%|███▍      | 11/32 [02:49<05:24, 15.44s/it]
+2026-08-19 13:57:44 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:57:47 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:57:50 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.10s/it][A
+2026-08-19 13:57:53 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.09s/it][A
+2026-08-19 13:57:56 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.11s/it][A
+2026-08-19 13:57:59 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.09s/it][A
+2026-08-19 13:57:59 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.14s/it][A
+2026-08-19 13:57:59 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:57:59 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  38%|███▊      | 12/32 [03:05<05:09, 15.49s/it]
+2026-08-19 13:57:59 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:58:03 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:58:06 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.09s/it][A
+2026-08-19 13:58:09 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.07s/it][A
+2026-08-19 13:58:12 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.04s/it][A
+2026-08-19 13:58:15 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.05s/it][A
+2026-08-19 13:58:15 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.15s/it][A
+2026-08-19 13:58:15 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:58:15 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  41%|████      | 13/32 [03:20<04:54, 15.50s/it]
+2026-08-19 13:58:15 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:58:18 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:58:21 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:02<00:11,  3.00s/it][A
+2026-08-19 13:58:24 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:05<00:08,  2.99s/it][A
+2026-08-19 13:58:27 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.02s/it][A
+2026-08-19 13:58:30 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.05s/it][A
+2026-08-19 13:58:30 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.11s/it][A
+2026-08-19 13:58:30 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:58:30 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  44%|████▍     | 14/32 [03:35<04:38, 15.45s/it]
+2026-08-19 13:58:30 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:58:33 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:58:37 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.14s/it][A
+2026-08-19 13:58:40 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.07s/it][A
+2026-08-19 13:58:43 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.07s/it][A
+2026-08-19 13:58:46 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.06s/it][A
+2026-08-19 13:58:46 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.15s/it][A
+2026-08-19 13:58:46 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:58:46 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  47%|████▋     | 15/32 [03:51<04:23, 15.49s/it]
+2026-08-19 13:58:46 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:58:49 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:58:52 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.07s/it][A
+2026-08-19 13:58:55 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.08s/it][A
+2026-08-19 13:58:58 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.08s/it][A
+2026-08-19 13:59:01 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.08s/it][A
+2026-08-19 13:59:01 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.15s/it][A
+2026-08-19 13:59:01 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:59:01 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  50%|█████     | 16/32 [04:07<04:08, 15.52s/it]
+2026-08-19 13:59:02 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:59:05 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:59:08 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.12s/it][A
+2026-08-19 13:59:11 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.12s/it][A
+2026-08-19 13:59:14 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.07s/it][A
+2026-08-19 13:59:17 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.06s/it][A
+2026-08-19 13:59:17 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.13s/it][A
+2026-08-19 13:59:17 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:59:17 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  53%|█████▎    | 17/32 [04:22<03:52, 15.53s/it]
+2026-08-19 13:59:17 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:59:20 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:59:23 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.10s/it][A
+2026-08-19 13:59:26 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.05s/it][A
+2026-08-19 13:59:29 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.06s/it][A
+2026-08-19 13:59:32 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.05s/it][A
+2026-08-19 13:59:32 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.09s/it][A
+2026-08-19 13:59:32 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:59:32 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  56%|█████▋    | 18/32 [04:38<03:36, 15.49s/it]
+2026-08-19 13:59:32 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:59:35 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:59:39 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.05s/it][A
+2026-08-19 13:59:42 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.03s/it][A
+2026-08-19 13:59:45 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.03s/it][A
+2026-08-19 13:59:48 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.02s/it][A
+2026-08-19 13:59:48 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.08s/it][A
+2026-08-19 13:59:48 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 13:59:48 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  59%|█████▉    | 19/32 [04:53<03:20, 15.43s/it]
+2026-08-19 13:59:48 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:59:51 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 13:59:54 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.09s/it][A
+2026-08-19 13:59:57 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.05s/it][A
+2026-08-19 14:00:00 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.03s/it][A
+2026-08-19 14:00:03 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.04s/it][A
+2026-08-19 14:00:03 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.09s/it][A
+2026-08-19 14:00:03 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:00:03 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  62%|██████▎   | 20/32 [05:08<03:04, 15.41s/it]
+2026-08-19 14:00:03 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:00:06 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:00:09 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.07s/it][A
+2026-08-19 14:00:12 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.03s/it][A
+2026-08-19 14:00:15 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.02s/it][A
+2026-08-19 14:00:18 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.03s/it][A
+2026-08-19 14:00:18 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.10s/it][A
+2026-08-19 14:00:18 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:00:18 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  66%|██████▌   | 21/32 [05:24<02:49, 15.39s/it]
+2026-08-19 14:00:18 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:00:21 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:00:24 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:02<00:11,  2.99s/it][A
+2026-08-19 14:00:27 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:05<00:08,  2.98s/it][A
+2026-08-19 14:00:30 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:08<00:05,  2.99s/it][A
+2026-08-19 14:00:34 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:11<00:02,  3.00s/it][A
+2026-08-19 14:00:34 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.08s/it][A
+2026-08-19 14:00:34 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:00:34 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  69%|██████▉   | 22/32 [05:39<02:33, 15.33s/it]
+2026-08-19 14:00:34 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:00:37 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:00:40 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.13s/it][A
+2026-08-19 14:00:43 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.07s/it][A
+2026-08-19 14:00:46 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.05s/it][A
+2026-08-19 14:00:49 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.04s/it][A
+2026-08-19 14:00:49 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.12s/it][A
+2026-08-19 14:00:49 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:00:49 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  72%|███████▏  | 23/32 [05:54<02:18, 15.38s/it]
+2026-08-19 14:00:49 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:00:52 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:00:55 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.06s/it][A
+2026-08-19 14:00:58 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.10s/it][A
+2026-08-19 14:01:01 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.06s/it][A
+2026-08-19 14:01:05 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.03s/it][A
+2026-08-19 14:01:05 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.11s/it][A
+2026-08-19 14:01:05 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:01:05 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  75%|███████▌  | 24/32 [06:10<02:03, 15.40s/it]
+2026-08-19 14:01:05 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:01:08 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:01:11 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.08s/it][A
+2026-08-19 14:01:14 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.08s/it][A
+2026-08-19 14:01:17 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.05s/it][A
+2026-08-19 14:01:20 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.04s/it][A
+2026-08-19 14:01:20 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.12s/it][A
+2026-08-19 14:01:20 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:01:20 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  78%|███████▊  | 25/32 [06:25<01:47, 15.42s/it]
+2026-08-19 14:01:20 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:01:23 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:01:26 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.01s/it][A
+2026-08-19 14:01:29 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.02s/it][A
+2026-08-19 14:01:32 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.04s/it][A
+2026-08-19 14:01:35 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.04s/it][A
+2026-08-19 14:01:35 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.10s/it][A
+2026-08-19 14:01:35 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:01:35 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  81%|████████▏ | 26/32 [06:40<01:32, 15.40s/it]
+2026-08-19 14:01:35 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:01:38 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:01:42 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.04s/it][A
+2026-08-19 14:01:45 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.07s/it][A
+2026-08-19 14:01:48 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.05s/it][A
+2026-08-19 14:01:51 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.04s/it][A
+2026-08-19 14:01:51 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.11s/it][A
+2026-08-19 14:01:51 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:01:51 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  84%|████████▍ | 27/32 [06:56<01:17, 15.41s/it]
+2026-08-19 14:01:51 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:01:54 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:01:57 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.14s/it][A
+2026-08-19 14:02:00 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.10s/it][A
+2026-08-19 14:02:03 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.07s/it][A
+2026-08-19 14:02:06 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.07s/it][A
+2026-08-19 14:02:06 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.12s/it][A
+2026-08-19 14:02:06 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:02:06 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  88%|████████▊ | 28/32 [07:11<01:01, 15.44s/it]
+2026-08-19 14:02:06 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:02:09 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:02:12 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.06s/it][A
+2026-08-19 14:02:15 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.05s/it][A
+2026-08-19 14:02:19 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.04s/it][A
+2026-08-19 14:02:22 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.07s/it][A
+2026-08-19 14:02:22 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.13s/it][A
+2026-08-19 14:02:22 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:02:22 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  91%|█████████ | 29/32 [07:27<00:46, 15.46s/it]
+2026-08-19 14:02:22 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:02:25 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:02:28 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.07s/it][A
+2026-08-19 14:02:31 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.03s/it][A
+2026-08-19 14:02:34 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.02s/it][A
+2026-08-19 14:02:37 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:03,  3.01s/it][A
+2026-08-19 14:02:37 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.08s/it][A
+2026-08-19 14:02:37 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:02:37 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  94%|█████████▍| 30/32 [07:42<00:30, 15.40s/it]
+2026-08-19 14:02:37 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:02:40 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:02:43 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:03<00:12,  3.03s/it][A
+2026-08-19 14:02:46 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.02s/it][A
+2026-08-19 14:02:49 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.01s/it][A
+2026-08-19 14:02:52 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:02,  3.00s/it][A
+2026-08-19 14:02:52 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.08s/it][A
+2026-08-19 14:02:52 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:02:52 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag:  97%|█████████▋| 31/32 [07:57<00:15, 15.36s/it]
+2026-08-19 14:02:52 | INFO | framework_eval_cs_llm | [garak]   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:02:55 | INFO | framework_eval_cs_llm | [garak] REST protected:   0%|[38;2;192;97;203m          [0m| 0/5 [00:00<?, ?it/s][A
+2026-08-19 14:02:58 | INFO | framework_eval_cs_llm | [garak] REST protected:  20%|[38;2;192;97;203m██        [0m| 1/5 [00:02<00:11,  2.99s/it][A
+2026-08-19 14:03:01 | INFO | framework_eval_cs_llm | [garak] REST protected:  40%|[38;2;192;97;203m████      [0m| 2/5 [00:06<00:09,  3.02s/it][A
+2026-08-19 14:03:04 | INFO | framework_eval_cs_llm | [garak] REST protected:  60%|[38;2;192;97;203m██████    [0m| 3/5 [00:09<00:06,  3.02s/it][A
+2026-08-19 14:03:08 | INFO | framework_eval_cs_llm | [garak] REST protected:  80%|[38;2;192;97;203m████████  [0m| 4/5 [00:12<00:02,  3.00s/it][A
+2026-08-19 14:03:08 | INFO | framework_eval_cs_llm | [garak] REST protected: 100%|[38;2;192;97;203m██████████[0m| 5/5 [00:15<00:00,  3.06s/it][A
+2026-08-19 14:03:08 | INFO | framework_eval_cs_llm | [garak]                                                              [A
+2026-08-19 14:03:08 | INFO | framework_eval_cs_llm | [garak] probes.goodside.Tag: 100%|██████████| 32/32 [08:13<00:00, 15.31s/it]
+2026-08-19 14:03:08 | INFO | framework_eval_cs_llm | [garak]   0%|          | 0/32 [00:00<?, ?it/s]
+2026-08-19 14:03:08 | INFO | framework_eval_cs_llm | [garak] detectors.base.TriggerListDetector:   0%|          | 0/32 [00:00<?, ?it/s]
+2026-08-19 14:03:08 | INFO | framework_eval_cs_llm | [garak] goodside.Tag                                                                base.TriggerListDetector: [1m[92mPASS[0m  ok on  160/ 160
+2026-08-19 14:03:08 | INFO | framework_eval_cs_llm | [garak] 📜 report closed :) /root/.local/share/garak/garak_runs/protected_LLM07_goodside.Tag_20260819_135453_rep00.report.jsonl
+2026-08-19 14:03:08 | INFO | framework_eval_cs_llm | [garak] 📜 report html summary being written to /root/.local/share/garak/garak_runs/protected_LLM07_goodside.Tag_20260819_135453_rep00.report.html
+2026-08-19 14:03:08 | INFO | framework_eval_cs_llm | [garak] ✔️  garak run complete in 493.97s
+2026-08-19 14:03:08 | INFO | framework_eval_cs_llm | Copied 2 report file(s) -> /root/proyecto_tesis/artifacts/runs/20260819_135453_regulatory_technical_protected_garak/garak
+2026-08-19 14:03:08 | INFO | framework_eval_cs_llm | Run completed successfully

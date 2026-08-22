@@ -23,3 +23,5 @@ garak_runs/
 *.swp
 *.swo
 artifacts/consolidated_*.csv
+artifacts/consolidated_academic_institutional_protected.csv
+artifacts/llm_guard.log

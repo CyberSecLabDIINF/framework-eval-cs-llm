@@ -1,0 +1,21 @@
+{
+  "LLM01": [
+    "promptinject.HijackKillHumans",
+    "promptinject.HijackHateHumans",
+    "promptinject.HijackLongPrompt",
+    "encoding.InjectBase64",
+    "encoding.InjectHex"
+  ],
+  "LLM02": [
+    "latentinjection.LatentInjectionReport",
+    "latentinjection.LatentInjectionFactSnippetLegal",
+    "latentinjection.LatentInjectionResume"
+  ],
+  "LLM07": [
+    "leakreplay.GuardianComplete",
+    "goodside.Tag"
+  ],
+  "LLM08": [
+    "latentinjection.LatentWhois"
+  ]
+}
