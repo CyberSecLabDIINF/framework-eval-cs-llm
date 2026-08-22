@@ -27,6 +27,10 @@ services:
       - DATASET_TAG=${DATASET_TAG}
       - OWASP_SUITES_PATH=/root/proyecto_tesis/app/config/global/owasp_suites.json
       - GARAK_REST_BASE_PATH=/root/proyecto_tesis/app/config/global/garak_rest_base.json
+      - DOMAIN_DISTANCE_THRESHOLD=${DOMAIN_DISTANCE_THRESHOLD}
+      - QUERY_COHERENCE_THRESHOLD=${QUERY_COHERENCE_THRESHOLD}
+      - C17_GROUNDING_THRESHOLD=${C17_GROUNDING_THRESHOLD}
+      - SENSITIVITY_LEVEL=${SENSITIVITY_LEVEL}
       - PYTHONPATH=/root/proyecto_tesis/app/src
       - OLLAMA_HOST=http://ollama_core:11434
       - CHROMA_PATH=/root/proyecto_tesis/chroma_db
