@@ -22,3 +22,4 @@ venv/
 garak_runs/
 *.swp
 *.swo
+artifacts/consolidated_*.csv
