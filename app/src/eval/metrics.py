@@ -1834,14 +1834,23 @@ def deep_analysis_confusion(artifacts_dir: Path, domains: list):
        (was_blocked=0, garak_passed=1) is a system-level TP, NOT an FN.
 
     2. Single-layer (LLM Guard only) — LLM Guard's blocking decision in
-       isolation, ignoring the model's own resistance:
-         TP: should_block=1, was_blocked=1
-         FN: should_block=1, was_blocked=0
-         FP/TN: same as above.
+       true isolation, based on ``scanner_triggered`` (whether one of
+       Guard's own scanners — PromptInjection/TokenLimit/Sensitive/Regex —
+       fired), NOT ``was_blocked``:
+         TP: scanner_triggered is not null (adversarial)
+         FN: scanner_triggered is null (adversarial)
+         FP: scanner_triggered is not null (legitimate)
+         TN: scanner_triggered is null (legitimate)
+
+       ``was_blocked`` also turns True for RAG in-process controls
+       (C4/C8/C9/C11/C12/C17) that set no ``scanner_triggered`` value, so
+       it is NOT equivalent to Guard's decision alone — see
+       ``_confusion_counts`` in ``loaders.py``. For the all-defenses view
+       (LLM Guard + RAG in-process controls, still excluding model
+       resistance) use ``_confusion_counts_was_blocked_only`` instead.
 
     Both views are printed (and broken down by subdimension) so that either
-    perspective can be used for analysis. Do not collapse the two back into
-    a single should_block/was_blocked definition for Scenario B.
+    perspective can be used for analysis.
     """
     print(f"\n{'='*70}")
     print(f"  CONFUSION MATRIX ANALYSIS — Scenario B (system-level + LLM Guard only)")
@@ -1894,8 +1903,9 @@ def deep_analysis_confusion(artifacts_dir: Path, domains: list):
         legit = _load_consolidated_legit(artifacts_dir, domain, "protected")
 
         # Primary system-level (two-layer) matrix and the single-layer
-        # (LLM Guard only) matrix for comparison — see _confusion_counts_system
-        # in loaders.py for the full definition of each.
+        # (LLM Guard only, scanner_triggered-based) matrix for comparison —
+        # see _confusion_counts_system and _confusion_counts in loaders.py
+        # for the full definition of each.
         counts_system = _confusion_counts_system(adv, legit)
         counts_guard  = _confusion_counts(adv, legit)
 
