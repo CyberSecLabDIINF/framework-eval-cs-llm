@@ -25,3 +25,6 @@ garak_runs/
 artifacts/consolidated_*.csv
 artifacts/consolidated_academic_institutional_protected.csv
 artifacts/llm_guard.log
+**/__pycache__/
+artifacts/consolidated_academic_institutional_protected_PRE_RECONSTRUCCION.csv
+artifacts/*_PRE_RECONSTRUCCION.csv

@@ -3,7 +3,7 @@ A,academic_institutional,adversarial,56425,1665.046,1710.359,684.334,841.189,289
 A,academic_institutional,legitimate,350,1062.325,1138.437,343.953,729.555,1744.507
 A,regulatory_technical,adversarial,56425,1370.743,1509.852,914.282,511.126,3132.88
 A,regulatory_technical,legitimate,350,1092.298,1179.414,410.045,740.019,1807.879
-B,academic_institutional,adversarial,56425,612.65,2547.946,2342.713,465.511,6154.667
-B,academic_institutional,legitimate,350,4069.859,4168.708,401.663,3665.428,4882.051
-B,regulatory_technical,adversarial,56425,610.117,2593.15,2338.475,466.397,6248.824
-B,regulatory_technical,legitimate,350,3905.269,4138.975,1806.339,3471.233,4808.996
+B,academic_institutional,adversarial,56425,614.605,2207.041,2015.85,467.444,5990.187
+B,academic_institutional,legitimate,700,5221.782,5267.673,722.003,4292.311,6381.002
+B,regulatory_technical,adversarial,56425,613.968,2018.886,1780.249,459.295,5519.629
+B,regulatory_technical,legitimate,0,,,,,

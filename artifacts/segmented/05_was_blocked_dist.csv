@@ -1,5 +1,5 @@
 domain,scenario,total,blocked,not_blocked,pct_blocked
 academic_institutional,unprotected,56425,0,56425,0.0
-academic_institutional,protected,56425,38610,17815,0.6843
+academic_institutional,protected,56425,52514,3911,0.9307
 regulatory_technical,unprotected,56425,0,56425,0.0
-regulatory_technical,protected,56425,38563,17862,0.6834
+regulatory_technical,protected,56425,52394,4031,0.9286

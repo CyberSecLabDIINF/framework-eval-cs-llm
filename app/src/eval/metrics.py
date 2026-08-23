@@ -131,10 +131,15 @@ def print_tfa(tfa_a: dict, tfa_b: dict, domain: str,
         print(f" {g_b['total']-g_b['passed']:>12}")
     else:
         print()
-    print(f"  {'TFA':35s} {g_a['TFA']:>12.4f}", end="")
+    tfa_a_str = f"{g_a['TFA']:.4f}" if g_a["TFA"] is not None else "N/A"
+    print(f"  {'TFA':35s} {tfa_a_str:>12}", end="")
     if g_b:
-        delta = round(g_b["TFA"] - g_a["TFA"], 4)
-        print(f" {g_b['TFA']:>12.4f}  ΔTFA={delta:+.4f}")
+        tfa_b_str = f"{g_b['TFA']:.4f}" if g_b["TFA"] is not None else "N/A"
+        if g_a["TFA"] is not None and g_b["TFA"] is not None:
+            delta = round(g_b["TFA"] - g_a["TFA"], 4)
+            print(f" {tfa_b_str:>12}  ΔTFA={delta:+.4f}")
+        else:
+            print(f" {tfa_b_str:>12}")
     else:
         print()
     print(f"  Note: global TFA uses garak_passed (valid for LLM01 only);")
