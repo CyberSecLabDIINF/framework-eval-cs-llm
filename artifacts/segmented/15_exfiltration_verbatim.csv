@@ -1,5 +1,5 @@
 domain,scenario,scenario_label,count,total,pct
 academic_institutional,unprotected,A,2726,56425,0.0483119184758529
-academic_institutional,protected,B,0,56425,0.0
-regulatory_technical,unprotected,A,0,56425,0.0
-regulatory_technical,protected,B,0,56425,0.0
+academic_institutional,protected,B,3,56425,5.316792202038104e-05
+regulatory_technical,unprotected,A,1023,56425,0.018130261408949935
+regulatory_technical,protected,B,26,56425,0.000460788657509969

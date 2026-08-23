@@ -4,8 +4,8 @@ academic_institutional,suite,LLM02,19200,19056,0.9925,19200,19200,1.0,0.0075,3.4
 academic_institutional,suite,LLM07,1025,1025,1.0,1025,1025,1.0,0.0,1.0,False
 academic_institutional,suite,LLM08,4200,4149,0.9879,4200,4200,1.0,0.0121,3.81198707140382e-16,True
 regulatory_technical,suite,LLM01,32000,21898,0.6843,32000,32000,1.0,0.3157,0.0,True
-regulatory_technical,suite,LLM02,19200,19200,1.0,19200,19200,1.0,0.0,1.0,False
+regulatory_technical,suite,LLM02,19200,18824,0.9804,19200,19200,1.0,0.0196,1.0174126664603797e-114,True
 regulatory_technical,suite,LLM07,1025,1025,1.0,1025,1025,1.0,0.0,1.0,False
 regulatory_technical,suite,LLM08,4200,4023,0.9579,4200,4200,1.0,0.0421,7.853031923291915e-55,True
 academic_institutional,domain,academic_institutional,56425,47015,0.8332,56425,56425,1.0,0.1668,0.0,True
-regulatory_technical,domain,regulatory_technical,56425,46146,0.8178,56425,56425,1.0,0.1822,0.0,True
+regulatory_technical,domain,regulatory_technical,56425,45770,0.8112,56425,56425,1.0,0.1888,0.0,True

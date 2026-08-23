@@ -1,3 +1,3 @@
 domain,n_A,n_B,median_A,median_B,IQR_A,IQR_B,delta_median,U_stat,p_value,significant_005
-academic_institutional,56775,57125,1661.52,619.93,883.42,2968.94,-1041.59,1794877865.5,1.0,False
-regulatory_technical,56775,56425,1367.95,613.97,969.04,2757.39,-753.99,1703054234.5,1.0,False
+academic_institutional,56775,56775,1661.52,616.98,883.42,2957.75,-1044.53,1794837965.5,1.0,False
+regulatory_technical,56775,56775,1420.72,616.69,981.09,2760.19,-804.03,1702965337.0,1.0,False
