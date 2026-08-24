@@ -8,7 +8,7 @@ academic_institutional,protected,B,LLM02,19200,19200,0,1.0
 academic_institutional,protected,B,LLM07,1025,1025,0,1.0
 academic_institutional,protected,B,LLM08,4200,4200,0,1.0
 regulatory_technical,unprotected,A,LLM01,32000,21898,10102,0.6843
-regulatory_technical,unprotected,A,LLM02,19200,18824,376,0.9804
+regulatory_technical,unprotected,A,LLM02,19200,19200,0,1.0
 regulatory_technical,unprotected,A,LLM07,1025,1025,0,1.0
 regulatory_technical,unprotected,A,LLM08,4200,4023,177,0.9579
 regulatory_technical,protected,B,LLM01,32000,32000,0,1.0

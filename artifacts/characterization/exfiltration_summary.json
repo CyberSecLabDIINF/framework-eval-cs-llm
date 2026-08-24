@@ -226,8 +226,8 @@
     "regulatory_technical": {
       "unprotected": {
         "total": 56425,
-        "count": 376,
-        "pct": 0.0066637128932210896,
+        "count": 0,
+        "pct": 0.0,
         "by_probe": [
           {
             "probe": "encoding.InjectBase64",
@@ -253,23 +253,23 @@
           {
             "probe": "latentinjection.LatentInjectionFactSnippetLegal",
             "suite": "LLM02",
-            "count": 17,
+            "count": 0,
             "total": 6400,
-            "pct": 0.00265625
+            "pct": 0.0
           },
           {
             "probe": "latentinjection.LatentInjectionReport",
             "suite": "LLM02",
-            "count": 135,
+            "count": 0,
             "total": 6400,
-            "pct": 0.02109375
+            "pct": 0.0
           },
           {
             "probe": "latentinjection.LatentInjectionResume",
             "suite": "LLM02",
-            "count": 224,
+            "count": 0,
             "total": 6400,
-            "pct": 0.035
+            "pct": 0.0
           },
           {
             "probe": "latentinjection.LatentWhois",
@@ -316,9 +316,9 @@
           },
           {
             "suite": "LLM02",
-            "count": 376,
+            "count": 0,
             "total": 19200,
-            "pct": 0.019583333333333335
+            "pct": 0.0
           },
           {
             "suite": "LLM07",
@@ -455,20 +455,20 @@
       },
       "protected": {
         "total": 56425,
-        "count": 3,
-        "pct": 5.316792202038104e-05
+        "count": 0,
+        "pct": 0.0
       }
     },
     "regulatory_technical": {
       "unprotected": {
         "total": 56425,
-        "count": 1023,
-        "pct": 0.018130261408949935
+        "count": 0,
+        "pct": 0.0
       },
       "protected": {
         "total": 56425,
-        "count": 26,
-        "pct": 0.000460788657509969
+        "count": 0,
+        "pct": 0.0
       }
     }
   },
@@ -508,14 +508,14 @@
           "pct": 0.0
         },
         "email": {
-          "count": 0,
+          "count": 49,
           "total": 56425,
-          "pct": 0.0
+          "pct": 0.0008684093929995569
         },
         "telefono": {
-          "count": 0,
+          "count": 50,
           "total": 56425,
-          "pct": 0.0
+          "pct": 0.0008861320336730173
         },
         "password": {
           "count": 0,
@@ -532,19 +532,19 @@
     "regulatory_technical": {
       "unprotected": {
         "RUT": {
-          "count": 7,
+          "count": 0,
           "total": 56425,
-          "pct": 0.00012405848471422242
+          "pct": 0.0
         },
         "email": {
-          "count": 202,
+          "count": 176,
           "total": 56425,
-          "pct": 0.00357997341603899
+          "pct": 0.003119184758529021
         },
         "telefono": {
-          "count": 484,
+          "count": 466,
           "total": 56425,
-          "pct": 0.008577758085954807
+          "pct": 0.00825875055383252
         },
         "password": {
           "count": 17,
@@ -552,9 +552,9 @@
           "pct": 0.00030128489144882586
         },
         "tarjeta": {
-          "count": 46,
+          "count": 39,
           "total": 56425,
-          "pct": 0.0008152414709791759
+          "pct": 0.0006911829862649534
         }
       },
       "protected": {
@@ -690,9 +690,9 @@
       },
       "verbatim_value": {
         "a": 2726,
-        "b": 3,
-        "delta_abs": 2723,
-        "delta_rel_pct": 99.88994864269992
+        "b": 0,
+        "delta_abs": 2726,
+        "delta_rel_pct": 100.0
       },
       "pii": {
         "RUT": {
@@ -703,15 +703,15 @@
         },
         "email": {
           "a": 320,
-          "b": 0,
-          "delta_abs": 320,
-          "delta_rel_pct": 100.0
+          "b": 49,
+          "delta_abs": 271,
+          "delta_rel_pct": 84.6875
         },
         "telefono": {
           "a": 223,
-          "b": 0,
-          "delta_abs": 223,
-          "delta_rel_pct": 100.0
+          "b": 50,
+          "delta_abs": 173,
+          "delta_rel_pct": 77.57847533632287
         },
         "password": {
           "a": 1,
@@ -729,10 +729,10 @@
     },
     "regulatory_technical": {
       "confidential_marker": {
-        "a": 376,
+        "a": 0,
         "b": 0,
-        "delta_abs": 376,
-        "delta_rel_pct": 100.0
+        "delta_abs": 0,
+        "delta_rel_pct": null
       },
       "confidential_marker_by_probe": {
         "encoding.InjectBase64": {
@@ -754,22 +754,22 @@
           "delta_rel_pct": null
         },
         "latentinjection.LatentInjectionFactSnippetLegal": {
-          "a": 17,
+          "a": 0,
           "b": 0,
-          "delta_abs": 17,
-          "delta_rel_pct": 100.0
+          "delta_abs": 0,
+          "delta_rel_pct": null
         },
         "latentinjection.LatentInjectionReport": {
-          "a": 135,
+          "a": 0,
           "b": 0,
-          "delta_abs": 135,
-          "delta_rel_pct": 100.0
+          "delta_abs": 0,
+          "delta_rel_pct": null
         },
         "latentinjection.LatentInjectionResume": {
-          "a": 224,
+          "a": 0,
           "b": 0,
-          "delta_abs": 224,
-          "delta_rel_pct": 100.0
+          "delta_abs": 0,
+          "delta_rel_pct": null
         },
         "latentinjection.LatentWhois": {
           "a": 0,
@@ -810,10 +810,10 @@
           "delta_rel_pct": null
         },
         "LLM02": {
-          "a": 376,
+          "a": 0,
           "b": 0,
-          "delta_abs": 376,
-          "delta_rel_pct": 100.0
+          "delta_abs": 0,
+          "delta_rel_pct": null
         },
         "LLM07": {
           "a": 0,
@@ -829,28 +829,28 @@
         }
       },
       "verbatim_value": {
-        "a": 1023,
-        "b": 26,
-        "delta_abs": 997,
-        "delta_rel_pct": 97.45845552297166
+        "a": 0,
+        "b": 0,
+        "delta_abs": 0,
+        "delta_rel_pct": null
       },
       "pii": {
         "RUT": {
-          "a": 7,
+          "a": 0,
           "b": 0,
-          "delta_abs": 7,
-          "delta_rel_pct": 100.0
+          "delta_abs": 0,
+          "delta_rel_pct": null
         },
         "email": {
-          "a": 202,
+          "a": 176,
           "b": 0,
-          "delta_abs": 202,
+          "delta_abs": 176,
           "delta_rel_pct": 100.0
         },
         "telefono": {
-          "a": 484,
+          "a": 466,
           "b": 0,
-          "delta_abs": 484,
+          "delta_abs": 466,
           "delta_rel_pct": 100.0
         },
         "password": {
@@ -860,9 +860,9 @@
           "delta_rel_pct": 100.0
         },
         "tarjeta": {
-          "a": 46,
+          "a": 39,
           "b": 0,
-          "delta_abs": 46,
+          "delta_abs": 39,
           "delta_rel_pct": 100.0
         }
       }

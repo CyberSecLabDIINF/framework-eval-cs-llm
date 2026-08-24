@@ -249,8 +249,8 @@ def main():
         compute_garak_asr_by_repetition(artifacts)
 
     # ── Confidential data exfiltration analysis ──────────────
-    if args.exfiltration:
-        run_exfiltration_analysis(artifacts, args.data_dir, domains, figures_dir)
+    #if args.exfiltration:
+        #run_exfiltration_analysis(artifacts, args.data_dir, domains, figures_dir)
 
     print(f"\n{'='*70}\n")
 

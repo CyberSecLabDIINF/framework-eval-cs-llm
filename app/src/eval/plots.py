@@ -1098,12 +1098,12 @@ def plot_confusion_matrix_guard_only(artifacts_dir: Path, domains: list, figures
     """
     Heatmap confusion matrix for Scenario B — LLM GUARD ONLY (single-layer) view.
 
-    TP/FN/FP/TN depend only on ``scanner_triggered``, i.e. LLM Guard's own
-    scanners (PromptInjection/TokenLimit/Sensitive/Regex) in true isolation
-    — excluding both RAG in-process controls and the model's own
-    resistance — see ``_confusion_counts`` in ``loaders.py``. Provided
-    alongside the system-level matrix (``plot_confusion_matrix``) so both
-    perspectives are available for analysis. One subplot per domain.
+    TP/FN depend only on ``was_blocked`` vs. ``should_block``, i.e. LLM
+    Guard's blocking decision in isolation, ignoring whether the model would
+    have resisted the attack on its own — see ``_confusion_counts`` in
+    ``loaders.py``. Provided alongside the system-level matrix
+    (``plot_confusion_matrix``) so both perspectives are available for
+    analysis. One subplot per domain.
     """
     import numpy as np
 
