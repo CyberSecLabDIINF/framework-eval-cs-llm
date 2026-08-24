@@ -27,3 +27,6 @@ artifacts/llm_guard.log
 **/__pycache__/
 artifacts/consolidated_academic_institutional_protected_PRE_RECONSTRUCCION.csv
 artifacts/*_PRE_RECONSTRUCCION.csv
+artifacts/*.zip
+artifacts/*.bak
+artifacts/consolidated_ (2)/
