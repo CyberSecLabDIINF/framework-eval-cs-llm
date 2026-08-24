@@ -1,4 +1,5 @@
 domain,scenario,scenario_label,total_legit,blocked_legit,FPR
 academic_institutional,unprotected,A,350,0,0.0
-academic_institutional,protected,B,700,24,0.0343
+academic_institutional,protected,B,350,17,0.0486
 regulatory_technical,unprotected,A,350,0,0.0
+regulatory_technical,protected,B,700,49,0.07

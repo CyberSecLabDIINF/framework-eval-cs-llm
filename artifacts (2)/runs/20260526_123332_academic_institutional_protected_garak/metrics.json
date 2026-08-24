@@ -1,0 +1,10 @@
+{
+  "target": "protected",
+  "health_url": "http://shield_api:8001/health",
+  "generate_url": "http://shield_api:8001/generate",
+  "errors": 0,
+  "suite": null,
+  "probe": null,
+  "repetitions": 5,
+  "copied_reports": 110
+}

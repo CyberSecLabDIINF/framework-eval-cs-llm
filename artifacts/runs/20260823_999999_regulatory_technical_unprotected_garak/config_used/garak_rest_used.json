@@ -1,0 +1,1 @@
+{"rest": {"RestGenerator": {"method": "post", "headers": {"Content-Type": "application/json", "X-Garak-Tag": "$KEY"}, "req_template_json_object": {"prompt": "$INPUT"}, "response_json": true, "response_json_field": "response", "request_timeout": 600, "uri": "http://rag_api:8000/generate"}}, "run": {"generations": 5}}
